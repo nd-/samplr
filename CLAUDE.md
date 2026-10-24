@@ -32,7 +32,7 @@ Linux system dependencies: `build-essential pkg-config libasound2-dev` (ALSA).
 On the Mac, the project is opened from the Linux machine's SMB share (`/Volumes/nico/Sites/projets/sample browser`). The share does not support the file locking Cargo needs ("could not create session directory lock file"): the Mac's `~/.cargo/config.toml` therefore sends the build to `/Users/nico/cargo-target` (`build.target-dir`), which also avoids mixing macOS and Linux binaries in `target/`. Do not put this setting in the project's `.cargo/config.toml`: the path does not exist on Linux.
 
 ## Current state (step 6 done)
-`src/main.rs` holds the commands, `src/db.rs` the database access, `src/waveform.rs` the waveform computation and drawing:
+`src/main.rs` holds the commands, `src/lib.rs` the shared code (file reading and indexing), `src/db.rs` the database access, `src/waveform.rs` the waveform computation and drawing:
 - `samplr scan <folder>`: lists the audio files (wav, aif, aiff, flac, mp3, ogg, m4a) with length, sample rate, bits and channels, and saves them to the database (absolute path; a new scan updates without duplicates and keeps the `id`, hence the tags). Unreadable files are counted, without crashing. AppleDouble `._*` files left by macOS are ignored.
 - `samplr list`: shows the samples in the database, with their tags between brackets. Output goes through `writeln!` rather than `println!`: `samplr list | head` stops without error when `head` closes the pipe ("broken pipe"), and `scan` runs to the end even if its output is cut off.
 - `samplr tag <file> <tag>...` / `samplr untag <file> <tag>...`: adds or removes tags. `tag` reads the file again and adds it to the database if it was not there.
@@ -62,10 +62,27 @@ Audio pitfalls met so far:
 4. ✅ CLI commands to tag and search, with `clap`.
 5. ✅ Folder watching (`samplr watch`), tested on Linux only. Remaining: test it on the Mac (renames), a command to stop following a scanned folder.
 6. ✅ Waveform computation and cache in the database. Remaining: let `watch` compute the waveforms of new files.
-7. Graphical interface with **Tauri** (Rust backend + web interface, `wavesurfer.js`), keyboard preview.
+7. ⏳ Graphical interface with **Tauri** (Rust backend + web interface), keyboard preview. See "Step 7 in progress" below.
 8. Drag and drop of samples into the DAW (test early, the API differs per system).
 9. Automatic analysis (BPM, key) and virtual collections.
 10. Packaging: signed and notarised `.app` / `.dmg` on Mac, AppImage or `.deb` on Linux.
+
+## Step 7 in progress (paused before any code)
+- Tauri 2 stable (2.12.x at the time of writing; 3.x is only in alpha).
+- Fedora packages Tauri needs, not installed yet (requires `sudo`, the user installs them): `webkit2gtk4.1-devel libsoup3-devel gtk3-devel javascriptcoregtk4.1-devel libappindicator-gtk3-devel`. Already present: `openssl-devel`, `librsvg2-devel`. Node and npm are available through nvm.
+- Layout: the crate is a library (`src/lib.rs`: `db`, `waveform`, `SampleInfo`, `read_info`, `index`; done) plus the CLI binary (`src/main.rs`, `use samplr::…`). The Tauri app lives in `src-tauri/`, in a Cargo workspace declared in the root `Cargo.toml` (one `Cargo.lock`, one `target/`).
+- Preview is played on the Rust side with rodio, not by the web view: every format symphonia reads is supported (WebKitGTK lacks some, e.g. AIFF), and an output kept open for the whole session avoids the short-sample problems listed above.
+- Planned sub-steps:
+  - 7a: library + CLI + workspace, then a first Tauri window.
+  - 7b: sample list, search, keyboard navigation, preview played by Rust.
+  - 7c: waveform display from the peaks cached in the database.
+  - 7d: adding and removing tags from the interface.
+- Open decisions, to ask the user before writing code:
+  - Web side: plain HTML and JavaScript with no build tool (a static folder, the app starts with `cargo run`), or Vite and npm.
+  - Waveform: drawn on a plain `<canvas>` from the cached peaks, or with `wavesurfer.js` as first planned.
+
+## Known limitations
+- Path case: on Mac (by default) and on Windows, `Kick.wav` and `kick.wav` are the same file, but the database compares paths as case-sensitive text. A rename that only changes case, or a path typed with another case in `tag`, may not find the sample. Needs a design decision.
 
 ## Design decisions
 - **Never move audio files without an explicit user action**: DAW projects point to their paths. Prefer virtual collections (tags, favourites, smart folders).
