@@ -2,7 +2,7 @@
 
 Audio sample manager written in Rust, for macOS and Linux.
 
-Command line only for now: scan sample folders, keep them in a SQLite database, tag them, find them again and listen to them.
+Scan sample folders, keep them in a SQLite database, tag them, find them again and listen to them. A command line tool, and a graphical interface in progress (Tauri).
 
 ## Installation
 
@@ -25,6 +25,10 @@ Close and reopen the terminal. Nothing else to install: sound goes through CoreA
 sudo apt install build-essential pkg-config libasound2-dev
 # Fedora: sudo dnf install gcc pkg-config alsa-lib-devel
 
+# For the graphical interface (Tauri):
+# Debian / Ubuntu: sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
+# Fedora: sudo dnf install webkit2gtk4.1-devel libsoup3-devel gtk3-devel javascriptcoregtk4.1-devel libappindicator-gtk3-devel librsvg2-devel openssl-devel
+
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
@@ -46,6 +50,7 @@ cargo run -- play ~/Samples/kick.wav         # plays a file
 cargo run -- wave ~/Samples/kick.wav         # draws its waveform in the terminal
 cargo run -- waveforms                       # computes the missing waveforms
 cargo run -- help                            # every command
+cargo run -p samplr-app                      # opens the graphical interface
 ```
 
 The `--` separates cargo's options from the program's. The first build takes a minute, the next ones a few seconds.

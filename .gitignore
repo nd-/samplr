@@ -5,3 +5,4 @@
 # Files left by macOS (AppleDouble metadata, Finder index)
 ._*
 .DS_Store
+/src-tauri/gen

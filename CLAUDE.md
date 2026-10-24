@@ -67,9 +67,9 @@ Audio pitfalls met so far:
 9. Automatic analysis (BPM, key) and virtual collections.
 10. Packaging: signed and notarised `.app` / `.dmg` on Mac, AppImage or `.deb` on Linux.
 
-## Step 7 in progress (paused before any code)
+## Step 7 in progress (7a done)
 - Tauri 2 stable (2.12.x at the time of writing; 3.x is only in alpha).
-- Fedora packages Tauri needs, not installed yet (requires `sudo`, the user installs them): `webkit2gtk4.1-devel libsoup3-devel gtk3-devel javascriptcoregtk4.1-devel libappindicator-gtk3-devel`. Already present: `openssl-devel`, `librsvg2-devel`. Node and npm are available through nvm.
+- Fedora packages Tauri needs (installed on the Linux machine): `webkit2gtk4.1-devel libsoup3-devel gtk3-devel javascriptcoregtk4.1-devel libappindicator-gtk3-devel`. Already present: `openssl-devel`, `librsvg2-devel`. Node and npm are available through nvm.
 - Layout: the crate is a library (`src/lib.rs`: `db`, `waveform`, `SampleInfo`, `read_info`, `index`; done) plus the CLI binary (`src/main.rs`, `use samplr::…`). The Tauri app lives in `src-tauri/`, in a Cargo workspace declared in the root `Cargo.toml` (one `Cargo.lock`, one `target/`).
 - Preview is played on the Rust side with rodio, not by the web view: every format symphonia reads is supported (WebKitGTK lacks some, e.g. AIFF), and an output kept open for the whole session avoids the short-sample problems listed above.
 - Planned sub-steps:
@@ -77,9 +77,9 @@ Audio pitfalls met so far:
   - 7b: sample list, search, keyboard navigation, preview played by Rust.
   - 7c: waveform display from the peaks cached in the database.
   - 7d: adding and removing tags from the interface.
-- Open decisions, to ask the user before writing code:
-  - Web side: plain HTML and JavaScript with no build tool (a static folder, the app starts with `cargo run`), or Vite and npm.
-  - Waveform: drawn on a plain `<canvas>` from the cached peaks, or with `wavesurfer.js` as first planned.
+- Decisions taken: plain HTML, CSS and JavaScript in `ui/`, no build tool and no Node (`withGlobalTauri` exposes the API as `window.__TAURI__`); waveform drawn on a `<canvas>` from the cached peaks, no wavesurfer.js.
+- Run the interface with `cargo run -p samplr-app`; `cargo run` alone still runs the CLI. No Tauri CLI needed for development. `src-tauri/icons/icon.png` is a placeholder icon.
+- Rust functions called from the page are marked `#[tauri::command]` in `src-tauri/src/main.rs` and listed in `generate_handler!`. They return `Result<T, String>`: the error must be serialisable to reach JavaScript, `Box<dyn Error>` is not.
 
 ## Known limitations
 - Path case: on Mac (by default) and on Windows, `Kick.wav` and `kick.wav` are the same file, but the database compares paths as case-sensitive text. A rename that only changes case, or a path typed with another case in `tag`, may not find the sample. Needs a design decision.
