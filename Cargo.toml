@@ -4,8 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Dossier de données standard du système (~/.local/share, ~/Library/Application Support)
+dirs = "7.0"
 # Lecture audio (s'appuie sur CoreAudio sur Mac, ALSA sur Linux)
 rodio = { version = "0.23", features = ["symphonia-all"] }
+# Base SQLite ; `bundled` compile SQLite avec le projet, rien à installer sur Mac ni Linux
+rusqlite = { version = "0.41", features = ["bundled"] }
 # Décodage et lecture des infos des fichiers audio (même version que celle utilisée par rodio)
 symphonia = { version = "0.5", features = ["all"] }
 # Parcours récursif des dossiers

@@ -2,7 +2,7 @@
 
 Gestionnaire de samples audio en Rust, pour macOS et Linux.
 
-**Étape 1** : scanner un dossier de samples et en écouter un, en ligne de commande.
+En ligne de commande pour l'instant : scanner un dossier de samples, les garder dans une base SQLite, en écouter un.
 
 ## Installation
 
@@ -35,13 +35,16 @@ Vérifie l'installation avec `cargo --version`.
 Depuis le dossier `samplr` :
 
 ```sh
-cargo run -- scan ~/Samples              # liste les samples et leurs infos
+cargo run -- scan ~/Samples              # ajoute les samples du dossier à la base
+cargo run -- liste                       # affiche les samples de la base
 cargo run -- play ~/Samples/kick.wav     # joue un fichier
 ```
 
 Le `--` sépare les options de cargo de celles du programme. La première compilation prend une minute, les suivantes quelques secondes.
 
 Pour une version optimisée : `cargo build --release`, puis `./target/release/samplr scan ~/Samples`.
+
+La base est créée au premier lancement, dans `~/.local/share/samplr/samplr.db` sous Linux et `~/Library/Application Support/samplr/samplr.db` sur Mac. Pour faire des essais sur une base à part : `SAMPLR_BASE=/tmp/essai.db cargo run -- scan ~/Samples`.
 
 ## Commandes cargo utiles
 

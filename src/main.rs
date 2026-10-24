@@ -1,8 +1,11 @@
-// samplr — étape 1 : scanner un dossier de samples et en écouter un.
+// samplr : scanner un dossier de samples, les garder dans une base et en écouter un.
 //
 // Utilisation :
-//   cargo run -- scan ~/Samples        → liste les samples avec leurs infos
+//   cargo run -- scan ~/Samples          → ajoute les samples du dossier à la base
+//   cargo run -- liste                   → affiche les samples de la base
 //   cargo run -- play ~/Samples/kick.wav → joue un fichier
+
+mod base;
 
 use std::env;
 use std::error::Error;
@@ -28,7 +31,7 @@ struct InfoSample {
     chemin: PathBuf,
     duree_secondes: Option<f64>,
     frequence: Option<u32>,
-    canaux: Option<usize>,
+    canaux: Option<u32>,
     bits: Option<u32>,
 }
 
@@ -39,10 +42,12 @@ fn main() {
     // `match` compare une valeur à plusieurs motifs, un peu comme un switch.
     let resultat = match args.get(1).map(|s| s.as_str()) {
         Some("scan") if args.len() == 3 => scanner(Path::new(&args[2])),
+        Some("liste") if args.len() == 2 => lister(),
         Some("play") if args.len() == 3 => jouer(Path::new(&args[2])),
         _ => {
             eprintln!("Utilisation :");
             eprintln!("  samplr scan <dossier>");
+            eprintln!("  samplr liste");
             eprintln!("  samplr play <fichier>");
             process::exit(1);
         }
@@ -57,6 +62,13 @@ fn main() {
 
 /// Vrai si le fichier a une extension audio connue (insensible à la casse).
 fn est_audio(chemin: &Path) -> bool {
+    // `._kick.wav` : métadonnées que macOS dépose à côté de `kick.wav` sur un
+    // disque qui ne sait pas les stocker (clé USB, partage réseau). Pas du son.
+    let nom = chemin.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if nom.starts_with("._") {
+        return false;
+    }
+
     chemin
         .extension()
         .and_then(|ext| ext.to_str())
@@ -64,21 +76,28 @@ fn est_audio(chemin: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Parcourt le dossier (et ses sous-dossiers) et affiche un tableau des samples.
+/// Parcourt le dossier (et ses sous-dossiers), affiche un tableau des samples
+/// et les enregistre dans la base.
 fn scanner(dossier: &Path) -> Result<(), Box<dyn Error>> {
     if !dossier.is_dir() {
         return Err(format!("« {} » n'est pas un dossier", dossier.display()).into());
     }
+    // Chemin absolu : la base doit retrouver les fichiers quel que soit le
+    // dossier d'où l'on relance samplr.
+    let dossier = dossier.canonicalize()?;
+
+    let mut base = base::ouvrir()?;
+    // Une transaction regroupe toutes les écritures : SQLite n'écrit sur le
+    // disque qu'une fois, au `commit`, au lieu d'une fois par sample (des
+    // centaines de fois plus lent sur un gros dossier).
+    let transaction = base.transaction()?;
 
     let mut nb_samples = 0;
     let mut nb_illisibles = 0;
 
-    println!(
-        "{:>8}  {:>7}  {:>4}  {:>5}  FICHIER",
-        "DURÉE", "FRÉQ.", "BITS", "CAN."
-    );
+    afficher_entete();
 
-    for entree in WalkDir::new(dossier).sort_by_file_name() {
+    for entree in WalkDir::new(&dossier).sort_by_file_name() {
         // Un dossier illisible (droits insuffisants…) ne doit pas tout arrêter.
         let Ok(entree) = entree else { continue };
         let chemin = entree.path();
@@ -87,26 +106,57 @@ fn scanner(dossier: &Path) -> Result<(), Box<dyn Error>> {
             continue;
         }
 
-        match lire_infos(chemin) {
-            Ok(info) => {
-                nb_samples += 1;
-                // Chemin affiché relativement au dossier scanné, plus lisible.
-                let relatif = info.chemin.strip_prefix(dossier).unwrap_or(&info.chemin);
-                println!(
-                    "{:>8}  {:>7}  {:>4}  {:>5}  {}",
-                    formater_duree(info.duree_secondes),
-                    info.frequence.map(|f| format!("{f}")).unwrap_or("?".into()),
-                    info.bits.map(|b| format!("{b}")).unwrap_or("-".into()),
-                    info.canaux.map(|c| format!("{c}")).unwrap_or("?".into()),
-                    relatif.display()
-                );
-            }
-            Err(_) => nb_illisibles += 1,
+        let Ok(info) = lire_infos(chemin) else {
+            nb_illisibles += 1;
+            continue;
+        };
+        if let Err(erreur) = base::enregistrer(&transaction, &info) {
+            eprintln!("{} : {erreur}", chemin.display());
+            nb_illisibles += 1;
+            continue;
         }
+
+        nb_samples += 1;
+        // Chemin affiché relativement au dossier scanné, plus lisible.
+        let relatif = info.chemin.strip_prefix(&dossier).unwrap_or(&info.chemin);
+        afficher_ligne(&info, relatif);
     }
 
-    println!("\n{nb_samples} sample(s) trouvé(s), {nb_illisibles} illisible(s).");
+    transaction.commit()?;
+    println!("\n{nb_samples} sample(s) enregistré(s), {nb_illisibles} illisible(s).");
     Ok(())
+}
+
+/// Affiche tous les samples enregistrés dans la base.
+fn lister() -> Result<(), Box<dyn Error>> {
+    let base = base::ouvrir()?;
+    let samples = base::lister(&base)?;
+
+    afficher_entete();
+    for info in &samples {
+        afficher_ligne(info, &info.chemin);
+    }
+    println!("\n{} sample(s) dans la base.", samples.len());
+    Ok(())
+}
+
+fn afficher_entete() {
+    println!(
+        "{:>8}  {:>7}  {:>4}  {:>5}  FICHIER",
+        "DURÉE", "FRÉQ.", "BITS", "CAN."
+    );
+}
+
+/// Une ligne du tableau ; `chemin` est le chemin à afficher, complet ou raccourci.
+fn afficher_ligne(info: &InfoSample, chemin: &Path) {
+    println!(
+        "{:>8}  {:>7}  {:>4}  {:>5}  {}",
+        formater_duree(info.duree_secondes),
+        info.frequence.map(|f| format!("{f}")).unwrap_or("?".into()),
+        info.bits.map(|b| format!("{b}")).unwrap_or("-".into()),
+        info.canaux.map(|c| format!("{c}")).unwrap_or("?".into()),
+        chemin.display()
+    );
 }
 
 /// Ouvre un fichier audio avec symphonia et lit ses caractéristiques
@@ -144,7 +194,7 @@ fn lire_infos(chemin: &Path) -> Result<InfoSample, Box<dyn Error>> {
         chemin: chemin.to_path_buf(),
         duree_secondes,
         frequence: params.sample_rate,
-        canaux: params.channels.map(|c| c.count()),
+        canaux: params.channels.map(|c| c.count() as u32),
         bits: params.bits_per_sample,
     })
 }

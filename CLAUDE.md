@@ -21,16 +21,21 @@ Gestionnaire de samples audio de bureau pour **macOS et Linux** : écouter, tagg
 - `symphonia` 0.5 (feature `all`) : lecture des infos et décodage. **Garder la 0.5**, c'est la version utilisée par `rodio` ; passer à la 0.6 ferait compiler deux versions.
 - `rodio` 0.23 (feature `symphonia-all`) : lecture audio. API : `DeviceSinkBuilder::open_default_sink()`, `Player::connect_new(mixer)`, `Decoder::try_from(file)`.
 - `walkdir` : parcours récursif des dossiers.
+- `rusqlite` 0.41 (feature `bundled` : SQLite compilé avec le projet, aucune bibliothèque système à installer). Pas de `usize` dans les requêtes : rusqlite ne sait pas le convertir, utiliser `u32` ou `i64`.
+- `dirs` : dossier de données standard du système.
 - Pas encore de `clap` : les arguments sont lus à la main dans `main`.
 
 Dépendances système Linux : `build-essential pkg-config libasound2-dev` (ALSA).
 
 Sur le Mac, le projet est ouvert depuis le partage SMB de la machine Linux (`/Volumes/nico/Sites/projets/sample browser`). Le partage ne gère pas le verrouillage de fichiers dont Cargo a besoin (« could not create session directory lock file ») : `~/.cargo/config.toml` du Mac envoie donc la compilation dans `/Users/nico/cargo-target` (`build.target-dir`), ce qui évite aussi de mélanger binaires macOS et Linux dans `target/`. Ne pas mettre ce réglage dans le `.cargo/config.toml` du projet : le chemin n'existe pas sous Linux.
 
-## État actuel (étape 2 terminée)
-`src/main.rs` contient :
-- `samplr scan <dossier>` : liste les fichiers audio (wav, aif, aiff, flac, mp3, ogg, m4a) avec durée, fréquence, bits et canaux. Les fichiers illisibles sont comptés, sans planter.
+## État actuel (étape 3 en cours)
+`src/main.rs` contient les commandes, `src/base.rs` l'accès à la base :
+- `samplr scan <dossier>` : liste les fichiers audio (wav, aif, aiff, flac, mp3, ogg, m4a) avec durée, fréquence, bits et canaux, et les enregistre dans la base (chemin absolu ; un nouveau scan met à jour sans doublon et garde l'`id`, donc les tags). Les fichiers illisibles sont comptés, sans planter. Les fichiers AppleDouble `._*` déposés par macOS sont ignorés.
+- `samplr liste` : affiche les samples de la base.
 - `samplr play <fichier>` : joue un fichier sur la sortie par défaut.
+
+Base : `samplr.db` dans le dossier de données du système (`~/.local/share/samplr` sous Linux, `~/Library/Application Support/samplr` sur Mac). La variable `SAMPLR_BASE` désigne une autre base, pour les essais. Tables `fichiers`, `tags`, `fichiers_tags` (les deux dernières encore inutilisées). Un fichier supprimé du disque reste dans la base : à traiter avec la surveillance des dossiers (étape 5).
 
 Le scan et la lecture ont été testés sous Linux et sur le Mac (fichiers lus depuis le partage SMB).
 
@@ -45,7 +50,7 @@ Pièges audio rencontrés :
 ## Feuille de route
 1. ✅ Scanner un dossier et lister les samples.
 2. ✅ Préécoute : `play` testé sous Linux et sur le Mac (reste : volume).
-3. Base **SQLite** (`rusqlite`) : tables fichiers, tags et liaisons. Les tags restent dans la base, jamais dans les fichiers audio.
+3. ⏳ Base **SQLite** (`rusqlite`) : tables fichiers, tags et liaisons. Les tags restent dans la base, jamais dans les fichiers audio.
 4. Commandes CLI pour tagger et rechercher (introduire `clap` à ce moment-là).
 5. Surveillance des dossiers (`notify` : inotify sur Linux, FSEvents sur Mac).
 6. Calcul des formes d'onde et cache dans la base.
