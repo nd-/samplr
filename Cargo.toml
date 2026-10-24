@@ -8,6 +8,9 @@ edition = "2024"
 clap = { version = "4.6", features = ["derive"] }
 # Dossier de données standard du système (~/.local/share, ~/Library/Application Support)
 dirs = "7.0"
+# Surveillance des dossiers (inotify sous Linux, FSEvents sur Mac), avec regroupement
+# des événements et appariement des deux bouts d'un renommage
+notify-debouncer-full = "0.7"
 # Lecture audio (s'appuie sur CoreAudio sur Mac, ALSA sur Linux)
 rodio = { version = "0.23", features = ["symphonia-all"] }
 # Base SQLite ; `bundled` compile SQLite avec le projet, rien à installer sur Mac ni Linux

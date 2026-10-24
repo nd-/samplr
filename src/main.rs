@@ -13,10 +13,15 @@ use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
+use notify_debouncer_full::notify::event::{ModifyKind, RenameMode};
+use notify_debouncer_full::notify::{EventKind, RecursiveMode};
+use notify_debouncer_full::{DebouncedEvent, new_debouncer};
+use rusqlite::Connection;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
@@ -58,6 +63,8 @@ enum Commande {
     Scan { dossier: PathBuf },
     /// Affiche tous les samples de la base, avec leurs tags
     Liste,
+    /// Suit les dossiers scannés et met la base à jour en direct (Ctrl+C pour arrêter)
+    Surveille,
     /// Joue un fichier sur la sortie audio par défaut
     Play { fichier: PathBuf },
     /// Ajoute des tags à un sample (l'ajoute à la base s'il n'y est pas)
@@ -92,6 +99,7 @@ fn main() {
     let resultat = match arguments.commande {
         Commande::Scan { dossier } => scanner(&dossier),
         Commande::Liste => chercher(&[], None),
+        Commande::Surveille => surveiller(),
         Commande::Play { fichier } => jouer(&fichier),
         Commande::Tag { fichier, tags } => taguer(&fichier, &tags),
         Commande::Untag { fichier, tags } => detaguer(&fichier, &tags),
@@ -138,8 +146,8 @@ fn est_audio(chemin: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Parcourt le dossier (et ses sous-dossiers), affiche un tableau des samples
-/// et les enregistre dans la base.
+/// Enregistre dans la base le dossier et les samples qu'il contient, puis
+/// les affiche sous forme de tableau.
 fn scanner(dossier: &Path) -> Result<(), Box<dyn Error>> {
     if !dossier.is_dir() {
         return Err(format!("« {} » n'est pas un dossier", dossier.display()).into());
@@ -153,17 +161,34 @@ fn scanner(dossier: &Path) -> Result<(), Box<dyn Error>> {
     // disque qu'une fois, au `commit`, au lieu d'une fois par sample (des
     // centaines de fois plus lent sur un gros dossier).
     let transaction = base.transaction()?;
+    base::ajouter_dossier(&transaction, &dossier)?;
+    let (samples, nb_illisibles) = indexer(&transaction, &dossier);
+    transaction.commit()?;
 
-    let mut nb_samples = 0;
-    let mut nb_illisibles = 0;
-
-    // L'affichage n'est ici qu'un compte rendu : si la sortie est fermée
-    // (`samplr scan … | head`), on ignore l'échec d'écriture (`let _ =`) et le
-    // scan va jusqu'au bout, sinon la transaction serait abandonnée.
+    // L'affichage n'est qu'un compte rendu : si la sortie est fermée
+    // (`samplr scan … | head`), on ignore l'échec d'écriture (`let _ =`).
     let mut sortie = io::stdout().lock();
     let _ = afficher_entete(&mut sortie);
+    for info in &samples {
+        // Chemin affiché relativement au dossier scanné, plus lisible.
+        let relatif = info.chemin.strip_prefix(&dossier).unwrap_or(&info.chemin);
+        let _ = afficher_ligne(&mut sortie, info, relatif);
+    }
+    let _ = writeln!(
+        sortie,
+        "\n{} sample(s) enregistré(s), {nb_illisibles} illisible(s).",
+        samples.len()
+    );
+    Ok(())
+}
 
-    for entree in WalkDir::new(&dossier).sort_by_file_name() {
+/// Parcourt `dossier` et ses sous-dossiers et enregistre chaque sample dans la
+/// base. Retourne les samples enregistrés et le nombre de fichiers illisibles.
+fn indexer(base: &Connection, dossier: &Path) -> (Vec<InfoSample>, usize) {
+    let mut samples = Vec::new();
+    let mut nb_illisibles = 0;
+
+    for entree in WalkDir::new(dossier).sort_by_file_name() {
         // Un dossier illisible (droits insuffisants…) ne doit pas tout arrêter.
         let Ok(entree) = entree else { continue };
         let chemin = entree.path();
@@ -176,23 +201,183 @@ fn scanner(dossier: &Path) -> Result<(), Box<dyn Error>> {
             nb_illisibles += 1;
             continue;
         };
-        if let Err(erreur) = base::enregistrer(&transaction, &info) {
+        if let Err(erreur) = base::enregistrer(base, &info) {
             eprintln!("{} : {erreur}", chemin.display());
             nb_illisibles += 1;
             continue;
         }
+        samples.push(info);
+    }
+    (samples, nb_illisibles)
+}
 
-        nb_samples += 1;
-        // Chemin affiché relativement au dossier scanné, plus lisible.
-        let relatif = info.chemin.strip_prefix(&dossier).unwrap_or(&info.chemin);
-        let _ = afficher_ligne(&mut sortie, &info, relatif);
+/// Rattrape les changements faits pendant que samplr ne tournait pas, puis
+/// suit en direct les dossiers scannés jusqu'à Ctrl+C.
+fn surveiller() -> Result<(), Box<dyn Error>> {
+    let mut base = base::ouvrir()?;
+
+    // Un dossier scanné qui est dans un autre dossier scanné est déjà suivi
+    // avec lui : le surveiller deux fois doublerait chaque événement.
+    let tous = base::dossiers(&base)?;
+    let racines: Vec<PathBuf> = tous
+        .iter()
+        .filter(|d| !tous.iter().any(|autre| autre != *d && d.starts_with(autre)))
+        .cloned()
+        .collect();
+    if racines.is_empty() {
+        return Err("aucun dossier à surveiller : lance d'abord « samplr scan <dossier> »".into());
     }
 
+    // Le surveillant tourne dans son propre thread et dépose ses événements
+    // dans un canal : `envoi` reste chez lui, `reception` chez nous.
+    let (envoi, reception) = mpsc::channel();
+    // Les événements d'un même fichier sont regroupés pendant une seconde :
+    // une copie produit des dizaines d'écritures, on ne relit le fichier
+    // qu'une fois qu'elle est finie.
+    let mut surveillant = new_debouncer(Duration::from_secs(1), None, envoi)?;
+
+    let mut nb_surveilles = 0;
+    for racine in &racines {
+        if !racine.is_dir() {
+            eprintln!(
+                "{} introuvable (disque débranché ?) : pas surveillé",
+                racine.display()
+            );
+            continue;
+        }
+        // On commence à surveiller avant le rattrapage : un fichier ajouté
+        // pendant qu'il tourne ne passe pas entre les deux.
+        surveillant.watch(racine, RecursiveMode::Recursive)?;
+        rattraper(&mut base, racine)?;
+        nb_surveilles += 1;
+    }
+    if nb_surveilles == 0 {
+        return Err("aucun des dossiers scannés n'est disponible".into());
+    }
+
+    println!("Surveillance en cours. Ctrl+C pour arrêter.");
+    // La boucle attend le prochain lot d'événements ; elle ne se termine
+    // jamais d'elle-même, Ctrl+C arrête le programme.
+    for lot in reception {
+        match lot {
+            Ok(evenements) => {
+                for evenement in &evenements {
+                    if let Err(erreur) = traiter_evenement(&base, &racines, evenement) {
+                        eprintln!("Erreur : {erreur}");
+                    }
+                }
+            }
+            Err(erreurs) => {
+                for erreur in erreurs {
+                    eprintln!("Erreur de surveillance : {erreur}");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Met la base à jour pour `racine` : retire les samples qui ont disparu du
+/// disque, ajoute les nouveaux et rafraîchit les autres.
+fn rattraper(base: &mut Connection, racine: &Path) -> Result<(), Box<dyn Error>> {
+    let transaction = base.transaction()?;
+
+    let mut nb_retires = 0;
+    for chemin in base::fichiers_sous(&transaction, racine)? {
+        if !chemin.exists() {
+            nb_retires += base::oublier(&transaction, &chemin)?;
+        }
+    }
+    let (samples, nb_illisibles) = indexer(&transaction, racine);
     transaction.commit()?;
-    let _ = writeln!(
-        sortie,
-        "\n{nb_samples} sample(s) enregistré(s), {nb_illisibles} illisible(s)."
+
+    println!(
+        "{} : {} sample(s), {nb_retires} retiré(s), {nb_illisibles} illisible(s)",
+        racine.display(),
+        samples.len()
     );
+    Ok(())
+}
+
+/// Reporte dans la base un événement du système de fichiers.
+fn traiter_evenement(
+    base: &Connection,
+    racines: &[PathBuf],
+    evenement: &DebouncedEvent,
+) -> Result<(), Box<dyn Error>> {
+    match evenement.kind {
+        // Un renommage dont on connaît les deux bouts : on déplace la ligne
+        // existante pour garder les tags.
+        EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
+            let (ancien, nouveau) = (&evenement.paths[0], &evenement.paths[1]);
+            let nb_renommes = base::renommer(base, ancien, nouveau)?;
+            if nb_renommes > 0 {
+                println!("→ {} → {}", ancien.display(), nouveau.display());
+            }
+            // Le nouveau nom peut changer la donne : `kick.tmp` devenu
+            // `kick.wav` ou dossier arrivé d'ailleurs (rien à renommer en
+            // base), `kick.wav` devenu `kick.bak` (plus un sample).
+            if nb_renommes == 0 || (nouveau.is_file() && !est_audio(nouveau)) {
+                synchroniser(base, racines, nouveau, true)?;
+            }
+            Ok(())
+        }
+        // Lire un fichier ne change rien pour la base.
+        EventKind::Access(_) => Ok(()),
+        _ => {
+            let est_arrivee = matches!(
+                evenement.kind,
+                EventKind::Create(_) | EventKind::Modify(ModifyKind::Name(_))
+            );
+            for chemin in &evenement.paths {
+                synchroniser(base, racines, chemin, est_arrivee)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Aligne la base sur ce qui se trouve en ce moment à `chemin`.
+/// `est_arrivee` : le chemin vient d'apparaître (création ou renommage). Un
+/// dossier n'est parcouru que dans ce cas ; sinon, la moindre modification
+/// dans un dossier relirait tout son contenu.
+fn synchroniser(
+    base: &Connection,
+    racines: &[PathBuf],
+    chemin: &Path,
+    est_arrivee: bool,
+) -> Result<(), Box<dyn Error>> {
+    if !chemin.exists() {
+        // Disque débranché : tout disparaît d'un coup, mais les samples
+        // existent toujours. Les oublier ferait perdre leurs tags.
+        let racine_presente = racines
+            .iter()
+            .any(|racine| chemin.starts_with(racine) && racine.is_dir());
+        if !racine_presente {
+            return Ok(());
+        }
+        let nb_oublies = base::oublier(base, chemin)?;
+        if nb_oublies > 0 {
+            println!("- {} ({nb_oublies} sample(s))", chemin.display());
+        }
+    } else if chemin.is_dir() {
+        if est_arrivee {
+            let (samples, _) = indexer(base, chemin);
+            if !samples.is_empty() {
+                println!("+ {} ({} sample(s))", chemin.display(), samples.len());
+            }
+        }
+    } else if est_audio(chemin) {
+        // Un fichier en cours de copie peut encore être illisible : la fin de
+        // la copie produira un nouvel événement, et on réessaiera.
+        if let Ok(info) = lire_infos(chemin) {
+            base::enregistrer(base, &info)?;
+            println!("+ {}", chemin.display());
+        }
+    } else if base::oublier(base, chemin)? > 0 {
+        // Renommé en un nom qui n'est plus audio (`kick.wav` → `kick.bak`).
+        println!("- {}", chemin.display());
+    }
     Ok(())
 }
 

@@ -52,11 +52,91 @@ pub fn ouvrir() -> Result<Connection, Box<dyn Error>> {
             fichier_id INTEGER NOT NULL REFERENCES fichiers(id) ON DELETE CASCADE,
             tag_id     INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
             PRIMARY KEY (fichier_id, tag_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS dossiers (
+            id     INTEGER PRIMARY KEY,
+            chemin TEXT NOT NULL UNIQUE
         );",
     )?;
 
     Ok(base)
 }
+
+/// Retient un dossier scanné, pour que `samplr surveille` le suive.
+pub fn ajouter_dossier(base: &Connection, chemin: &Path) -> Result<(), Box<dyn Error>> {
+    base.execute(
+        "INSERT INTO dossiers (chemin) VALUES (?1) ON CONFLICT (chemin) DO NOTHING",
+        [chemin_en_texte(chemin)?],
+    )?;
+    Ok(())
+}
+
+/// Les dossiers déjà scannés, par ordre alphabétique.
+pub fn dossiers(base: &Connection) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    let mut requete = base.prepare("SELECT chemin FROM dossiers ORDER BY chemin")?;
+    let lignes = requete.query_map([], |ligne| ligne.get::<_, String>(0))?;
+
+    let mut dossiers = Vec::new();
+    for chemin in lignes {
+        dossiers.push(PathBuf::from(chemin?));
+    }
+    Ok(dossiers)
+}
+
+/// Les samples de la base situés dans `dossier` ou ses sous-dossiers.
+pub fn fichiers_sous(base: &Connection, dossier: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    let mut requete = base.prepare(&format!(
+        "SELECT chemin FROM fichiers WHERE {}",
+        CONDITION_SOUS_CHEMIN
+    ))?;
+    let lignes = requete.query_map([chemin_en_texte(dossier)?], |ligne| {
+        ligne.get::<_, String>(0)
+    })?;
+
+    let mut fichiers = Vec::new();
+    for chemin in lignes {
+        fichiers.push(PathBuf::from(chemin?));
+    }
+    Ok(fichiers)
+}
+
+/// Retire de la base le sample `chemin`, ou tous ceux qu'il contient si c'est
+/// un dossier, avec leurs tags. Retourne le nombre de samples retirés.
+pub fn oublier(base: &Connection, chemin: &Path) -> Result<usize, Box<dyn Error>> {
+    let nb_oublies = base.execute(
+        &format!("DELETE FROM fichiers WHERE {}", CONDITION_SOUS_CHEMIN),
+        [chemin_en_texte(chemin)?],
+    )?;
+    if nb_oublies > 0 {
+        supprimer_tags_orphelins(base)?;
+    }
+    Ok(nb_oublies)
+}
+
+/// Reporte un renommage ou un déplacement dans la base : le sample (ou tous
+/// ceux du dossier) change de chemin mais garde son `id`, donc ses tags.
+/// Retourne le nombre de samples renommés.
+pub fn renommer(base: &Connection, ancien: &Path, nouveau: &Path) -> Result<usize, Box<dyn Error>> {
+    // Si un sample occupait déjà le nouveau chemin (fichier écrasé), il est
+    // remplacé : sans ça, la contrainte UNIQUE ferait échouer la mise à jour.
+    oublier(base, nouveau)?;
+    // On remplace le début du chemin : `/a/kick.wav` devient `/b/kick.wav`,
+    // `/a/batterie/kick.wav` devient `/b/batterie/kick.wav`.
+    let nb_renommes = base.execute(
+        &format!(
+            "UPDATE fichiers SET chemin = ?2 || substr(chemin, length(?1) + 1) WHERE {}",
+            CONDITION_SOUS_CHEMIN
+        ),
+        [chemin_en_texte(ancien)?, chemin_en_texte(nouveau)?],
+    )?;
+    Ok(nb_renommes)
+}
+
+/// « `chemin` est `?1`, ou se trouve dans le dossier `?1` ». Pas de `LIKE` :
+/// un `_` ou un `%` dans un nom de dossier y servirait de joker.
+const CONDITION_SOUS_CHEMIN: &str =
+    "(chemin = ?1 OR substr(chemin, 1, length(?1) + 1) = ?1 || '/')";
 
 /// Ajoute un sample à la base, ou met ses infos à jour s'il y est déjà.
 /// Retourne l'`id` du sample.
@@ -143,12 +223,17 @@ pub fn retirer_tags(
             params![fichier_id, tag],
         )?;
     }
-    // Un tag qui ne sert plus à aucun sample disparaît de la liste des tags.
+    supprimer_tags_orphelins(base)?;
+    Ok(nb_retires)
+}
+
+/// Un tag qui ne sert plus à aucun sample disparaît de la liste des tags.
+fn supprimer_tags_orphelins(base: &Connection) -> Result<(), Box<dyn Error>> {
     base.execute(
         "DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM fichiers_tags)",
         [],
     )?;
-    Ok(nb_retires)
+    Ok(())
 }
 
 /// Tous les tags, avec le nombre de samples qui portent chacun, par ordre alphabétique.
