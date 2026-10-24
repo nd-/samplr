@@ -1,2 +1,6 @@
 /target
 /TR808
+
+# Fichiers déposés par macOS (métadonnées AppleDouble, index du Finder)
+._*
+.DS_Store

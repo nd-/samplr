@@ -116,12 +116,18 @@ fn main() {
     }
 }
 
+/// Vrai pour `._kick.wav` : métadonnées que macOS dépose à côté de `kick.wav`
+/// sur un disque qui ne sait pas les stocker (clé USB, partage réseau). Pas du son.
+fn est_metadonnees_mac(chemin: &Path) -> bool {
+    chemin
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|nom| nom.starts_with("._"))
+}
+
 /// Vrai si le fichier a une extension audio connue (insensible à la casse).
 fn est_audio(chemin: &Path) -> bool {
-    // `._kick.wav` : métadonnées que macOS dépose à côté de `kick.wav` sur un
-    // disque qui ne sait pas les stocker (clé USB, partage réseau). Pas du son.
-    let nom = chemin.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    if nom.starts_with("._") {
+    if est_metadonnees_mac(chemin) {
         return false;
     }
 
@@ -329,6 +335,14 @@ fn formater_duree(duree: Option<f64>) -> String {
 
 /// Joue un fichier sur la sortie audio par défaut et attend la fin.
 fn jouer(chemin: &Path) -> Result<(), Box<dyn Error>> {
+    if est_metadonnees_mac(chemin) {
+        return Err(format!(
+            "{} : métadonnées macOS, pas un fichier audio",
+            chemin.display()
+        )
+        .into());
+    }
+
     // Certains fichiers s'ouvrent sans erreur mais ne produisent aucun échantillon
     // (sonneries `.m4r` d'Apple). On le vérifie sur un décodeur jetable : lire
     // le premier échantillon sur celui qui joue le consommerait, et décalerait
