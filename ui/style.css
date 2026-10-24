@@ -40,6 +40,40 @@ header {
   border-bottom: 1px solid var(--border);
 }
 
+#tagbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1rem 0.2rem 0.1rem 0.5rem;
+  border-radius: 1rem;
+  background: var(--selected);
+}
+
+.tag button {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 0.3rem;
+}
+
+#new-tags {
+  flex: 1;
+  min-width: 10rem;
+  padding: 0.2rem 0.4rem;
+  font: inherit;
+}
+
 main {
   flex: 1;
   overflow-y: auto;

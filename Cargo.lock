@@ -3103,6 +3103,7 @@ name = "samplr-app"
 version = "0.1.0"
 dependencies = [
  "rodio",
+ "rusqlite",
  "samplr",
  "tauri",
  "tauri-build",

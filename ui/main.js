@@ -6,6 +6,8 @@ const searchBox = document.getElementById("search");
 const tbody = document.getElementById("samples");
 const status = document.getElementById("status");
 const canvas = document.getElementById("wave");
+const tagList = document.getElementById("tags");
+const tagInput = document.getElementById("new-tags");
 
 let samples = [];
 let selected = -1;
@@ -59,6 +61,57 @@ function select(index) {
   row.scrollIntoView({ block: "nearest" });
   play();
   loadWaveform();
+  renderTags();
+}
+
+// The tags of the selected sample, each with a button to remove it.
+function renderTags() {
+  const sample = samples[selected];
+  tagInput.disabled = !sample;
+  const chips = (sample?.tags ?? []).map((tag) => {
+    const chip = document.createElement("span");
+    chip.className = "tag";
+    chip.textContent = tag;
+    const remove = document.createElement("button");
+    remove.textContent = "×";
+    remove.title = `Remove ${tag}`;
+    remove.addEventListener("click", () => removeTag(tag));
+    chip.append(remove);
+    return chip;
+  });
+  tagList.replaceChildren(...chips);
+}
+
+// Called with the sample's new tags after a change: the tag bar and the
+// list row both show them.
+function showTags(sample, tags) {
+  sample.tags = tags;
+  const index = samples.indexOf(sample);
+  const row = tbody.children[index];
+  if (row) row.querySelector(".tags").textContent = tags.join(" ");
+  if (index === selected) renderTags();
+}
+
+async function addTags() {
+  const sample = samples[selected];
+  const tags = tagInput.value.split(/\s+/).filter((tag) => tag !== "");
+  if (!sample || tags.length === 0) return;
+  try {
+    showTags(sample, await invoke("add_tags", { path: sample.path, tags }));
+    tagInput.value = "";
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+  }
+}
+
+async function removeTag(tag) {
+  const sample = samples[selected];
+  if (!sample) return;
+  try {
+    showTags(sample, await invoke("remove_tag", { path: sample.path, tag }));
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+  }
 }
 
 async function loadWaveform() {
@@ -130,6 +183,7 @@ async function search() {
     peaks = [];
     drawWaveform();
     render();
+    renderTags();
   } catch (error) {
     status.textContent = `Error: ${error}`;
   }
@@ -146,6 +200,32 @@ searchBox.addEventListener("input", () => {
 // The keys work wherever the focus is, search box included, so that one
 // can type a search and browse the results without touching the mouse.
 document.addEventListener("keydown", (event) => {
+  // In the tag box, Enter adds the tags typed, Backspace on an empty box
+  // removes the last tag, and Esc goes back to the search box.
+  if (event.target === tagInput) {
+    if (event.key === "Enter") {
+      addTags();
+      event.preventDefault();
+      return;
+    }
+    if (event.key === "Backspace" && tagInput.value === "") {
+      const tags = samples[selected]?.tags ?? [];
+      if (tags.length > 0) removeTag(tags[tags.length - 1]);
+      event.preventDefault();
+      return;
+    }
+    if (event.key === "Escape") {
+      searchBox.focus();
+      event.preventDefault();
+      return;
+    }
+  }
+  // Ctrl+T, or Cmd+T on Mac, to tag the selected sample.
+  if ((event.ctrlKey || event.metaKey) && event.key === "t") {
+    if (!tagInput.disabled) tagInput.focus();
+    event.preventDefault();
+    return;
+  }
   switch (event.key) {
     case "ArrowDown":
       select(selected + 1);

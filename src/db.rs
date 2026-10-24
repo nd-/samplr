@@ -330,6 +330,23 @@ fn delete_orphan_tags(db: &Connection) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// A sample's tags, in alphabetical order.
+pub fn tags_of(db: &Connection, file_id: i64) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut query = db.prepare(
+        "SELECT t.name
+         FROM tags t JOIN file_tags ft ON ft.tag_id = t.id
+         WHERE ft.file_id = ?1
+         ORDER BY t.name",
+    )?;
+    let rows = query.query_map([file_id], |row| row.get(0))?;
+
+    let mut tags = Vec::new();
+    for tag in rows {
+        tags.push(tag?);
+    }
+    Ok(tags)
+}
+
 /// Every tag, with the number of samples carrying it, in alphabetical order.
 pub fn list_tags(db: &Connection) -> Result<Vec<(String, u32)>, Box<dyn Error>> {
     let mut query = db.prepare(
@@ -347,12 +364,14 @@ pub fn list_tags(db: &Connection) -> Result<Vec<(String, u32)>, Box<dyn Error>> 
     Ok(tags)
 }
 
-/// The samples carrying **all** the given `tags` and whose path contains
-/// `text` (case-insensitive), sorted by path. With no tag and an empty text,
-/// every sample in the database.
+/// The samples carrying **all** the given `tags`, whose path contains `text`,
+/// and where each of the `words` is found in the path or in one of the tags
+/// (case-insensitive), sorted by path. With no tag, no word and an empty
+/// text, every sample in the database.
 pub fn search(
     db: &Connection,
     tags: &[String],
+    words: &[&str],
     text: &str,
 ) -> Result<Vec<SampleInfo>, Box<dyn Error>> {
     // `instr` looks for the text as is: with `LIKE`, a `_` in the text
@@ -374,6 +393,16 @@ pub fn search(
             " AND EXISTS (SELECT 1 FROM file_tags ft JOIN tags t ON t.id = ft.tag_id
                           WHERE ft.file_id = f.id AND t.name = ?{})",
             values.len()
+        ));
+    }
+    // Tags are stored lowercase: only the word needs `lower`.
+    for word in words {
+        values.push(word.to_string());
+        let n = values.len();
+        sql.push_str(&format!(
+            " AND (instr(lower(f.path), lower(?{n})) > 0
+                   OR EXISTS (SELECT 1 FROM file_tags ft JOIN tags t ON t.id = ft.tag_id
+                              WHERE ft.file_id = f.id AND instr(t.name, lower(?{n})) > 0))"
         ));
     }
     sql.push_str(" ORDER BY f.path");

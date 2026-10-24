@@ -67,7 +67,7 @@ Audio pitfalls met so far:
 9. Automatic analysis (BPM, key) and virtual collections.
 10. Packaging: signed and notarised `.app` / `.dmg` on Mac, AppImage or `.deb` on Linux.
 
-## Step 7 in progress (7a to 7c done, tested on Linux)
+## Step 7 in progress (7a to 7d done, tested on Linux)
 - Tauri 2 stable (2.12.x at the time of writing; 3.x is only in alpha).
 - Fedora packages Tauri needs (installed on the Linux machine): `webkit2gtk4.1-devel libsoup3-devel gtk3-devel javascriptcoregtk4.1-devel libappindicator-gtk3-devel`. Already present: `openssl-devel`, `librsvg2-devel`. Node and npm are available through nvm.
 - Layout: the crate is a library (`src/lib.rs`: `db`, `waveform`, `SampleInfo`, `read_info`, `index`; done) plus the CLI binary (`src/main.rs`, `use samplr::…`). The Tauri app lives in `src-tauri/`, in a Cargo workspace declared in the root `Cargo.toml` (one `Cargo.lock`, one `target/`).
@@ -79,8 +79,9 @@ Audio pitfalls met so far:
   - 7d: adding and removing tags from the interface.
 - Decisions taken: plain HTML, CSS and JavaScript in `ui/`, no build tool and no Node (`withGlobalTauri` exposes the API as `window.__TAURI__`); waveform drawn on a `<canvas>` from the cached peaks, no wavesurfer.js.
 - Run the interface with `cargo run -p samplr-app`; `cargo run` alone still runs the CLI. No Tauri CLI needed for development. `src-tauri/icons/icon.png` is a placeholder icon.
-- 7b: one search box (words looked for in the path, `#tag` words as required tags), the list of results, ↑ ↓ to move and play, Enter to replay, Esc to stop, a click plays. An audio thread opens the output once for the whole session and gets the sounds to play through a channel; each sound gets a new `rodio::Player`, dropping the previous one cuts it. The file is opened by the `play` command, so an unreadable file is reported to the page.
+- 7b: one search box (each word must be in the path or in one of the tags; a `#tag` word requires that exact tag), the list of results, ↑ ↓ to move and play, Enter to replay, Esc to stop, a click plays. An audio thread opens the output once for the whole session and gets the sounds to play through a channel; each sound gets a new `rodio::Player`, dropping the previous one cuts it. The file is opened by the `play` command, so an unreadable file is reported to the page.
 - 7c: the selected sample's waveform is drawn on a `<canvas>` above the list, at the screen's real resolution. `samplr::peaks` (in `src/lib.rs`, shared with `samplr wave`) returns the cached peaks or computes and caches them. A late answer for a sample no longer selected is ignored.
+- 7d: a tag bar under the waveform shows the selected sample's tags, each with a × to remove it. Ctrl+T (Cmd+T on Mac) moves to the tag box; there, Enter adds the tags typed (separated by spaces), Backspace on an empty box removes the last tag, Esc goes back to the search box. The `add_tags` and `remove_tag` commands return the sample's tags after the change.
 - Rust functions called from the page are marked `#[tauri::command]` in `src-tauri/src/main.rs` and listed in `generate_handler!`. They return `Result<T, String>`: the error must be serialisable to reach JavaScript, `Box<dyn Error>` is not.
 
 ## Known limitations

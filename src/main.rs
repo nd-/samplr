@@ -324,7 +324,7 @@ fn sync(
 /// contains `path`; with no tag and no path, every sample.
 fn search(tags: &[String], path: Option<&str>) -> Result<(), Box<dyn Error>> {
     let db = db::open()?;
-    let samples = db::search(&db, tags, path.unwrap_or(""))?;
+    let samples = db::search(&db, tags, &[], path.unwrap_or(""))?;
 
     let mut out = io::stdout().lock();
     print_header(&mut out)?;

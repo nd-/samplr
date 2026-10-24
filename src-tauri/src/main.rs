@@ -7,7 +7,7 @@
 
 use std::fs::File;
 use std::io::BufReader;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
@@ -26,8 +26,10 @@ struct Audio {
     requests: Sender<AudioRequest>,
 }
 
-/// Samples matching the search box. Words starting with `#` are tags the
-/// sample must all carry; the other words are looked for in the path.
+/// Samples matching the search box. Each word must be found in the path or
+/// in one of the tags (`kick` finds `Kick_01.wav` and the samples tagged
+/// `kick` or `kicks`); a word starting with `#` is a tag the sample must
+/// carry exactly.
 /// `(async)` runs the command outside the main thread: the window stays
 /// responsive while the database answers.
 /// The error travels to the page as text: `Box<dyn Error>` cannot be turned
@@ -45,7 +47,7 @@ fn search(query: String) -> Result<Vec<SampleInfo>, String> {
     }
 
     let db = db::open().map_err(|e| e.to_string())?;
-    db::search(&db, &tags, &words.join(" ")).map_err(|e| e.to_string())
+    db::search(&db, &tags, &words, "").map_err(|e| e.to_string())
 }
 
 /// The waveform of a sample of the database, computed and cached first if
@@ -54,10 +56,33 @@ fn search(query: String) -> Result<Vec<SampleInfo>, String> {
 #[tauri::command(async)]
 fn waveform(path: PathBuf) -> Result<Vec<Peak>, String> {
     let db = db::open().map_err(|e| e.to_string())?;
-    let file_id = db::file_id(&db, &path)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("{} is not in the database", path.display()))?;
+    let file_id = file_id(&db, &path)?;
     samplr::peaks(&db, file_id, &path).map_err(|e| e.to_string())
+}
+
+/// Adds tags to a sample and returns all its tags, in alphabetical order.
+#[tauri::command(async)]
+fn add_tags(path: PathBuf, tags: Vec<String>) -> Result<Vec<String>, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    let file_id = file_id(&db, &path)?;
+    db::add_tags(&db, file_id, &tags).map_err(|e| e.to_string())?;
+    db::tags_of(&db, file_id).map_err(|e| e.to_string())
+}
+
+/// Removes a tag from a sample and returns the tags it has left.
+#[tauri::command(async)]
+fn remove_tag(path: PathBuf, tag: String) -> Result<Vec<String>, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    let file_id = file_id(&db, &path)?;
+    db::remove_tags(&db, file_id, &[tag]).map_err(|e| e.to_string())?;
+    db::tags_of(&db, file_id).map_err(|e| e.to_string())
+}
+
+/// The `id` of a sample of the database.
+fn file_id(db: &rusqlite::Connection, path: &Path) -> Result<i64, String> {
+    db::file_id(db, path)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("{} is not in the database", path.display()))
 }
 
 /// Starts playing a file, cutting the one that was playing.
@@ -122,7 +147,9 @@ fn main() {
     tauri::Builder::default()
         // Stored by Tauri and handed to every command that asks for `State<Audio>`.
         .manage(Audio { requests })
-        .invoke_handler(tauri::generate_handler![search, waveform, play, stop])
+        .invoke_handler(tauri::generate_handler![
+            search, waveform, add_tags, remove_tag, play, stop
+        ])
         .run(tauri::generate_context!())
         .expect("could not start the interface");
 }

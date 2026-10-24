@@ -10,6 +10,10 @@
     <input id="search" type="search" placeholder="Search: words in the path, #tag" autofocus spellcheck="false">
   </header>
   <canvas id="wave"></canvas>
+  <div id="tagbar">
+    <span id="tags"></span>
+    <input id="new-tags" type="text" placeholder="Add tags" spellcheck="false" disabled>
+  </div>
   <main id="list" tabindex="-1">
     <table>
       <thead>
@@ -20,7 +24,7 @@
   </main>
   <footer>
     <span id="status"></span>
-    <span class="keys">↑ ↓ browse and play · Enter replay · Esc stop</span>
+    <span class="keys">↑ ↓ browse and play · Enter replay · Esc stop · Ctrl+T tag</span>
   </footer>
   <script src="main.js"></script>
 </body>
