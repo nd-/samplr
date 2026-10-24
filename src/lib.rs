@@ -124,3 +124,19 @@ pub fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
         tags: Vec::new(),
     })
 }
+
+/// The waveform of a sample of the database: the cached one if the file has
+/// not changed since, otherwise computed now and cached.
+pub fn peaks(
+    db: &Connection,
+    file_id: i64,
+    path: &Path,
+) -> Result<Vec<waveform::Peak>, Box<dyn Error>> {
+    let stamp = db::FileStamp::read(path)?;
+    if let Some(peaks) = db::waveform(db, file_id, stamp)? {
+        return Ok(peaks);
+    }
+    let peaks = waveform::compute(path)?;
+    db::save_waveform(db, file_id, stamp, &peaks)?;
+    Ok(peaks)
+}

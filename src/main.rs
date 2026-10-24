@@ -364,16 +364,7 @@ fn ensure_saved(db: &Connection, file: &Path) -> Result<(PathBuf, i64), Box<dyn 
 fn wave(file: &Path, width: usize) -> Result<(), Box<dyn Error>> {
     let db = db::open()?;
     let (file, file_id) = ensure_saved(&db, file)?;
-
-    let stamp = FileStamp::read(&file)?;
-    let peaks = match db::waveform(&db, file_id, stamp)? {
-        Some(peaks) => peaks,
-        None => {
-            let peaks = waveform::compute(&file)?;
-            db::save_waveform(&db, file_id, stamp, &peaks)?;
-            peaks
-        }
-    };
+    let peaks = samplr::peaks(&db, file_id, &file)?;
 
     print!("{}", waveform::draw(&peaks, width, 6));
     println!("{}", file.display());

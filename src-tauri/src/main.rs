@@ -12,6 +12,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
 use rodio::Decoder;
+use samplr::waveform::Peak;
 use samplr::{SampleInfo, db};
 use tauri::State;
 
@@ -45,6 +46,18 @@ fn search(query: String) -> Result<Vec<SampleInfo>, String> {
 
     let db = db::open().map_err(|e| e.to_string())?;
     db::search(&db, &tags, &words.join(" ")).map_err(|e| e.to_string())
+}
+
+/// The waveform of a sample of the database, computed and cached first if
+/// needed (a long file can take a moment). Each peak reaches the page as a
+/// `[low, high]` pair.
+#[tauri::command(async)]
+fn waveform(path: PathBuf) -> Result<Vec<Peak>, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    let file_id = db::file_id(&db, &path)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("{} is not in the database", path.display()))?;
+    samplr::peaks(&db, file_id, &path).map_err(|e| e.to_string())
 }
 
 /// Starts playing a file, cutting the one that was playing.
@@ -109,7 +122,7 @@ fn main() {
     tauri::Builder::default()
         // Stored by Tauri and handed to every command that asks for `State<Audio>`.
         .manage(Audio { requests })
-        .invoke_handler(tauri::generate_handler![search, play, stop])
+        .invoke_handler(tauri::generate_handler![search, waveform, play, stop])
         .run(tauri::generate_context!())
         .expect("could not start the interface");
 }

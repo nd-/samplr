@@ -5,9 +5,11 @@ const { invoke } = window.__TAURI__.core;
 const searchBox = document.getElementById("search");
 const tbody = document.getElementById("samples");
 const status = document.getElementById("status");
+const canvas = document.getElementById("wave");
 
 let samples = [];
 let selected = -1;
+let peaks = [];
 
 // Paths come from Mac, Linux or Windows: split on both separators.
 function splitPath(path) {
@@ -56,7 +58,61 @@ function select(index) {
   row.classList.add("selected");
   row.scrollIntoView({ block: "nearest" });
   play();
+  loadWaveform();
 }
+
+async function loadWaveform() {
+  const path = samples[selected].path;
+  peaks = [];
+  drawWaveform();
+  try {
+    const result = await invoke("waveform", { path });
+    // While a long file was being decoded, the selection may have moved on:
+    // a late answer must not replace the waveform of the new sample.
+    if (samples[selected]?.path !== path) return;
+    peaks = result;
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+  }
+  drawWaveform();
+}
+
+// One vertical bar per pixel column, from the lowest to the highest value of
+// the sound over that column, as in every audio editor.
+function drawWaveform() {
+  // The canvas is drawn at the screen's real resolution (twice the CSS size
+  // on a Retina or HiDPI screen), otherwise the drawing looks blurry.
+  const scale = window.devicePixelRatio;
+  const width = Math.round(canvas.clientWidth * scale);
+  const height = Math.round(canvas.clientHeight * scale);
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, width, height);
+  if (peaks.length === 0) return;
+
+  context.fillStyle = getComputedStyle(canvas).getPropertyValue("--wave");
+  const middle = height / 2;
+  for (let x = 0; x < width; x++) {
+    // The peaks covered by this column: several when there are more peaks
+    // than pixels, a single one, repeated, when there are fewer.
+    const first = Math.floor((x * peaks.length) / width);
+    const last = Math.max(first + 1, Math.floor(((x + 1) * peaks.length) / width));
+    let low = 0;
+    let high = 0;
+    for (let i = first; i < last; i++) {
+      low = Math.min(low, peaks[i][0]);
+      high = Math.max(high, peaks[i][1]);
+    }
+    const top = middle - high * middle;
+    const bottom = middle - low * middle;
+    // At least one pixel high, so that silence shows as a line.
+    context.fillRect(x, top, 1, Math.max(1, bottom - top));
+  }
+}
+
+window.addEventListener("resize", drawWaveform);
 
 function play() {
   const sample = samples[selected];
@@ -71,6 +127,8 @@ async function search() {
   try {
     samples = await invoke("search", { query: searchBox.value });
     selected = -1;
+    peaks = [];
+    drawWaveform();
     render();
   } catch (error) {
     status.textContent = `Error: ${error}`;
