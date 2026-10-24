@@ -160,6 +160,15 @@ fn formater_duree(duree: Option<f64>) -> String {
 
 /// Joue un fichier sur la sortie audio par défaut et attend la fin.
 fn jouer(chemin: &Path) -> Result<(), Box<dyn Error>> {
+    // Certains fichiers s'ouvrent sans erreur mais ne produisent aucun échantillon
+    // (sonneries `.m4r` d'Apple). On le vérifie sur un décodeur jetable : lire
+    // le premier échantillon sur celui qui joue le consommerait, et décalerait
+    // les canaux gauche et droit d'un fichier stéréo.
+    let mut sonde = rodio::Decoder::try_from(File::open(chemin)?)?;
+    if sonde.next().is_none() {
+        return Err("aucun son décodé (format reconnu, mais contenu illisible)".into());
+    }
+
     // Ouvre la sortie audio par défaut (CoreAudio sur Mac, ALSA sur Linux).
     let mut sortie = rodio::DeviceSinkBuilder::open_default_sink()?;
     sortie.log_on_drop(false); // évite un message parasite à la fermeture
