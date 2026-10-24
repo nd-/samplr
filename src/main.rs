@@ -6,9 +6,6 @@
 //   cargo run -- search 808 --path kick      → samples tagged 808 whose path contains "kick"
 //   cargo run -- help                        → every command
 
-mod db;
-mod waveform;
-
 use std::error::Error;
 use std::fs::File;
 use std::io::{self, Write};
@@ -19,32 +16,14 @@ use std::thread;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use db::FileStamp;
 use notify_debouncer_full::notify::event::{ModifyKind, RenameMode};
 use notify_debouncer_full::notify::{EventKind, RecursiveMode};
 use notify_debouncer_full::{DebouncedEvent, new_debouncer};
 use rusqlite::Connection;
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
-use walkdir::WalkDir;
-
-/// File extensions treated as samples.
-const AUDIO_EXTENSIONS: [&str; 7] = ["wav", "aif", "aiff", "flac", "mp3", "ogg", "m4a"];
-
-/// The info extracted from each file.
-/// `Option<T>` means "maybe a value, maybe nothing": some files do not
-/// declare everything.
-struct SampleInfo {
-    path: PathBuf,
-    duration_secs: Option<f64>,
-    sample_rate: Option<u32>,
-    channels: Option<u32>,
-    bits: Option<u32>,
-    /// Empty until the sample is read back from the database.
-    tags: Vec<String>,
-}
+// The shared code lives in the `samplr` library (src/lib.rs), which the
+// graphical interface will use too.
+use samplr::db::{self, FileStamp};
+use samplr::{SampleInfo, index, is_audio, is_mac_metadata, read_info, waveform};
 
 // clap reads this description to parse the command line: each variant of
 // `Command` becomes a subcommand (`Scan` → `samplr scan`), its fields become
@@ -135,26 +114,6 @@ fn main() {
     }
 }
 
-/// True for `._kick.wav`: metadata that macOS leaves next to `kick.wav` on a
-/// disk that cannot store it (USB stick, network share). Not sound.
-fn is_mac_metadata(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .is_some_and(|name| name.starts_with("._"))
-}
-
-/// True if the file has a known audio extension (case-insensitive).
-fn is_audio(path: &Path) -> bool {
-    if is_mac_metadata(path) {
-        return false;
-    }
-
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| AUDIO_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
-        .unwrap_or(false)
-}
-
 /// Saves the folder and the samples it contains to the database, then shows
 /// them as a table.
 fn scan(folder: &Path) -> Result<(), Box<dyn Error>> {
@@ -189,35 +148,6 @@ fn scan(folder: &Path) -> Result<(), Box<dyn Error>> {
         samples.len()
     );
     Ok(())
-}
-
-/// Walks `folder` and its subfolders and saves each sample to the database.
-/// Returns the saved samples and the number of unreadable files.
-fn index(db: &Connection, folder: &Path) -> (Vec<SampleInfo>, usize) {
-    let mut samples = Vec::new();
-    let mut unreadable = 0;
-
-    for entry in WalkDir::new(folder).sort_by_file_name() {
-        // An unreadable folder (missing permissions…) must not stop everything.
-        let Ok(entry) = entry else { continue };
-        let path = entry.path();
-
-        if !entry.file_type().is_file() || !is_audio(path) {
-            continue;
-        }
-
-        let Ok(info) = read_info(path) else {
-            unreadable += 1;
-            continue;
-        };
-        if let Err(error) = db::save(db, &info) {
-            eprintln!("{}: {error}", path.display());
-            unreadable += 1;
-            continue;
-        }
-        samples.push(info);
-    }
-    (samples, unreadable)
 }
 
 /// Catches up with the changes made while samplr was not running, then
@@ -545,47 +475,6 @@ fn print_row(out: &mut impl Write, info: &SampleInfo, path: &Path) -> io::Result
         info.channels.map(|c| format!("{c}")).unwrap_or("?".into()),
         path.display()
     )
-}
-
-/// Opens an audio file with symphonia and reads its characteristics without
-/// decoding the whole sound (it is fast).
-fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
-    let file = File::open(path)?; // `?` hands the error back to the caller, if any
-    let stream = MediaSourceStream::new(Box::new(file), Default::default());
-
-    // The extension is given as a hint to help symphonia recognise the format.
-    let mut hint = Hint::new();
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        hint.with_extension(ext);
-    }
-
-    let probed = symphonia::default::get_probe().format(
-        &hint,
-        stream,
-        &FormatOptions::default(),
-        &MetadataOptions::default(),
-    )?;
-
-    let track = probed
-        .format
-        .default_track()
-        .ok_or("no audio track in the file")?;
-    let params = &track.codec_params;
-
-    // Duration = number of frames / sample rate.
-    let duration_secs = match (params.n_frames, params.sample_rate) {
-        (Some(frames), Some(rate)) => Some(frames as f64 / rate as f64),
-        _ => None,
-    };
-
-    Ok(SampleInfo {
-        path: path.to_path_buf(),
-        duration_secs,
-        sample_rate: params.sample_rate,
-        channels: params.channels.map(|c| c.count() as u32),
-        bits: params.bits_per_sample,
-        tags: Vec::new(),
-    })
 }
 
 /// 1.234 → "1.23 s", 75.0 → "1:15"
