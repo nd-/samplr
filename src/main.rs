@@ -7,6 +7,7 @@
 //   cargo run -- help                        → every command
 
 mod db;
+mod waveform;
 
 use std::error::Error;
 use std::fs::File;
@@ -18,6 +19,7 @@ use std::thread;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
+use db::FileStamp;
 use notify_debouncer_full::notify::event::{ModifyKind, RenameMode};
 use notify_debouncer_full::notify::{EventKind, RecursiveMode};
 use notify_debouncer_full::{DebouncedEvent, new_debouncer};
@@ -80,6 +82,15 @@ enum Command {
     },
     /// Lists the existing tags and how many samples carry each
     Tags,
+    /// Draws a sample's waveform in the terminal
+    Wave {
+        file: PathBuf,
+        /// Width of the drawing, in characters
+        #[arg(long, default_value_t = 80)]
+        width: usize,
+    },
+    /// Computes the waveforms missing from the database, or out of date
+    Waveforms,
     /// Finds the samples carrying all the given tags
     Search {
         tags: Vec<String>,
@@ -104,6 +115,8 @@ fn main() {
         Command::Untag { file, tags } => untag(&file, &tags),
         Command::Tags => list_tags(),
         Command::Search { tags, path } => search(&tags, path.as_deref()),
+        Command::Wave { file, width } => wave(&file, width),
+        Command::Waveforms => compute_waveforms(),
     };
 
     // If a function returned an error, print it cleanly.
@@ -395,17 +408,85 @@ fn search(tags: &[String], path: Option<&str>) -> Result<(), Box<dyn Error>> {
 /// Adds tags to a sample. The file is read again every time: if it was not in
 /// the database yet, it gets added; otherwise its info is refreshed.
 fn tag(file: &Path, tags: &[String]) -> Result<(), Box<dyn Error>> {
+    let db = db::open()?;
+    let (file, file_id) = ensure_saved(&db, file)?;
+    let added = db::add_tags(&db, file_id, tags)?;
+
+    println!("{added} tag(s) added to {}", file.display());
+    Ok(())
+}
+
+/// Makes sure an audio file is in the database, and returns its absolute
+/// path and its `id`. The file is read again every time: if it was not in the
+/// database yet, it gets added; otherwise its info is refreshed.
+fn ensure_saved(db: &Connection, file: &Path) -> Result<(PathBuf, i64), Box<dyn Error>> {
     let file = dunce::canonicalize(file)?;
     if !is_audio(&file) {
         return Err(format!("{} is not a known audio file", file.display()).into());
     }
     let info = read_info(&file)?;
+    let file_id = db::save(db, &info)?;
+    Ok((file, file_id))
+}
 
+/// Draws a sample's waveform in the terminal, computing it first if it is
+/// not in the database or out of date.
+fn wave(file: &Path, width: usize) -> Result<(), Box<dyn Error>> {
     let db = db::open()?;
-    let file_id = db::save(&db, &info)?;
-    let added = db::add_tags(&db, file_id, tags)?;
+    let (file, file_id) = ensure_saved(&db, file)?;
 
-    println!("{added} tag(s) added to {}", file.display());
+    let stamp = FileStamp::read(&file)?;
+    let peaks = match db::waveform(&db, file_id, stamp)? {
+        Some(peaks) => peaks,
+        None => {
+            let peaks = waveform::compute(&file)?;
+            db::save_waveform(&db, file_id, stamp, &peaks)?;
+            peaks
+        }
+    };
+
+    print!("{}", waveform::draw(&peaks, width, 6));
+    println!("{}", file.display());
+    Ok(())
+}
+
+/// Computes every waveform missing from the database or out of date.
+fn compute_waveforms() -> Result<(), Box<dyn Error>> {
+    let db = db::open()?;
+    let (mut computed, mut up_to_date, mut unreadable, mut missing) = (0, 0, 0, 0);
+
+    // No transaction here, unlike `scan`: decoding takes far longer than
+    // writing, and each waveform saved right away is kept even if the
+    // command is stopped halfway with Ctrl+C.
+    for (file_id, path) in db::all_files(&db)? {
+        // The stamp is read before decoding: if the file changes meanwhile,
+        // the saved stamp will no longer match and the waveform will be
+        // computed again next time.
+        let Ok(stamp) = FileStamp::read(&path) else {
+            // Deleted file, or disk unplugged.
+            missing += 1;
+            continue;
+        };
+        if db::waveform(&db, file_id, stamp)?.is_some() {
+            up_to_date += 1;
+            continue;
+        }
+        match waveform::compute(&path) {
+            Ok(peaks) => {
+                db::save_waveform(&db, file_id, stamp, &peaks)?;
+                computed += 1;
+                println!("+ {}", path.display());
+            }
+            Err(error) => {
+                eprintln!("{}: {error}", path.display());
+                unreadable += 1;
+            }
+        }
+    }
+
+    println!(
+        "\n{computed} computed, {up_to_date} already up to date, {unreadable} unreadable, {missing} missing."
+    );
     Ok(())
 }
 

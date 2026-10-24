@@ -1,0 +1,151 @@
+// Waveforms: a summary of the sound, small enough to be stored in the
+// database and drawn without decoding the file again.
+
+use std::error::Error;
+use std::fs::File;
+use std::path::Path;
+
+use rodio::Source;
+
+/// Number of points kept per waveform: about one per pixel of a wide
+/// display. Each point holds the lowest and highest value of the sound over
+/// its share of the file, which is what a waveform drawing needs.
+pub const POINTS: usize = 1024;
+
+/// The lowest and highest sample value (between -1 and 1) over a stretch of sound.
+pub type Peak = (f32, f32);
+
+/// Decodes the whole file and summarises it into at most `POINTS` peaks.
+/// Every channel goes into the same peaks: the drawing shows the loudest
+/// channel at each moment.
+pub fn compute(path: &Path) -> Result<Vec<Peak>, Box<dyn Error>> {
+    let decoder = rodio::Decoder::try_from(File::open(path)?)?;
+    // `get()` turns the `NonZero<u16>` returned by rodio into a plain number.
+    let channels = decoder.channels().get() as usize;
+
+    // The file length is not always known in advance (some MP3s), so the
+    // peaks are built on the fly: each bucket starts by covering a single
+    // frame (one sample per channel), and every time the list reaches twice
+    // `POINTS`, neighbouring buckets are merged two by two and each bucket
+    // covers twice as many frames. Memory use stays the same whatever the
+    // file length.
+    let mut buckets: Vec<Peak> = Vec::with_capacity(2 * POINTS);
+    let mut frames_per_bucket = 1;
+    let mut frames_in_current = 0;
+
+    for (index, sample) in decoder.enumerate() {
+        // A new bucket opens on the first sample of its first frame.
+        if index % channels == 0 && frames_in_current == 0 {
+            buckets.push((sample, sample));
+        }
+        // `last_mut` lends the last bucket for modification. It always
+        // exists here, since one was pushed on the very first sample.
+        if let Some((low, high)) = buckets.last_mut() {
+            *low = low.min(sample);
+            *high = high.max(sample);
+        }
+
+        // End of a frame: count it, and close the bucket once it is full.
+        if index % channels == channels - 1 {
+            frames_in_current += 1;
+            if frames_in_current == frames_per_bucket {
+                frames_in_current = 0;
+                if buckets.len() == 2 * POINTS {
+                    buckets = merge_pairs(&buckets);
+                    frames_per_bucket *= 2;
+                }
+            }
+        }
+    }
+
+    if buckets.is_empty() {
+        return Err("no sound decoded".into());
+    }
+    Ok(resample(&buckets, POINTS))
+}
+
+/// Merges neighbouring peaks two by two: half as many, each covering twice as long.
+fn merge_pairs(peaks: &[Peak]) -> Vec<Peak> {
+    peaks.chunks(2).map(merge).collect()
+}
+
+/// The single peak covering all the given peaks.
+fn merge(peaks: &[Peak]) -> Peak {
+    peaks
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(low, high), &(l, h)| {
+            (low.min(l), high.max(h))
+        })
+}
+
+/// Brings `peaks` down to exactly `count` peaks, each covering an equal
+/// share. Fewer peaks than `count` (a file shorter than `count` frames) are
+/// returned as they are.
+pub fn resample(peaks: &[Peak], count: usize) -> Vec<Peak> {
+    if peaks.len() <= count {
+        return peaks.to_vec();
+    }
+    (0..count)
+        .map(|i| merge(&peaks[i * peaks.len() / count..(i + 1) * peaks.len() / count]))
+        .collect()
+}
+
+/// Peaks stored as bytes, two per peak (low then high), each value mapped from
+/// -1..1 to -127..127. A byte is plenty for a drawing, and a 1024-point
+/// waveform takes 2 KB in the database.
+pub fn to_bytes(peaks: &[Peak]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(peaks.len() * 2);
+    for &(low, high) in peaks {
+        bytes.push(to_byte(low));
+        bytes.push(to_byte(high));
+    }
+    bytes
+}
+
+pub fn from_bytes(bytes: &[u8]) -> Vec<Peak> {
+    bytes
+        .chunks_exact(2)
+        .map(|pair| (from_byte(pair[0]), from_byte(pair[1])))
+        .collect()
+}
+
+// `as i8` reads the same 8 bits as a signed number: the byte 255 becomes -1.
+// That is how a value between -127 and 127 travels as a byte.
+
+fn to_byte(value: f32) -> u8 {
+    (value.clamp(-1.0, 1.0) * 127.0).round() as i8 as u8
+}
+
+fn from_byte(byte: u8) -> f32 {
+    byte as i8 as f32 / 127.0
+}
+
+/// Draws the waveform in the terminal: `width` columns, `rows` lines. Each
+/// column is a bar as high as the loudest value of its stretch, built from
+/// the block characters ▁▂▃▄▅▆▇█ which give eight heights per line.
+pub fn draw(peaks: &[Peak], width: usize, rows: usize) -> String {
+    const BLOCKS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+    let columns = resample(peaks, width);
+    // Bar height of each column, in eighths of a line.
+    let heights: Vec<usize> = columns
+        .iter()
+        .map(|&(low, high)| {
+            let loudest = low.abs().max(high.abs()).min(1.0);
+            (loudest * (rows * 8) as f32).round() as usize
+        })
+        .collect();
+
+    let mut drawing = String::new();
+    // Lines are written from the top: the line `row` (0 at the bottom) is
+    // full where the bar goes above it, empty where it stays below, and
+    // partly filled in between.
+    for row in (0..rows).rev() {
+        for &height in &heights {
+            let filled = height.saturating_sub(row * 8).min(8);
+            drawing.push(BLOCKS[filled]);
+        }
+        drawing.push('\n');
+    }
+    drawing
+}

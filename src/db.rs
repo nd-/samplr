@@ -5,10 +5,12 @@ use std::env;
 use std::error::Error;
 use std::fs;
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 use rusqlite::{Connection, OptionalExtension, named_params, params, params_from_iter};
 
 use crate::SampleInfo;
+use crate::waveform::{self, Peak};
 
 /// Location of the database file: the system's data folder
 /// (`~/.local/share/samplr` on Linux, `~/Library/Application Support/samplr`
@@ -57,6 +59,13 @@ pub fn open() -> Result<Connection, Box<dyn Error>> {
         CREATE TABLE IF NOT EXISTS folders (
             id   INTEGER PRIMARY KEY,
             path TEXT NOT NULL UNIQUE
+        );
+
+        CREATE TABLE IF NOT EXISTS waveforms (
+            file_id  INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+            size     INTEGER NOT NULL,
+            modified INTEGER NOT NULL,
+            peaks    BLOB NOT NULL
         );",
     )?;
 
@@ -182,6 +191,80 @@ pub fn save(db: &Connection, info: &SampleInfo) -> Result<i64, Box<dyn Error>> {
         |row| row.get(0),
     )?;
     Ok(id)
+}
+
+/// Every sample in the database: its `id` and its path, sorted by path.
+pub fn all_files(db: &Connection) -> Result<Vec<(i64, PathBuf)>, Box<dyn Error>> {
+    let mut query = db.prepare("SELECT id, path FROM files ORDER BY path")?;
+    let rows = query.query_map([], |row| {
+        Ok((row.get(0)?, PathBuf::from(row.get::<_, String>(1)?)))
+    })?;
+
+    let mut files = Vec::new();
+    for file in rows {
+        files.push(file?);
+    }
+    Ok(files)
+}
+
+/// The cached waveform of a sample, or `None` if there is none or if it is
+/// stale. The file's size and modification date are saved with the
+/// waveform: if either has changed, the file has changed and the waveform
+/// must be computed again.
+pub fn waveform(
+    db: &Connection,
+    file_id: i64,
+    stamp: FileStamp,
+) -> Result<Option<Vec<Peak>>, Box<dyn Error>> {
+    let bytes: Option<Vec<u8>> = db
+        .query_row(
+            "SELECT peaks FROM waveforms WHERE file_id = ?1 AND size = ?2 AND modified = ?3",
+            params![file_id, stamp.size, stamp.modified],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(bytes.map(|b| waveform::from_bytes(&b)))
+}
+
+/// Saves a sample's waveform, replacing the previous one.
+pub fn save_waveform(
+    db: &Connection,
+    file_id: i64,
+    stamp: FileStamp,
+    peaks: &[Peak],
+) -> Result<(), Box<dyn Error>> {
+    db.execute(
+        "INSERT OR REPLACE INTO waveforms (file_id, size, modified, peaks)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![
+            file_id,
+            stamp.size,
+            stamp.modified,
+            waveform::to_bytes(peaks)
+        ],
+    )?;
+    Ok(())
+}
+
+/// What tells whether a file has changed since a waveform was computed:
+/// its size in bytes and its modification date (milliseconds since 1970).
+/// `#[derive(Clone, Copy)]` lets it be passed around by value, like a number.
+#[derive(Clone, Copy)]
+pub struct FileStamp {
+    pub size: i64,
+    pub modified: i64,
+}
+
+impl FileStamp {
+    /// Reads the stamp of the file at `path` from the file system.
+    pub fn read(path: &Path) -> Result<FileStamp, Box<dyn Error>> {
+        let metadata = fs::metadata(path)?;
+        let modified = metadata.modified()?.duration_since(UNIX_EPOCH)?;
+        Ok(FileStamp {
+            size: metadata.len() as i64,
+            modified: modified.as_millis() as i64,
+        })
+    }
 }
 
 /// A sample's `id` from its path, or `None` if it is not in the database.

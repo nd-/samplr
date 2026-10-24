@@ -1,5 +1,6 @@
 /target
-/TR808
+# Test samples, kept out of the repository
+/samples
 
 # Files left by macOS (AppleDouble metadata, Finder index)
 ._*
