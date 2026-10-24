@@ -8,6 +8,8 @@ edition = "2024"
 clap = { version = "4.6", features = ["derive"] }
 # The system's standard data folder (~/.local/share, ~/Library/Application Support)
 dirs = "7.0"
+# `canonicalize` without Windows' `\\?\C:\…` prefix (same as std on Mac and Linux)
+dunce = "1.0"
 # Folder watching (inotify on Linux, FSEvents on Mac), with event grouping
 # and matching of both ends of a rename
 notify-debouncer-full = "0.7"

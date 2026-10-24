@@ -150,7 +150,7 @@ fn scan(folder: &Path) -> Result<(), Box<dyn Error>> {
     }
     // Absolute path: the database must find the files again whatever folder
     // samplr is run from.
-    let folder = folder.canonicalize()?;
+    let folder = dunce::canonicalize(folder)?;
 
     let mut db = db::open()?;
     // A transaction groups all the writes: SQLite writes to disk only once,
@@ -395,7 +395,7 @@ fn search(tags: &[String], path: Option<&str>) -> Result<(), Box<dyn Error>> {
 /// Adds tags to a sample. The file is read again every time: if it was not in
 /// the database yet, it gets added; otherwise its info is refreshed.
 fn tag(file: &Path, tags: &[String]) -> Result<(), Box<dyn Error>> {
-    let file = file.canonicalize()?;
+    let file = dunce::canonicalize(file)?;
     if !is_audio(&file) {
         return Err(format!("{} is not a known audio file", file.display()).into());
     }
@@ -410,7 +410,7 @@ fn tag(file: &Path, tags: &[String]) -> Result<(), Box<dyn Error>> {
 }
 
 fn untag(file: &Path, tags: &[String]) -> Result<(), Box<dyn Error>> {
-    let file = file.canonicalize()?;
+    let file = dunce::canonicalize(file)?;
 
     let db = db::open()?;
     let file_id = db::file_id(&db, &file)?

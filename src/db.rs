@@ -4,9 +4,9 @@
 use std::env;
 use std::error::Error;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 
-use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
+use rusqlite::{Connection, OptionalExtension, named_params, params, params_from_iter};
 
 use crate::SampleInfo;
 
@@ -86,8 +86,12 @@ pub fn folders(db: &Connection) -> Result<Vec<PathBuf>, Box<dyn Error>> {
 
 /// The samples in the database located in `folder` or its subfolders.
 pub fn files_under(db: &Connection, folder: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    let folder = path_as_text(folder)?;
     let mut query = db.prepare(&format!("SELECT path FROM files WHERE {UNDER_PATH}"))?;
-    let rows = query.query_map([path_as_text(folder)?], |row| row.get::<_, String>(0))?;
+    let rows = query.query_map(
+        named_params! { ":path": folder, ":prefix": folder_prefix(folder) },
+        |row| row.get::<_, String>(0),
+    )?;
 
     let mut files = Vec::new();
     for path in rows {
@@ -100,9 +104,10 @@ pub fn files_under(db: &Connection, folder: &Path) -> Result<Vec<PathBuf>, Box<d
 /// contains if it is a folder, along with their tags. Returns the number of
 /// samples removed.
 pub fn forget(db: &Connection, path: &Path) -> Result<usize, Box<dyn Error>> {
+    let path = path_as_text(path)?;
     let forgotten = db.execute(
         &format!("DELETE FROM files WHERE {UNDER_PATH}"),
-        [path_as_text(path)?],
+        named_params! { ":path": path, ":prefix": folder_prefix(path) },
     )?;
     if forgotten > 0 {
         delete_orphan_tags(db)?;
@@ -119,16 +124,36 @@ pub fn rename(db: &Connection, old: &Path, new: &Path) -> Result<usize, Box<dyn 
     forget(db, new)?;
     // Replaces the start of the path: `/a/kick.wav` becomes `/b/kick.wav`,
     // `/a/drums/kick.wav` becomes `/b/drums/kick.wav`.
+    let old = path_as_text(old)?;
     let renamed = db.execute(
-        &format!("UPDATE files SET path = ?2 || substr(path, length(?1) + 1) WHERE {UNDER_PATH}"),
-        [path_as_text(old)?, path_as_text(new)?],
+        &format!(
+            "UPDATE files SET path = :new || substr(path, length(:path) + 1) WHERE {UNDER_PATH}"
+        ),
+        named_params! {
+            ":path": old,
+            ":prefix": folder_prefix(old),
+            ":new": path_as_text(new)?,
+        },
     )?;
     Ok(renamed)
 }
 
-/// "`path` is `?1`, or lies inside the folder `?1`". No `LIKE`: a `_` or a
+/// "The `path` column is `:path`, or starts with `:prefix`", where `:prefix`
+/// is `:path` seen as a folder (see `folder_prefix`). No `LIKE`: a `_` or a
 /// `%` in a folder name would act as a wildcard.
-const UNDER_PATH: &str = "(path = ?1 OR substr(path, 1, length(?1) + 1) = ?1 || '/')";
+const UNDER_PATH: &str = "(path = :path OR substr(path, 1, length(:prefix)) = :prefix)";
+
+/// `path` followed by the system's separator (`/` on Mac and Linux, `\` on
+/// Windows): what every path inside that folder starts with. Without the
+/// separator, `/samples/kick` would also match `/samples/kicks/…`. A drive
+/// root (`/`, `C:\`) already ends with one.
+fn folder_prefix(path: &str) -> String {
+    if path.ends_with(MAIN_SEPARATOR) {
+        path.to_string()
+    } else {
+        format!("{path}{MAIN_SEPARATOR}")
+    }
+}
 
 /// Adds a sample to the database, or updates its info if it is already there.
 /// Returns the sample's `id`.

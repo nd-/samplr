@@ -23,6 +23,7 @@ Desktop audio sample manager for **macOS and Linux**: listen to, tag and organis
 - `walkdir`: recursive folder walking.
 - `rusqlite` 0.41 (feature `bundled`: SQLite compiled with the project, no system library to install). No `usize` in queries: rusqlite cannot convert it, use `u32` or `i64`.
 - `dirs`: the system's standard data folder.
+- `dunce`: use `dunce::canonicalize`, never `Path::canonicalize`. Identical on Mac and Linux; on Windows it avoids `\\?\C:\…` paths, unreadable and different from the ones `notify` reports. Likewise, never hard-code `/` as a separator (`std::path::MAIN_SEPARATOR`).
 - `notify-debouncer-full` 0.7 (re-exports `notify` 8): folder watching. Groups the events of a single file for 1 s, and matches both ends of a rename (`RenameMode::Both`), including on Mac where FSEvents sends them separately.
 - `clap` 4 (feature `derive`): subcommands are described by the `enum Command` in `main.rs`; the `///` comments become the `samplr help` output.
 
