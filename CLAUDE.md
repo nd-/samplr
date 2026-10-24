@@ -32,7 +32,7 @@ Sur le Mac, le projet est ouvert depuis le partage SMB de la machine Linux (`/Vo
 ## État actuel (étape 4 terminée)
 `src/main.rs` contient les commandes, `src/base.rs` l'accès à la base :
 - `samplr scan <dossier>` : liste les fichiers audio (wav, aif, aiff, flac, mp3, ogg, m4a) avec durée, fréquence, bits et canaux, et les enregistre dans la base (chemin absolu ; un nouveau scan met à jour sans doublon et garde l'`id`, donc les tags). Les fichiers illisibles sont comptés, sans planter. Les fichiers AppleDouble `._*` déposés par macOS sont ignorés.
-- `samplr liste` : affiche les samples de la base, avec leurs tags entre crochets.
+- `samplr liste` : affiche les samples de la base, avec leurs tags entre crochets. Les affichages passent par `writeln!` et non `println!` : `samplr liste | head` s'arrête sans erreur quand `head` ferme le tuyau (« broken pipe »), et `scan` va jusqu'au bout même si sa sortie est coupée.
 - `samplr tag <fichier> <tag>...` / `samplr untag <fichier> <tag>...` : ajoute ou retire des tags. `tag` relit le fichier et l'ajoute à la base s'il n'y était pas.
 - `samplr tags` : les tags et leur nombre de samples.
 - `samplr cherche [tag]... [--chemin <texte>]` : samples portant **tous** les tags donnés, dont le chemin contient le texte (sans tenir compte des majuscules, `_` pris tel quel).
@@ -54,7 +54,7 @@ Pièges audio rencontrés :
 1. ✅ Scanner un dossier et lister les samples.
 2. ✅ Préécoute : `play` testé sous Linux et sur le Mac (reste : volume).
 3. ✅ Base **SQLite** (`rusqlite`) : tables fichiers, tags et liaisons. Les tags restent dans la base, jamais dans les fichiers audio.
-4. ✅ Commandes CLI pour tagger et rechercher, avec `clap`. Reste : `samplr liste | head` panique (« Broken pipe ») quand le tuyau se ferme avant la fin de l'affichage.
+4. ✅ Commandes CLI pour tagger et rechercher, avec `clap`.
 5. Surveillance des dossiers (`notify` : inotify sur Linux, FSEvents sur Mac).
 6. Calcul des formes d'onde et cache dans la base.
 7. Interface graphique avec **Tauri** (backend Rust + interface web, `wavesurfer.js`), préécoute au clavier.

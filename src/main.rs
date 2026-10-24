@@ -10,6 +10,7 @@ mod base;
 
 use std::error::Error;
 use std::fs::File;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::thread;
@@ -100,6 +101,16 @@ fn main() {
 
     // Si une fonction a renvoyé une erreur, on l'affiche proprement.
     if let Err(erreur) = resultat {
+        // `samplr liste | head` : `head` ferme le tuyau dès qu'il a ses lignes,
+        // et l'écriture suivante échoue (« broken pipe »). Ce n'est pas une
+        // erreur de samplr : on s'arrête sans rien dire, comme `ls` ou `grep`.
+        // `downcast_ref` regarde si l'erreur, de type inconnu ici, est une
+        // erreur d'entrée-sortie.
+        if let Some(erreur_es) = erreur.downcast_ref::<io::Error>()
+            && erreur_es.kind() == io::ErrorKind::BrokenPipe
+        {
+            process::exit(0);
+        }
         eprintln!("Erreur : {erreur}");
         process::exit(1);
     }
@@ -140,7 +151,11 @@ fn scanner(dossier: &Path) -> Result<(), Box<dyn Error>> {
     let mut nb_samples = 0;
     let mut nb_illisibles = 0;
 
-    afficher_entete();
+    // L'affichage n'est ici qu'un compte rendu : si la sortie est fermée
+    // (`samplr scan … | head`), on ignore l'échec d'écriture (`let _ =`) et le
+    // scan va jusqu'au bout, sinon la transaction serait abandonnée.
+    let mut sortie = io::stdout().lock();
+    let _ = afficher_entete(&mut sortie);
 
     for entree in WalkDir::new(&dossier).sort_by_file_name() {
         // Un dossier illisible (droits insuffisants…) ne doit pas tout arrêter.
@@ -164,24 +179,29 @@ fn scanner(dossier: &Path) -> Result<(), Box<dyn Error>> {
         nb_samples += 1;
         // Chemin affiché relativement au dossier scanné, plus lisible.
         let relatif = info.chemin.strip_prefix(&dossier).unwrap_or(&info.chemin);
-        afficher_ligne(&info, relatif);
+        let _ = afficher_ligne(&mut sortie, &info, relatif);
     }
 
     transaction.commit()?;
-    println!("\n{nb_samples} sample(s) enregistré(s), {nb_illisibles} illisible(s).");
+    let _ = writeln!(
+        sortie,
+        "\n{nb_samples} sample(s) enregistré(s), {nb_illisibles} illisible(s)."
+    );
     Ok(())
 }
 
-/// Affiche tous les samples enregistrés dans la base.
+/// Affiche les samples de la base qui portent tous les `tags` et dont le
+/// chemin contient `chemin` ; sans tag ni chemin, tous les samples.
 fn chercher(tags: &[String], chemin: Option<&str>) -> Result<(), Box<dyn Error>> {
     let base = base::ouvrir()?;
     let samples = base::chercher(&base, tags, chemin.unwrap_or(""))?;
 
-    afficher_entete();
+    let mut sortie = io::stdout().lock();
+    afficher_entete(&mut sortie)?;
     for info in &samples {
-        afficher_ligne(info, &info.chemin);
+        afficher_ligne(&mut sortie, info, &info.chemin)?;
     }
-    println!("\n{} sample(s) trouvé(s).", samples.len());
+    writeln!(sortie, "\n{} sample(s) trouvé(s).", samples.len())?;
     Ok(())
 }
 
@@ -218,36 +238,43 @@ fn lister_tags() -> Result<(), Box<dyn Error>> {
     let base = base::ouvrir()?;
     let tags = base::lister_tags(&base)?;
 
+    let mut sortie = io::stdout().lock();
     for (nom, nb_samples) in &tags {
-        println!("{nb_samples:>5}  {nom}");
+        writeln!(sortie, "{nb_samples:>5}  {nom}")?;
     }
-    println!("\n{} tag(s).", tags.len());
+    writeln!(sortie, "\n{} tag(s).", tags.len())?;
     Ok(())
 }
 
-fn afficher_entete() {
-    println!(
+// Les fonctions d'affichage écrivent avec `writeln!` dans la `sortie` reçue
+// plutôt qu'avec `println!` : `println!` arrête le programme sur une erreur
+// d'écriture, `writeln!` la retourne et laisse l'appelant décider.
+
+fn afficher_entete(sortie: &mut impl Write) -> io::Result<()> {
+    writeln!(
+        sortie,
         "{:>8}  {:>7}  {:>4}  {:>5}  FICHIER",
         "DURÉE", "FRÉQ.", "BITS", "CAN."
-    );
+    )
 }
 
 /// Une ligne du tableau ; `chemin` est le chemin à afficher, complet ou raccourci.
 /// Les tags éventuels suivent le chemin, entre crochets.
-fn afficher_ligne(info: &InfoSample, chemin: &Path) {
+fn afficher_ligne(sortie: &mut impl Write, info: &InfoSample, chemin: &Path) -> io::Result<()> {
     let tags = if info.tags.is_empty() {
         String::new()
     } else {
         format!("  [{}]", info.tags.join(" "))
     };
-    println!(
+    writeln!(
+        sortie,
         "{:>8}  {:>7}  {:>4}  {:>5}  {}{tags}",
         formater_duree(info.duree_secondes),
         info.frequence.map(|f| format!("{f}")).unwrap_or("?".into()),
         info.bits.map(|b| format!("{b}")).unwrap_or("-".into()),
         info.canaux.map(|c| format!("{c}")).unwrap_or("?".into()),
         chemin.display()
-    );
+    )
 }
 
 /// Ouvre un fichier audio avec symphonia et lit ses caractéristiques
