@@ -1,69 +1,69 @@
-# samplr — contexte pour Claude
+# samplr: context for Claude
 
-## Le projet
-Gestionnaire de samples audio de bureau pour **macOS et Linux** : écouter, tagger et ranger ses samples (usage musicien, à côté d'un DAW).
+## The project
+Desktop audio sample manager for **macOS and Linux**: listen to, tag and organise samples (for musicians, alongside a DAW).
 
-## Qui développe
-- **Débutant complet en Rust** : expliquer chaque nouvelle notion (ownership, emprunts, `Result`, traits, lifetimes, threads…) au moment où elle apparaît dans le code, avec des mots simples. Pas de cours théorique en amont.
-- Machines : un Mac M4 (Apple Silicon) et un Linux. Développement principal sous **Linux avec RustRover**.
-- Habitué aux raccourcis clavier Linux. S'il faut citer des raccourcis RustRover, donner ceux du keymap Linux (ou les deux versions).
+## Who develops
+- **Complete Rust beginner**: explain each new concept (ownership, borrowing, `Result`, traits, lifetimes, threads…) when it first appears in the code, in simple words. No upfront theory lessons. Explanations in the conversation stay in French.
+- Machines: a Mac M4 (Apple Silicon) and a Linux box. Main development on **Linux with RustRover**.
+- Used to Linux keyboard shortcuts. When quoting RustRover shortcuts, give the Linux keymap ones (or both versions).
 
-## Façon de travailler
-- Avancer par **petites étapes qui compilent et tournent** : chaque étape doit pouvoir se tester avec `cargo run`.
-- Écrire le code **avec des commentaires en français**. Noms de fonctions et de variables en français, comme dans l'existant.
-- Garder un code simple et lisible plutôt qu'idiomatique-avancé. Pas d'abstraction prématurée.
-- Quand une erreur du compilateur est collée, l'expliquer avant de la corriger.
-- Avant de rendre la main : `cargo build`, `cargo clippy` et `cargo fmt` sans avertissement.
-- Penser Mac **et** Linux à chaque choix (chemins, audio, glisser-déposer, empaquetage).
+## How we work
+- Move forward in **small steps that compile and run**: each step must be testable with `cargo run`.
+- **Everything in the repository is in English**: identifiers, comments, user-facing messages, command names, documentation and commit messages.
+- Keep the code simple and readable rather than advanced-idiomatic. No premature abstraction.
+- When a compiler error is pasted, explain it before fixing it.
+- Before handing back: `cargo build`, `cargo clippy` and `cargo fmt` without warnings.
+- Think Mac **and** Linux for every choice (paths, audio, drag and drop, packaging).
 
-## Stack actuelle
-- Rust édition 2024, binaire unique `samplr` (ligne de commande pour l'instant).
-- `symphonia` 0.5 (feature `all`) : lecture des infos et décodage. **Garder la 0.5**, c'est la version utilisée par `rodio` ; passer à la 0.6 ferait compiler deux versions.
-- `rodio` 0.23 (feature `symphonia-all`) : lecture audio. API : `DeviceSinkBuilder::open_default_sink()`, `Player::connect_new(mixer)`, `Decoder::try_from(file)`.
-- `walkdir` : parcours récursif des dossiers.
-- `rusqlite` 0.41 (feature `bundled` : SQLite compilé avec le projet, aucune bibliothèque système à installer). Pas de `usize` dans les requêtes : rusqlite ne sait pas le convertir, utiliser `u32` ou `i64`.
-- `dirs` : dossier de données standard du système.
-- `notify-debouncer-full` 0.7 (réexporte `notify` 8) : surveillance des dossiers. Regroupe les événements d'un même fichier pendant 1 s, et réapparie les deux bouts d'un renommage (`RenameMode::Both`), y compris sur Mac où FSEvents les envoie séparément.
-- `clap` 4 (feature `derive`) : les sous-commandes sont décrites par l'`enum Commande` de `main.rs` ; les commentaires `///` deviennent l'aide de `samplr help`.
+## Current stack
+- Rust edition 2024, single `samplr` binary (command line for now).
+- `symphonia` 0.5 (feature `all`): file info and decoding. **Keep 0.5**, it is the version `rodio` uses; moving to 0.6 would compile two versions.
+- `rodio` 0.23 (feature `symphonia-all`): audio playback. API: `DeviceSinkBuilder::open_default_sink()`, `Player::connect_new(mixer)`, `Decoder::try_from(file)`.
+- `walkdir`: recursive folder walking.
+- `rusqlite` 0.41 (feature `bundled`: SQLite compiled with the project, no system library to install). No `usize` in queries: rusqlite cannot convert it, use `u32` or `i64`.
+- `dirs`: the system's standard data folder.
+- `notify-debouncer-full` 0.7 (re-exports `notify` 8): folder watching. Groups the events of a single file for 1 s, and matches both ends of a rename (`RenameMode::Both`), including on Mac where FSEvents sends them separately.
+- `clap` 4 (feature `derive`): subcommands are described by the `enum Command` in `main.rs`; the `///` comments become the `samplr help` output.
 
-Dépendances système Linux : `build-essential pkg-config libasound2-dev` (ALSA).
+Linux system dependencies: `build-essential pkg-config libasound2-dev` (ALSA).
 
-Sur le Mac, le projet est ouvert depuis le partage SMB de la machine Linux (`/Volumes/nico/Sites/projets/sample browser`). Le partage ne gère pas le verrouillage de fichiers dont Cargo a besoin (« could not create session directory lock file ») : `~/.cargo/config.toml` du Mac envoie donc la compilation dans `/Users/nico/cargo-target` (`build.target-dir`), ce qui évite aussi de mélanger binaires macOS et Linux dans `target/`. Ne pas mettre ce réglage dans le `.cargo/config.toml` du projet : le chemin n'existe pas sous Linux.
+On the Mac, the project is opened from the Linux machine's SMB share (`/Volumes/nico/Sites/projets/sample browser`). The share does not support the file locking Cargo needs ("could not create session directory lock file"): the Mac's `~/.cargo/config.toml` therefore sends the build to `/Users/nico/cargo-target` (`build.target-dir`), which also avoids mixing macOS and Linux binaries in `target/`. Do not put this setting in the project's `.cargo/config.toml`: the path does not exist on Linux.
 
-## État actuel (étape 5 terminée)
-`src/main.rs` contient les commandes, `src/base.rs` l'accès à la base :
-- `samplr scan <dossier>` : liste les fichiers audio (wav, aif, aiff, flac, mp3, ogg, m4a) avec durée, fréquence, bits et canaux, et les enregistre dans la base (chemin absolu ; un nouveau scan met à jour sans doublon et garde l'`id`, donc les tags). Les fichiers illisibles sont comptés, sans planter. Les fichiers AppleDouble `._*` déposés par macOS sont ignorés.
-- `samplr liste` : affiche les samples de la base, avec leurs tags entre crochets. Les affichages passent par `writeln!` et non `println!` : `samplr liste | head` s'arrête sans erreur quand `head` ferme le tuyau (« broken pipe »), et `scan` va jusqu'au bout même si sa sortie est coupée.
-- `samplr tag <fichier> <tag>...` / `samplr untag <fichier> <tag>...` : ajoute ou retire des tags. `tag` relit le fichier et l'ajoute à la base s'il n'y était pas.
-- `samplr tags` : les tags et leur nombre de samples.
-- `samplr surveille` : rattrape d'abord les changements faits pendant l'arrêt (samples disparus retirés, nouveaux ajoutés), puis suit les dossiers scannés en direct jusqu'à Ctrl+C. Un renommage ou un déplacement, de fichier comme de dossier, garde l'`id` donc les tags. Un dossier scanné à l'intérieur d'un autre n'est surveillé qu'une fois.
-- `samplr cherche [tag]... [--chemin <texte>]` : samples portant **tous** les tags donnés, dont le chemin contient le texte (sans tenir compte des majuscules, `_` pris tel quel).
-- `samplr play <fichier>` : joue un fichier sur la sortie par défaut.
+## Current state (step 5 done)
+`src/main.rs` holds the commands, `src/db.rs` the database access:
+- `samplr scan <folder>`: lists the audio files (wav, aif, aiff, flac, mp3, ogg, m4a) with length, sample rate, bits and channels, and saves them to the database (absolute path; a new scan updates without duplicates and keeps the `id`, hence the tags). Unreadable files are counted, without crashing. AppleDouble `._*` files left by macOS are ignored.
+- `samplr list`: shows the samples in the database, with their tags between brackets. Output goes through `writeln!` rather than `println!`: `samplr list | head` stops without error when `head` closes the pipe ("broken pipe"), and `scan` runs to the end even if its output is cut off.
+- `samplr tag <file> <tag>...` / `samplr untag <file> <tag>...`: adds or removes tags. `tag` reads the file again and adds it to the database if it was not there.
+- `samplr tags`: the tags and how many samples carry each.
+- `samplr watch`: first catches up with the changes made while it was not running (vanished samples removed, new ones added), then follows the scanned folders live until Ctrl+C. A rename or a move, of a file or a folder, keeps the `id` hence the tags. A scanned folder inside another one is watched only once.
+- `samplr search [tag]... [--path <text>]`: samples carrying **all** the given tags, whose path contains the text (case-insensitive, `_` taken literally).
+- `samplr play <file>`: plays a file on the default output.
 
-Base : `samplr.db` dans le dossier de données du système (`~/.local/share/samplr` sous Linux, `~/Library/Application Support/samplr` sur Mac). La variable `SAMPLR_BASE` désigne une autre base, pour les essais. Tables `fichiers`, `tags`, `fichiers_tags`, `dossiers` (les dossiers passés à `scan`, suivis par `surveille`). Les tags sont rangés en minuscules, sans espace ; un tag qui ne sert plus à aucun sample est supprimé. **Disque débranché** : si le dossier scanné lui-même a disparu, rien n'est retiré de la base, au démarrage comme en direct. Sinon débrancher un disque externe effacerait tous les tags de ses samples.
+Database: `samplr.db` in the system data folder (`~/.local/share/samplr` on Linux, `~/Library/Application Support/samplr` on Mac). The `SAMPLR_DB` variable points to another database, for experiments. Tables `files`, `tags`, `file_tags`, `folders` (the folders given to `scan`, followed by `watch`). Tags are stored lowercase, without spaces; a tag no longer used by any sample is deleted. **Unplugged disk**: if the scanned folder itself has disappeared, nothing is removed from the database, at startup or live. Otherwise unplugging an external disk would erase the tags of all its samples.
 
-Le scan et la lecture ont été testés sous Linux et sur le Mac (fichiers lus depuis le partage SMB).
+Scanning and playback have been tested on Linux and on the Mac (files read from the SMB share).
 
-Pièges audio rencontrés :
-- `sleep_until_end()` revient avant que le tampon de la carte son soit vidé : sans la pause de 300 ms qui suit dans `jouer`, un sample très court (kick de 75 ms) est jeté sans être joué.
-- Une sortie HDMI mise en veille par PipeWire met une à deux secondes à se réveiller et avale un sample court. Ce n'est pas un bug de samplr : le régler côté système, avec une règle WirePlumber `session.suspend-timeout-seconds = 0` sur la sortie concernée.
-- Mac, fichier sur le partage SMB : un « audio stream error: A buffer underrun or overrun occurred » est apparu une fois (non reproduit en 6 essais). Cause probable : `Decoder::try_from(fichier)` lit le fichier morceau par morceau pendant la lecture, donc à travers le réseau. Cas anecdotique (partage utilisé pour les tests seulement) : on garde la lecture au fil de l'eau. Charger le fichier en mémoire retarderait le démarrage des longs fichiers, ce qui gênerait la préécoute rapide d'un sample à l'autre.
-- Mac, sortie HDMI (écran DELL U2415) : macOS n'a pas de volume pour une sortie HDMI, le son part à plein niveau. SoundSource ajoute un volume logiciel, mais il l'applique **par appli** : un programme lancé en ligne de commande (`samplr`, `afplay`) est rattaché au terminal qui l'a lancé. Lancé depuis iTerm2, `samplr` apparaît sous « iTerm2 » dans SoundSource et respecte le volume : ce n'est pas un problème de `cpal`/rodio. Le son fort venait de lancements depuis un autre terminal, dont l'entrée SoundSource n'était pas atténuée. Un volume propre à samplr (`Player::set_volume`) reste utile pour l'interface.
-- Les sonneries Apple `.m4r` (AAC dans du MP4, ex. `/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Opening.m4r`) ne sont pas décodées par symphonia 0.5 : durée trouvée, canaux inconnus, aucun échantillon. Le même son réencodé par `afconvert` (AAC ou WAV) se lit bien : l'AAC est donc pris en charge, c'est la structure de ces fichiers qui pose problème.
-- Quand le décodeur ne produit aucun échantillon, `play` le signale (« aucun son décodé ») : `jouer` le vérifie sur un décodeur jetable avant d'ouvrir la sortie audio.
+Audio pitfalls met so far:
+- `sleep_until_end()` returns before the sound card's buffer is drained: without the 300 ms pause that follows in `play`, a very short sample (75 ms kick) is dropped without being played.
+- An HDMI output suspended by PipeWire takes one to two seconds to wake up and swallows a short sample. Not a samplr bug: fix it on the system side, with a WirePlumber rule `session.suspend-timeout-seconds = 0` on the output concerned.
+- Mac, file on the SMB share: an "audio stream error: A buffer underrun or overrun occurred" appeared once (not reproduced in 6 attempts). Likely cause: `Decoder::try_from(file)` reads the file chunk by chunk during playback, hence over the network. Edge case (the share is only used for testing): playback keeps streaming from disk. Loading the file into memory would delay the start of long files, which would hurt quick previewing from one sample to the next.
+- Mac, HDMI output (DELL U2415 monitor): macOS has no volume control for an HDMI output, sound goes out at full level. SoundSource adds a software volume, but applies it **per app**: a program launched from the command line (`samplr`, `afplay`) is attached to the terminal that launched it. Launched from iTerm2, `samplr` shows up under "iTerm2" in SoundSource and follows its volume: not a `cpal`/rodio problem. The loud sound came from launches in another terminal, whose SoundSource entry was not attenuated. A samplr volume control (`Player::set_volume`) is still useful for the interface.
+- Apple `.m4r` ringtones (AAC in MP4, e.g. `/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Opening.m4r`) are not decoded by symphonia 0.5: length found, channels unknown, no sample. The same sound re-encoded by `afconvert` (AAC or WAV) plays fine: AAC is supported, the structure of these files is the problem.
+- When the decoder produces no sample, `play` reports it ("no sound decoded"): it checks this on a throwaway decoder before opening the audio output.
 
-## Feuille de route
-1. ✅ Scanner un dossier et lister les samples.
-2. ✅ Préécoute : `play` testé sous Linux et sur le Mac (reste : volume).
-3. ✅ Base **SQLite** (`rusqlite`) : tables fichiers, tags et liaisons. Les tags restent dans la base, jamais dans les fichiers audio.
-4. ✅ Commandes CLI pour tagger et rechercher, avec `clap`.
-5. ✅ Surveillance des dossiers (`samplr surveille`), testée sous Linux seulement. Restent : la tester sur Mac (renommages), une commande pour ne plus suivre un dossier scanné.
-6. Calcul des formes d'onde et cache dans la base.
-7. Interface graphique avec **Tauri** (backend Rust + interface web, `wavesurfer.js`), préécoute au clavier.
-8. Glisser-déposer des samples vers le DAW (à tester tôt, l'API diffère selon le système).
-9. Analyse automatique (BPM, tonalité) et collections virtuelles.
-10. Empaquetage : `.app` / `.dmg` signé et notarisé sur Mac, AppImage ou `.deb` sur Linux.
+## Roadmap
+1. ✅ Scan a folder and list the samples.
+2. ✅ Preview: `play` tested on Linux and on the Mac (remaining: volume).
+3. ✅ **SQLite** database (`rusqlite`): files, tags and link tables. Tags stay in the database, never in the audio files.
+4. ✅ CLI commands to tag and search, with `clap`.
+5. ✅ Folder watching (`samplr watch`), tested on Linux only. Remaining: test it on the Mac (renames), a command to stop following a scanned folder.
+6. Waveform computation and cache in the database.
+7. Graphical interface with **Tauri** (Rust backend + web interface, `wavesurfer.js`), keyboard preview.
+8. Drag and drop of samples into the DAW (test early, the API differs per system).
+9. Automatic analysis (BPM, key) and virtual collections.
+10. Packaging: signed and notarised `.app` / `.dmg` on Mac, AppImage or `.deb` on Linux.
 
-## Décisions de conception
-- **Ne jamais déplacer les fichiers audio sans action explicite de l'utilisateur** : les projets DAW pointent vers leurs chemins. Privilégier les collections virtuelles (tags, favoris, dossiers intelligents).
-- Données de l'appli dans le dossier standard du système (`~/.local/share` sous Linux, `~/Library/Application Support` sur Mac), via la crate `dirs` le moment venu.
+## Design decisions
+- **Never move audio files without an explicit user action**: DAW projects point to their paths. Prefer virtual collections (tags, favourites, smart folders).
+- App data in the system's standard folder (`~/.local/share` on Linux, `~/Library/Application Support` on Mac), through the `dirs` crate.

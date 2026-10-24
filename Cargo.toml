@@ -4,18 +4,18 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-# Lecture des arguments de la ligne de commande, décrits par une `struct`
+# Command-line argument parsing, described by a `struct`
 clap = { version = "4.6", features = ["derive"] }
-# Dossier de données standard du système (~/.local/share, ~/Library/Application Support)
+# The system's standard data folder (~/.local/share, ~/Library/Application Support)
 dirs = "7.0"
-# Surveillance des dossiers (inotify sous Linux, FSEvents sur Mac), avec regroupement
-# des événements et appariement des deux bouts d'un renommage
+# Folder watching (inotify on Linux, FSEvents on Mac), with event grouping
+# and matching of both ends of a rename
 notify-debouncer-full = "0.7"
-# Lecture audio (s'appuie sur CoreAudio sur Mac, ALSA sur Linux)
+# Audio playback (relies on CoreAudio on Mac, ALSA on Linux)
 rodio = { version = "0.23", features = ["symphonia-all"] }
-# Base SQLite ; `bundled` compile SQLite avec le projet, rien à installer sur Mac ni Linux
+# SQLite database; `bundled` compiles SQLite with the project, nothing to install on Mac or Linux
 rusqlite = { version = "0.41", features = ["bundled"] }
-# Décodage et lecture des infos des fichiers audio (même version que celle utilisée par rodio)
+# Audio decoding and file info (same version as the one rodio uses)
 symphonia = { version = "0.5", features = ["all"] }
-# Parcours récursif des dossiers
+# Recursive folder walking
 walkdir = "2.5"

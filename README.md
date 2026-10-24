@@ -1,71 +1,71 @@
 # samplr
 
-Gestionnaire de samples audio en Rust, pour macOS et Linux.
+Audio sample manager written in Rust, for macOS and Linux.
 
-En ligne de commande pour l'instant : scanner des dossiers de samples, les garder dans une base SQLite, les tagger, les retrouver et les écouter.
+Command line only for now: scan sample folders, keep them in a SQLite database, tag them, find them again and listen to them.
 
 ## Installation
 
-### Sur le Mac (M4)
+### On Mac (Apple Silicon)
 
 ```sh
-# 1. Outils de compilation d'Apple (clang, git…)
+# 1. Apple's build tools (clang, git…)
 xcode-select --install
 
-# 2. Rust (installe rustup, cargo et rustc dans ~/.cargo)
+# 2. Rust (installs rustup, cargo and rustc in ~/.cargo)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Ferme puis rouvre le terminal. Rien d'autre à installer : le son passe par CoreAudio, intégré à macOS.
+Close and reopen the terminal. Nothing else to install: sound goes through CoreAudio, built into macOS.
 
-### Sur Linux
+### On Linux
 
 ```sh
-# Debian / Ubuntu : en-têtes ALSA et pkg-config pour la sortie audio
+# Debian / Ubuntu: ALSA headers and pkg-config for audio output
 sudo apt install build-essential pkg-config libasound2-dev
-# Fedora : sudo dnf install gcc pkg-config alsa-lib-devel
+# Fedora: sudo dnf install gcc pkg-config alsa-lib-devel
 
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Vérifie l'installation avec `cargo --version`.
+Check the installation with `cargo --version`.
 
-## Lancer le programme
+## Running
 
-Depuis le dossier `samplr` :
+From the project folder:
 
 ```sh
-cargo run -- scan ~/Samples              # ajoute les samples du dossier à la base
-cargo run -- liste                       # affiche les samples de la base
-cargo run -- tag ~/Samples/kick.wav kick 808   # ajoute des tags à un sample
-cargo run -- untag ~/Samples/kick.wav 808      # en retire
-cargo run -- tags                        # liste les tags
-cargo run -- cherche kick 808 --chemin hard    # samples tagués kick ET 808, dont le chemin contient « hard »
-cargo run -- surveille                   # met la base à jour en direct quand les dossiers scannés changent
-cargo run -- help                        # toutes les commandes
-cargo run -- play ~/Samples/kick.wav     # joue un fichier
+cargo run -- scan ~/Samples                  # adds the folder's samples to the database
+cargo run -- list                            # shows the samples in the database
+cargo run -- tag ~/Samples/kick.wav kick 808 # adds tags to a sample
+cargo run -- untag ~/Samples/kick.wav 808    # removes some
+cargo run -- tags                            # lists the tags
+cargo run -- search kick 808 --path hard     # samples tagged kick AND 808 whose path contains "hard"
+cargo run -- watch                           # updates the database live when scanned folders change
+cargo run -- play ~/Samples/kick.wav         # plays a file
+cargo run -- help                            # every command
 ```
 
-Le `--` sépare les options de cargo de celles du programme. La première compilation prend une minute, les suivantes quelques secondes.
+The `--` separates cargo's options from the program's. The first build takes a minute, the next ones a few seconds.
 
-Pour une version optimisée : `cargo build --release`, puis `./target/release/samplr scan ~/Samples`.
+For an optimised build: `cargo build --release`, then `./target/release/samplr scan ~/Samples`.
 
-La base est créée au premier lancement, dans `~/.local/share/samplr/samplr.db` sous Linux et `~/Library/Application Support/samplr/samplr.db` sur Mac. Pour faire des essais sur une base à part : `SAMPLR_BASE=/tmp/essai.db cargo run -- scan ~/Samples`.
+The database is created on first launch, in `~/.local/share/samplr/samplr.db` on Linux and `~/Library/Application Support/samplr/samplr.db` on Mac. To experiment on a separate database: `SAMPLR_DB=/tmp/test.db cargo run -- scan ~/Samples`.
 
-## Commandes cargo utiles
+## Useful cargo commands
 
-| Commande        | Effet                                              |
-|-----------------|----------------------------------------------------|
-| `cargo build`   | compile                                            |
-| `cargo run`     | compile et lance                                   |
-| `cargo check`   | vérifie le code sans produire de binaire (rapide)  |
-| `cargo clippy`  | conseils pour améliorer le code                    |
-| `cargo fmt`     | formate le code automatiquement                    |
+| Command         | Effect                                            |
+|-----------------|---------------------------------------------------|
+| `cargo build`   | compiles                                          |
+| `cargo run`     | compiles and runs                                 |
+| `cargo check`   | checks the code without building a binary (fast)  |
+| `cargo clippy`  | suggestions to improve the code                   |
+| `cargo fmt`     | formats the code automatically                    |
 
-## Éditeur conseillé
+## Recommended editor
 
-VS Code avec l'extension **rust-analyzer** : complétion, types affichés au survol et erreurs en direct. Il existe aussi Zed ou RustRover.
+VS Code with the **rust-analyzer** extension: completion, types on hover and live errors. Zed and RustRover work too.
 
-## Formats reconnus
+## Supported formats
 
 WAV, AIFF, FLAC, MP3, OGG, M4A.
