@@ -23,19 +23,22 @@ Gestionnaire de samples audio de bureau pour **macOS et Linux** : écouter, tagg
 - `walkdir` : parcours récursif des dossiers.
 - `rusqlite` 0.41 (feature `bundled` : SQLite compilé avec le projet, aucune bibliothèque système à installer). Pas de `usize` dans les requêtes : rusqlite ne sait pas le convertir, utiliser `u32` ou `i64`.
 - `dirs` : dossier de données standard du système.
-- Pas encore de `clap` : les arguments sont lus à la main dans `main`.
+- `clap` 4 (feature `derive`) : les sous-commandes sont décrites par l'`enum Commande` de `main.rs` ; les commentaires `///` deviennent l'aide de `samplr help`.
 
 Dépendances système Linux : `build-essential pkg-config libasound2-dev` (ALSA).
 
 Sur le Mac, le projet est ouvert depuis le partage SMB de la machine Linux (`/Volumes/nico/Sites/projets/sample browser`). Le partage ne gère pas le verrouillage de fichiers dont Cargo a besoin (« could not create session directory lock file ») : `~/.cargo/config.toml` du Mac envoie donc la compilation dans `/Users/nico/cargo-target` (`build.target-dir`), ce qui évite aussi de mélanger binaires macOS et Linux dans `target/`. Ne pas mettre ce réglage dans le `.cargo/config.toml` du projet : le chemin n'existe pas sous Linux.
 
-## État actuel (étape 3 en cours)
+## État actuel (étape 4 terminée)
 `src/main.rs` contient les commandes, `src/base.rs` l'accès à la base :
 - `samplr scan <dossier>` : liste les fichiers audio (wav, aif, aiff, flac, mp3, ogg, m4a) avec durée, fréquence, bits et canaux, et les enregistre dans la base (chemin absolu ; un nouveau scan met à jour sans doublon et garde l'`id`, donc les tags). Les fichiers illisibles sont comptés, sans planter. Les fichiers AppleDouble `._*` déposés par macOS sont ignorés.
-- `samplr liste` : affiche les samples de la base.
+- `samplr liste` : affiche les samples de la base, avec leurs tags entre crochets.
+- `samplr tag <fichier> <tag>...` / `samplr untag <fichier> <tag>...` : ajoute ou retire des tags. `tag` relit le fichier et l'ajoute à la base s'il n'y était pas.
+- `samplr tags` : les tags et leur nombre de samples.
+- `samplr cherche [tag]... [--chemin <texte>]` : samples portant **tous** les tags donnés, dont le chemin contient le texte (sans tenir compte des majuscules, `_` pris tel quel).
 - `samplr play <fichier>` : joue un fichier sur la sortie par défaut.
 
-Base : `samplr.db` dans le dossier de données du système (`~/.local/share/samplr` sous Linux, `~/Library/Application Support/samplr` sur Mac). La variable `SAMPLR_BASE` désigne une autre base, pour les essais. Tables `fichiers`, `tags`, `fichiers_tags` (les deux dernières encore inutilisées). Un fichier supprimé du disque reste dans la base : à traiter avec la surveillance des dossiers (étape 5).
+Base : `samplr.db` dans le dossier de données du système (`~/.local/share/samplr` sous Linux, `~/Library/Application Support/samplr` sur Mac). La variable `SAMPLR_BASE` désigne une autre base, pour les essais. Tables `fichiers`, `tags`, `fichiers_tags`. Les tags sont rangés en minuscules, sans espace ; un tag qui ne sert plus à aucun sample est supprimé. Un fichier supprimé du disque reste dans la base : à traiter avec la surveillance des dossiers (étape 5).
 
 Le scan et la lecture ont été testés sous Linux et sur le Mac (fichiers lus depuis le partage SMB).
 
@@ -50,8 +53,8 @@ Pièges audio rencontrés :
 ## Feuille de route
 1. ✅ Scanner un dossier et lister les samples.
 2. ✅ Préécoute : `play` testé sous Linux et sur le Mac (reste : volume).
-3. ⏳ Base **SQLite** (`rusqlite`) : tables fichiers, tags et liaisons. Les tags restent dans la base, jamais dans les fichiers audio.
-4. Commandes CLI pour tagger et rechercher (introduire `clap` à ce moment-là).
+3. ✅ Base **SQLite** (`rusqlite`) : tables fichiers, tags et liaisons. Les tags restent dans la base, jamais dans les fichiers audio.
+4. ✅ Commandes CLI pour tagger et rechercher, avec `clap`. Reste : `samplr liste | head` panique (« Broken pipe ») quand le tuyau se ferme avant la fin de l'affichage.
 5. Surveillance des dossiers (`notify` : inotify sur Linux, FSEvents sur Mac).
 6. Calcul des formes d'onde et cache dans la base.
 7. Interface graphique avec **Tauri** (backend Rust + interface web, `wavesurfer.js`), préécoute au clavier.

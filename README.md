@@ -2,7 +2,7 @@
 
 Gestionnaire de samples audio en Rust, pour macOS et Linux.
 
-En ligne de commande pour l'instant : scanner un dossier de samples, les garder dans une base SQLite, en écouter un.
+En ligne de commande pour l'instant : scanner des dossiers de samples, les garder dans une base SQLite, les tagger, les retrouver et les écouter.
 
 ## Installation
 
@@ -37,6 +37,11 @@ Depuis le dossier `samplr` :
 ```sh
 cargo run -- scan ~/Samples              # ajoute les samples du dossier à la base
 cargo run -- liste                       # affiche les samples de la base
+cargo run -- tag ~/Samples/kick.wav kick 808   # ajoute des tags à un sample
+cargo run -- untag ~/Samples/kick.wav 808      # en retire
+cargo run -- tags                        # liste les tags
+cargo run -- cherche kick 808 --chemin hard    # samples tagués kick ET 808, dont le chemin contient « hard »
+cargo run -- help                        # toutes les commandes
 cargo run -- play ~/Samples/kick.wav     # joue un fichier
 ```
 

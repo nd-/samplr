@@ -1,13 +1,13 @@
-// samplr : scanner un dossier de samples, les garder dans une base et en écouter un.
+// samplr : scanner des dossiers de samples, les tagger, les retrouver et les écouter.
 //
-// Utilisation :
-//   cargo run -- scan ~/Samples          → ajoute les samples du dossier à la base
-//   cargo run -- liste                   → affiche les samples de la base
-//   cargo run -- play ~/Samples/kick.wav → joue un fichier
+// Exemples :
+//   cargo run -- scan ~/Samples              → ajoute les samples du dossier à la base
+//   cargo run -- tag ~/Samples/kick.wav 808  → ajoute le tag « 808 » à un sample
+//   cargo run -- cherche 808 --chemin kick   → samples tagués 808 dont le chemin contient « kick »
+//   cargo run -- help                        → toutes les commandes
 
 mod base;
 
-use std::env;
 use std::error::Error;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -15,6 +15,7 @@ use std::process;
 use std::thread;
 use std::time::Duration;
 
+use clap::{Parser, Subcommand};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
@@ -33,24 +34,68 @@ struct InfoSample {
     frequence: Option<u32>,
     canaux: Option<u32>,
     bits: Option<u32>,
+    /// Vide tant que le sample n'a pas été relu depuis la base.
+    tags: Vec<String>,
+}
+
+// clap lit cette description pour analyser la ligne de commande : chaque
+// variante de `Commande` devient une sous-commande (`Scan` → `samplr scan`),
+// ses champs en deviennent les arguments, et les commentaires `///`
+// deviennent l'aide affichée par `samplr help`.
+
+/// Gestionnaire de samples audio : scanner, tagger, chercher, écouter.
+#[derive(Parser)]
+#[command(version)]
+struct Arguments {
+    #[command(subcommand)]
+    commande: Commande,
+}
+
+#[derive(Subcommand)]
+enum Commande {
+    /// Ajoute à la base les samples d'un dossier et de ses sous-dossiers
+    Scan { dossier: PathBuf },
+    /// Affiche tous les samples de la base, avec leurs tags
+    Liste,
+    /// Joue un fichier sur la sortie audio par défaut
+    Play { fichier: PathBuf },
+    /// Ajoute des tags à un sample (l'ajoute à la base s'il n'y est pas)
+    Tag {
+        fichier: PathBuf,
+        #[arg(required = true)]
+        tags: Vec<String>,
+    },
+    /// Retire des tags d'un sample
+    Untag {
+        fichier: PathBuf,
+        #[arg(required = true)]
+        tags: Vec<String>,
+    },
+    /// Liste les tags existants et leur nombre de samples
+    Tags,
+    /// Cherche les samples qui portent tous les tags donnés
+    Cherche {
+        tags: Vec<String>,
+        /// Ne garder que les samples dont le chemin contient ce texte
+        #[arg(long)]
+        chemin: Option<String>,
+    },
 }
 
 fn main() {
-    // On récupère les arguments de la ligne de commande dans un vecteur (Vec).
-    let args: Vec<String> = env::args().collect();
+    // En cas d'arguments invalides, clap affiche l'aide et arrête le programme.
+    let arguments = Arguments::parse();
 
     // `match` compare une valeur à plusieurs motifs, un peu comme un switch.
-    let resultat = match args.get(1).map(|s| s.as_str()) {
-        Some("scan") if args.len() == 3 => scanner(Path::new(&args[2])),
-        Some("liste") if args.len() == 2 => lister(),
-        Some("play") if args.len() == 3 => jouer(Path::new(&args[2])),
-        _ => {
-            eprintln!("Utilisation :");
-            eprintln!("  samplr scan <dossier>");
-            eprintln!("  samplr liste");
-            eprintln!("  samplr play <fichier>");
-            process::exit(1);
-        }
+    // Chaque motif « ouvre » la variante et nomme ses champs.
+    let resultat = match arguments.commande {
+        Commande::Scan { dossier } => scanner(&dossier),
+        Commande::Liste => chercher(&[], None),
+        Commande::Play { fichier } => jouer(&fichier),
+        Commande::Tag { fichier, tags } => taguer(&fichier, &tags),
+        Commande::Untag { fichier, tags } => detaguer(&fichier, &tags),
+        Commande::Tags => lister_tags(),
+        Commande::Cherche { tags, chemin } => chercher(&tags, chemin.as_deref()),
     };
 
     // Si une fonction a renvoyé une erreur, on l'affiche proprement.
@@ -128,15 +173,55 @@ fn scanner(dossier: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 /// Affiche tous les samples enregistrés dans la base.
-fn lister() -> Result<(), Box<dyn Error>> {
+fn chercher(tags: &[String], chemin: Option<&str>) -> Result<(), Box<dyn Error>> {
     let base = base::ouvrir()?;
-    let samples = base::lister(&base)?;
+    let samples = base::chercher(&base, tags, chemin.unwrap_or(""))?;
 
     afficher_entete();
     for info in &samples {
         afficher_ligne(info, &info.chemin);
     }
-    println!("\n{} sample(s) dans la base.", samples.len());
+    println!("\n{} sample(s) trouvé(s).", samples.len());
+    Ok(())
+}
+
+/// Ajoute des tags à un sample. Le fichier est relu à chaque fois : s'il
+/// n'était pas encore dans la base, il y entre ; sinon ses infos sont rafraîchies.
+fn taguer(fichier: &Path, tags: &[String]) -> Result<(), Box<dyn Error>> {
+    let fichier = fichier.canonicalize()?;
+    if !est_audio(&fichier) {
+        return Err(format!("{} n'est pas un fichier audio reconnu", fichier.display()).into());
+    }
+    let info = lire_infos(&fichier)?;
+
+    let base = base::ouvrir()?;
+    let fichier_id = base::enregistrer(&base, &info)?;
+    let nb_ajoutes = base::ajouter_tags(&base, fichier_id, tags)?;
+
+    println!("{nb_ajoutes} tag(s) ajouté(s) à {}", fichier.display());
+    Ok(())
+}
+
+fn detaguer(fichier: &Path, tags: &[String]) -> Result<(), Box<dyn Error>> {
+    let fichier = fichier.canonicalize()?;
+
+    let base = base::ouvrir()?;
+    let fichier_id = base::id_fichier(&base, &fichier)?
+        .ok_or_else(|| format!("{} n'est pas dans la base", fichier.display()))?;
+    let nb_retires = base::retirer_tags(&base, fichier_id, tags)?;
+
+    println!("{nb_retires} tag(s) retiré(s) de {}", fichier.display());
+    Ok(())
+}
+
+fn lister_tags() -> Result<(), Box<dyn Error>> {
+    let base = base::ouvrir()?;
+    let tags = base::lister_tags(&base)?;
+
+    for (nom, nb_samples) in &tags {
+        println!("{nb_samples:>5}  {nom}");
+    }
+    println!("\n{} tag(s).", tags.len());
     Ok(())
 }
 
@@ -148,9 +233,15 @@ fn afficher_entete() {
 }
 
 /// Une ligne du tableau ; `chemin` est le chemin à afficher, complet ou raccourci.
+/// Les tags éventuels suivent le chemin, entre crochets.
 fn afficher_ligne(info: &InfoSample, chemin: &Path) {
+    let tags = if info.tags.is_empty() {
+        String::new()
+    } else {
+        format!("  [{}]", info.tags.join(" "))
+    };
     println!(
-        "{:>8}  {:>7}  {:>4}  {:>5}  {}",
+        "{:>8}  {:>7}  {:>4}  {:>5}  {}{tags}",
         formater_duree(info.duree_secondes),
         info.frequence.map(|f| format!("{f}")).unwrap_or("?".into()),
         info.bits.map(|b| format!("{b}")).unwrap_or("-".into()),
@@ -196,6 +287,7 @@ fn lire_infos(chemin: &Path) -> Result<InfoSample, Box<dyn Error>> {
         frequence: params.sample_rate,
         canaux: params.channels.map(|c| c.count() as u32),
         bits: params.bits_per_sample,
+        tags: Vec::new(),
     })
 }
 

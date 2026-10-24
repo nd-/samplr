@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Lecture des arguments de la ligne de commande, décrits par une `struct`
+clap = { version = "4.6", features = ["derive"] }
 # Dossier de données standard du système (~/.local/share, ~/Library/Application Support)
 dirs = "7.0"
 # Lecture audio (s'appuie sur CoreAudio sur Mac, ALSA sur Linux)
