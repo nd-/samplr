@@ -1,0 +1,12 @@
+[package]
+name = "samplr"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Lecture audio (s'appuie sur CoreAudio sur Mac, ALSA sur Linux)
+rodio = { version = "0.23", features = ["symphonia-all"] }
+# Décodage et lecture des infos des fichiers audio (même version que celle utilisée par rodio)
+symphonia = { version = "0.5", features = ["all"] }
+# Parcours récursif des dossiers
+walkdir = "2.5"
