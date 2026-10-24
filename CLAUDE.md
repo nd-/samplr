@@ -67,7 +67,7 @@ Audio pitfalls met so far:
 9. Automatic analysis (BPM, key) and virtual collections.
 10. Packaging: signed and notarised `.app` / `.dmg` on Mac, AppImage or `.deb` on Linux.
 
-## Step 7 in progress (7a to 7c done, to be tested)
+## Step 7 in progress (7a to 7c done, tested on Linux)
 - Tauri 2 stable (2.12.x at the time of writing; 3.x is only in alpha).
 - Fedora packages Tauri needs (installed on the Linux machine): `webkit2gtk4.1-devel libsoup3-devel gtk3-devel javascriptcoregtk4.1-devel libappindicator-gtk3-devel`. Already present: `openssl-devel`, `librsvg2-devel`. Node and npm are available through nvm.
 - Layout: the crate is a library (`src/lib.rs`: `db`, `waveform`, `SampleInfo`, `read_info`, `index`; done) plus the CLI binary (`src/main.rs`, `use samplr::…`). The Tauri app lives in `src-tauri/`, in a Cargo workspace declared in the root `Cargo.toml` (one `Cargo.lock`, one `target/`).
