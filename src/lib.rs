@@ -9,6 +9,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
+use serde::Serialize;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
@@ -21,6 +22,9 @@ pub const AUDIO_EXTENSIONS: [&str; 7] = ["wav", "aif", "aiff", "flac", "mp3", "o
 /// The info extracted from each file.
 /// `Option<T>` means "maybe a value, maybe nothing": some files do not
 /// declare everything.
+/// `Serialize` lets Tauri send it to the web page as JSON; the path becomes
+/// a string there.
+#[derive(Serialize)]
 pub struct SampleInfo {
     pub path: PathBuf,
     pub duration_secs: Option<f64>,

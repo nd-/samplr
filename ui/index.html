@@ -6,8 +6,21 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>samplr</h1>
-  <p id="count">Loading…</p>
+  <header>
+    <input id="search" type="search" placeholder="Search: words in the path, #tag" autofocus spellcheck="false">
+  </header>
+  <main id="list" tabindex="-1">
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Folder</th><th class="number">Length</th><th>Tags</th></tr>
+      </thead>
+      <tbody id="samples"></tbody>
+    </table>
+  </main>
+  <footer>
+    <span id="status"></span>
+    <span class="keys">↑ ↓ browse and play · Enter replay · Esc stop</span>
+  </footer>
   <script src="main.js"></script>
 </body>
 </html>

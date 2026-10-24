@@ -17,6 +17,9 @@ notify-debouncer-full = "0.7"
 rodio = { version = "0.23", features = ["symphonia-all"] }
 # SQLite database; `bundled` compiles SQLite with the project, nothing to install on Mac or Linux
 rusqlite = { version = "0.41", features = ["bundled"] }
+# Turns Rust values into JSON for the graphical interface (already a
+# dependency of Tauri, so nothing more to compile)
+serde = { version = "1", features = ["derive"] }
 # Audio decoding and file info (same version as the one rodio uses)
 symphonia = { version = "0.5", features = ["all"] }
 # Recursive folder walking

@@ -3093,6 +3093,7 @@ dependencies = [
  "notify-debouncer-full",
  "rodio",
  "rusqlite",
+ "serde",
  "symphonia",
  "walkdir",
 ]
@@ -3101,6 +3102,7 @@ dependencies = [
 name = "samplr-app"
 version = "0.1.0"
 dependencies = [
+ "rodio",
  "samplr",
  "tauri",
  "tauri-build",

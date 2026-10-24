@@ -10,6 +10,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # The shared code: database, waveforms, file reading
 samplr = { path = ".." }
+# Preview playback (same version as the library uses)
+rodio = { version = "0.23", features = ["symphonia-all"] }
 # Desktop window showing the web interface of ui/, through the system's web
 # engine (WebKitGTK on Linux, WKWebView on Mac, WebView2 on Windows)
 tauri = { version = "2", features = [] }
