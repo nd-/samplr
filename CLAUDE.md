@@ -37,14 +37,14 @@ Le scan et la lecture ont été testés sous Linux et sur le Mac (fichiers lus d
 Pièges audio rencontrés :
 - `sleep_until_end()` revient avant que le tampon de la carte son soit vidé : sans la pause de 300 ms qui suit dans `jouer`, un sample très court (kick de 75 ms) est jeté sans être joué.
 - Une sortie HDMI mise en veille par PipeWire met une à deux secondes à se réveiller et avale un sample court. Ce n'est pas un bug de samplr : le régler côté système, avec une règle WirePlumber `session.suspend-timeout-seconds = 0` sur la sortie concernée.
-- Mac, fichier sur le partage SMB : un « audio stream error: A buffer underrun or overrun occurred » est apparu une fois (non reproduit en 6 essais). Cause probable : `Decoder::try_from(fichier)` lit le fichier morceau par morceau pendant la lecture, donc à travers le réseau. Piste de correction : charger le fichier entier en mémoire avant de le jouer.
+- Mac, fichier sur le partage SMB : un « audio stream error: A buffer underrun or overrun occurred » est apparu une fois (non reproduit en 6 essais). Cause probable : `Decoder::try_from(fichier)` lit le fichier morceau par morceau pendant la lecture, donc à travers le réseau. Cas anecdotique (partage utilisé pour les tests seulement) : on garde la lecture au fil de l'eau. Charger le fichier en mémoire retarderait le démarrage des longs fichiers, ce qui gênerait la préécoute rapide d'un sample à l'autre.
 - Mac, sortie HDMI (écran DELL U2415) : macOS n'a pas de volume pour une sortie HDMI, le son part à plein niveau. SoundSource ajoute un volume logiciel, mais il l'applique **par appli** : un programme lancé en ligne de commande (`samplr`, `afplay`) est rattaché au terminal qui l'a lancé. Lancé depuis iTerm2, `samplr` apparaît sous « iTerm2 » dans SoundSource et respecte le volume : ce n'est pas un problème de `cpal`/rodio. Le son fort venait de lancements depuis un autre terminal, dont l'entrée SoundSource n'était pas atténuée. Un volume propre à samplr (`Player::set_volume`) reste utile pour l'interface.
 - Les sonneries Apple `.m4r` (AAC dans du MP4, ex. `/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Opening.m4r`) ne sont pas décodées par symphonia 0.5 : durée trouvée, canaux inconnus, aucun échantillon. Le même son réencodé par `afconvert` (AAC ou WAV) se lit bien : l'AAC est donc pris en charge, c'est la structure de ces fichiers qui pose problème.
 - Quand le décodeur ne produit aucun échantillon, `play` le signale (« aucun son décodé ») : `jouer` le vérifie sur un décodeur jetable avant d'ouvrir la sortie audio.
 
 ## Feuille de route
 1. ✅ Scanner un dossier et lister les samples.
-2. ✅ Préécoute : `play` testé sous Linux et sur le Mac (restent : volume, chargement en mémoire).
+2. ✅ Préécoute : `play` testé sous Linux et sur le Mac (reste : volume).
 3. Base **SQLite** (`rusqlite`) : tables fichiers, tags et liaisons. Les tags restent dans la base, jamais dans les fichiers audio.
 4. Commandes CLI pour tagger et rechercher (introduire `clap` à ce moment-là).
 5. Surveillance des dossiers (`notify` : inotify sur Linux, FSEvents sur Mac).
