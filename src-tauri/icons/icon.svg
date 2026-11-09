@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- samplr: a waveform's five bars. Source of icon.png, which is exported
+       from it (Tauri takes PNG icons, not SVG). -->
+  <rect width="512" height="512" rx="96" fill="#1e1e2e"/>
+  <g fill="#f5a524">
+    <rect x="96" y="216" width="41" height="81"/>
+    <rect x="166" y="156" width="41" height="201"/>
+    <rect x="236" y="96" width="41" height="321"/>
+    <rect x="306" y="176" width="41" height="161"/>
+    <rect x="376" y="226" width="41" height="61"/>
+  </g>
+</svg>
