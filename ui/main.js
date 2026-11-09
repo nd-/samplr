@@ -6,7 +6,7 @@ const searchBox = document.getElementById("search");
 const tbody = document.getElementById("samples");
 const status = document.getElementById("status");
 const canvas = document.getElementById("wave");
-const tagList = document.getElementById("tags");
+const tagBar = document.getElementById("tagbar");
 const tagInput = document.getElementById("new-tags");
 const stopButton = document.getElementById("stop");
 
@@ -446,7 +446,11 @@ function renderTags() {
     chip.append(remove);
     return chip;
   });
-  tagList.replaceChildren(...chips);
+  // The chips and the input are children of the same box, so that one gap
+  // separates them all alike. Only the chips are replaced: moving the input
+  // would take the focus from it while one is typing tags.
+  for (const old of tagBar.querySelectorAll(".tag")) old.remove();
+  tagInput.before(...chips);
 }
 
 // Called after a change with each sample's new tags (same order): the list
