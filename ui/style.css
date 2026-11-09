@@ -216,6 +216,19 @@ header button {
   background: var(--hover);
 }
 
+#context-menu .held {
+  display: flex;
+}
+
+#context-menu .remove-from {
+  width: auto;
+  color: var(--muted);
+}
+
+#context-menu .remove-from:hover {
+  color: inherit;
+}
+
 /* A collection already holding the sample. */
 #context-menu button:disabled {
   color: var(--muted);
@@ -373,6 +386,12 @@ tbody tr:hover {
 
 tbody tr.selected {
   background: var(--selected);
+}
+
+/* With several samples selected: the current one, played and shown above. */
+tbody tr.current td {
+  border-top: 1px solid var(--wave);
+  border-bottom: 1px solid var(--wave);
 }
 
 #status-box {

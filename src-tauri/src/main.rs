@@ -119,12 +119,16 @@ fn remove_from_collection(collection: i64, paths: Vec<PathBuf>) -> Result<usize,
     db::remove_from_collection(&db, collection, &file_ids).map_err(|e| e.to_string())
 }
 
-/// Marks a sample as a favorite, or no longer.
+/// Marks samples as favorites, or no longer.
 #[tauri::command(async)]
-fn set_favorite(path: PathBuf, favorite: bool) -> Result<(), String> {
-    let db = db::open().map_err(|e| e.to_string())?;
-    let file_id = file_id(&db, &path)?;
-    db::set_favorite(&db, file_id, favorite).map_err(|e| e.to_string())
+fn set_favorite(paths: Vec<PathBuf>, favorite: bool) -> Result<(), String> {
+    let mut db = db::open().map_err(|e| e.to_string())?;
+    // All the samples or none, and a single write to disk.
+    let transaction = db.transaction().map_err(|e| e.to_string())?;
+    for file_id in file_ids(&transaction, &paths)? {
+        db::set_favorite(&transaction, file_id, favorite).map_err(|e| e.to_string())?;
+    }
+    transaction.commit().map_err(|e| e.to_string())
 }
 
 /// The `playback-position` event: where the sound `id` is, in seconds from
@@ -225,22 +229,40 @@ fn waveform(path: PathBuf) -> Result<Vec<Peak>, String> {
     samplr::peaks(&db, file_id, &path).map_err(|e| e.to_string())
 }
 
-/// Adds tags to a sample and returns all its tags, in alphabetical order.
+/// Adds tags to samples and returns, for each sample in the same order, all
+/// its tags in alphabetical order.
 #[tauri::command(async)]
-fn add_tags(path: PathBuf, tags: Vec<String>) -> Result<Vec<String>, String> {
-    let db = db::open().map_err(|e| e.to_string())?;
-    let file_id = file_id(&db, &path)?;
-    db::add_tags(&db, file_id, &tags).map_err(|e| e.to_string())?;
-    db::tags_of(&db, file_id).map_err(|e| e.to_string())
+fn add_tags(paths: Vec<PathBuf>, tags: Vec<String>) -> Result<Vec<Vec<String>>, String> {
+    change_tags(&paths, |db, file_id| {
+        db::add_tags(db, file_id, &tags).map(|_| ())
+    })
 }
 
-/// Removes a tag from a sample and returns the tags it has left.
+/// Removes a tag from samples and returns, for each sample in the same
+/// order, the tags it has left.
 #[tauri::command(async)]
-fn remove_tag(path: PathBuf, tag: String) -> Result<Vec<String>, String> {
-    let db = db::open().map_err(|e| e.to_string())?;
-    let file_id = file_id(&db, &path)?;
-    db::remove_tags(&db, file_id, &[tag]).map_err(|e| e.to_string())?;
-    db::tags_of(&db, file_id).map_err(|e| e.to_string())
+fn remove_tag(paths: Vec<PathBuf>, tag: String) -> Result<Vec<Vec<String>>, String> {
+    let tags = [tag];
+    change_tags(&paths, |db, file_id| {
+        db::remove_tags(db, file_id, &tags).map(|_| ())
+    })
+}
+
+/// Applies `change` to each sample, in a single transaction, and returns the
+/// tags of each sample afterwards.
+fn change_tags(
+    paths: &[PathBuf],
+    change: impl Fn(&rusqlite::Connection, i64) -> Result<(), Box<dyn std::error::Error>>,
+) -> Result<Vec<Vec<String>>, String> {
+    let mut db = db::open().map_err(|e| e.to_string())?;
+    let transaction = db.transaction().map_err(|e| e.to_string())?;
+    let mut all_tags = Vec::new();
+    for file_id in file_ids(&transaction, paths)? {
+        change(&transaction, file_id).map_err(|e| e.to_string())?;
+        all_tags.push(db::tags_of(&transaction, file_id).map_err(|e| e.to_string())?);
+    }
+    transaction.commit().map_err(|e| e.to_string())?;
+    Ok(all_tags)
 }
 
 /// The `id`s of samples of the database.

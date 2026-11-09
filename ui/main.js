@@ -11,7 +11,14 @@ const tagInput = document.getElementById("new-tags");
 const stopButton = document.getElementById("stop");
 
 let samples = [];
+// The current sample: the one played, whose waveform and tags are shown.
 let selected = -1;
+// The selected samples, by path rather than by row, so that the selection
+// survives a refresh of the list. The current one is among them, unless it
+// was just taken out with Ctrl+click.
+let selectedPaths = new Set();
+// Where a Shift+click or Shift+arrow range starts.
+let anchor = -1;
 let peaks = [];
 
 // Paths come from Mac, Linux or Windows: split on both separators.
@@ -68,35 +75,75 @@ function render() {
       end.append(remove);
       tr.append(end);
     }
-    tr.addEventListener("click", () => select(index));
+    tr.addEventListener("click", (event) => {
+      // Cmd on a Mac, Ctrl elsewhere (Ctrl+click is a right-click on a Mac).
+      if (event.metaKey || event.ctrlKey) select(index, "toggle");
+      else if (event.shiftKey) select(index, "range");
+      else select(index);
+    });
     tr.addEventListener("mousedown", (event) => watchForDrag(event, sample));
     rows.append(tr);
   });
   tbody.replaceChildren(rows);
+  paintSelection();
   removeHeader.hidden = currentCollection === null;
   status.textContent = `${samples.length} sample(s)`;
 }
 
 const removeHeader = document.querySelector("th.remove");
 
-// `andPlay`: false for a right-click, which selects without playing.
-function select(index, andPlay = true) {
+function paintSelection() {
+  [...tbody.children].forEach((row, index) => {
+    row.classList.toggle("selected", selectedPaths.has(samples[index].path));
+    row.classList.toggle("current", index === selected && selectedPaths.size > 1);
+  });
+}
+
+// The selected samples, in the list's order.
+function selectedSamples() {
+  return samples.filter((sample) => selectedPaths.has(sample.path));
+}
+
+// `mode`: "single" selects only this row, "toggle" adds it to the selection
+// or takes it out (Ctrl/Cmd+click), "range" selects from the anchor to it
+// (Shift). The row becomes the current one, and plays unless `andPlay` is
+// false (right-click) or it was just taken out.
+function select(index, mode = "single", andPlay = true) {
   if (index < 0 || index >= samples.length) return;
-  tbody.children[selected]?.classList.remove("selected");
+  const path = samples[index].path;
+  if (mode === "toggle") {
+    if (selectedPaths.has(path)) {
+      selectedPaths.delete(path);
+      andPlay = false;
+    } else {
+      selectedPaths.add(path);
+    }
+    anchor = index;
+  } else if (mode === "range" && anchor >= 0) {
+    const [first, last] = [Math.min(anchor, index), Math.max(anchor, index)];
+    selectedPaths = new Set(samples.slice(first, last + 1).map((sample) => sample.path));
+  } else {
+    selectedPaths = new Set([path]);
+    anchor = index;
+  }
   selected = index;
-  const row = tbody.children[selected];
-  row.classList.add("selected");
-  row.scrollIntoView({ block: "nearest" });
+  paintSelection();
+  tbody.children[selected].scrollIntoView({ block: "nearest" });
   if (andPlay) play();
   loadWaveform();
   renderTags();
 }
 
-// The tags of the selected sample, each with a button to remove it.
+// The tags of the selection, each with a button to remove it: with several
+// samples, the tags they all carry.
 function renderTags() {
-  const sample = samples[selected];
-  tagInput.disabled = !sample;
-  const chips = (sample?.tags ?? []).map((tag) => {
+  const chosen = selectedSamples();
+  tagInput.disabled = chosen.length === 0;
+  tagInput.placeholder = chosen.length > 1 ? `Add tags to ${chosen.length} samples` : "Add tags";
+  const common = chosen.length === 0
+    ? []
+    : chosen[0].tags.filter((tag) => chosen.every((sample) => sample.tags.includes(tag)));
+  const chips = common.map((tag) => {
     const chip = document.createElement("span");
     chip.className = "tag";
     chip.textContent = tag;
@@ -110,22 +157,24 @@ function renderTags() {
   tagList.replaceChildren(...chips);
 }
 
-// Called with the sample's new tags after a change: the tag bar and the
-// list row both show them.
-function showTags(sample, tags) {
-  sample.tags = tags;
-  const index = samples.indexOf(sample);
-  const row = tbody.children[index];
-  if (row) row.querySelector(".tags").textContent = tags.join(" ");
-  if (index === selected) renderTags();
+// Called after a change with each sample's new tags (same order): the list
+// rows and the tag bar show them.
+function showTags(changed, allTags) {
+  changed.forEach((sample, i) => {
+    sample.tags = allTags[i];
+    const row = tbody.children[samples.indexOf(sample)];
+    if (row) row.querySelector(".tags").textContent = sample.tags.join(" ");
+  });
+  renderTags();
 }
 
 async function addTags() {
-  const sample = samples[selected];
+  const chosen = selectedSamples();
   const tags = tagInput.value.split(/\s+/).filter((tag) => tag !== "");
-  if (!sample || tags.length === 0) return;
+  if (chosen.length === 0 || tags.length === 0) return;
   try {
-    showTags(sample, await invoke("add_tags", { path: sample.path, tags }));
+    const paths = chosen.map((sample) => sample.path);
+    showTags(chosen, await invoke("add_tags", { paths, tags }));
     tagInput.value = "";
   } catch (error) {
     status.textContent = `Error: ${error}`;
@@ -133,17 +182,19 @@ async function addTags() {
 }
 
 async function removeTag(tag) {
-  const sample = samples[selected];
-  if (!sample) return;
+  const chosen = selectedSamples();
+  if (chosen.length === 0) return;
   try {
-    showTags(sample, await invoke("remove_tag", { path: sample.path, tag }));
+    const paths = chosen.map((sample) => sample.path);
+    showTags(chosen, await invoke("remove_tag", { paths, tag }));
   } catch (error) {
     status.textContent = `Error: ${error}`;
   }
 }
 
 async function loadWaveform() {
-  const path = samples[selected].path;
+  const path = samples[selected]?.path;
+  if (path === undefined) return;
   peaks = [];
   drawWaveform();
   try {
@@ -357,12 +408,17 @@ function watchForDrag(event, sample) {
 
 // The web page alone cannot hand a file to another application: the drag
 // goes through the system's native drag and drop (tauri-plugin-drag). The
-// file is offered as a copy, so the receiving app never moves the original.
+// files are offered as copies, so the receiving app never moves the
+// originals. Dragging a selected row takes the whole selection along.
 async function startDrag(sample) {
+  const paths = selectedPaths.has(sample.path)
+    ? selectedSamples().map((chosen) => chosen.path)
+    : [sample.path];
+  const label = paths.length > 1 ? `${paths.length} samples` : splitPath(sample.path).name;
   try {
     await window.__TAURI__.drag.startDrag({
-      item: [sample.path],
-      icon: dragImage(sample),
+      item: paths,
+      icon: dragImage(label),
       mode: "copy",
     });
   } catch (error) {
@@ -370,9 +426,9 @@ async function startDrag(sample) {
   }
 }
 
-// The image under the cursor while dragging: the sample's name.
-function dragImage(sample) {
-  const label = splitPath(sample.path).name;
+// The image under the cursor while dragging: the sample's name, or how
+// many samples go.
+function dragImage(label) {
   const image = document.createElement("canvas");
   const context = image.getContext("2d");
   context.font = "14px system-ui, sans-serif";
@@ -512,13 +568,15 @@ async function refresh({ stopIfGone = true } = {}) {
     status.textContent = `Error: ${error}`;
     return;
   }
+  // The selected samples still in the list stay selected.
+  const present = new Set(samples.map((sample) => sample.path));
+  selectedPaths = new Set([...selectedPaths].filter((path) => present.has(path)));
+  selected = samples.findIndex((sample) => sample.path === selectedPath);
+  anchor = selected;
   render();
   // While a sound plays, the status line keeps showing it.
   if (!stopButton.disabled) status.textContent = statusText;
-  selected = samples.findIndex((sample) => sample.path === selectedPath);
-  if (selected >= 0) {
-    tbody.children[selected].classList.add("selected");
-  } else {
+  if (selected < 0) {
     // The selected sample left the library (folder removed, file deleted or
     // renamed): its sound stops with it. A sound that is merely outside the
     // current search is not selected, and keeps playing.
@@ -544,17 +602,28 @@ favoritesButton.addEventListener("click", () => {
 // the next search: the list does not jump, and its sound keeps playing.
 async function toggleFavorite(index) {
   const sample = samples[index];
-  if (!sample) return;
-  const favorite = !sample.favorite;
+  if (sample) await setFavorite([sample], !sample.favorite);
+}
+
+// Ctrl+D on a selection: all become favorites, unless they all are already.
+async function toggleSelectedFavorites() {
+  const chosen = selectedSamples();
+  if (chosen.length === 0) return;
+  await setFavorite(chosen, !chosen.every((sample) => sample.favorite));
+}
+
+async function setFavorite(chosen, favorite) {
   try {
-    await invoke("set_favorite", { path: sample.path, favorite });
+    await invoke("set_favorite", { paths: chosen.map((sample) => sample.path), favorite });
   } catch (error) {
     status.textContent = `Error: ${error}`;
     return;
   }
-  sample.favorite = favorite;
-  const star = tbody.children[index]?.querySelector(".star");
-  if (star) star.textContent = favorite ? "★" : "☆";
+  for (const sample of chosen) {
+    sample.favorite = favorite;
+    const star = tbody.children[samples.indexOf(sample)]?.querySelector(".star");
+    if (star) star.textContent = favorite ? "★" : "☆";
+  }
 }
 
 // Collections: samples gathered by hand. `currentCollection` is the one
@@ -666,10 +735,9 @@ collectionForm.addEventListener("submit", async (event) => {
   if ((await createCollection(name)) !== null) collectionName.value = "";
 });
 
-// The samples the collection commands act on: the selected one, for now.
+// The samples the collection commands act on: the selection.
 function chosenPaths() {
-  const sample = samples[selected];
-  return sample ? [sample.path] : [];
+  return selectedSamples().map((sample) => sample.path);
 }
 
 async function addToCollection(collection) {
@@ -688,15 +756,14 @@ async function addToCollection(collection) {
 // Only the links go: the samples stay in the library. No confirmation, as
 // nothing is lost that cannot be added back.
 // `paths`: the samples to take out, by default the selected one.
-async function removeFromCollection(paths = chosenPaths()) {
-  if (currentCollection === null || paths.length === 0) return;
+// `collection`: by default the open one.
+async function removeFromCollection(paths = chosenPaths(), collection = currentCollection) {
+  if (collection === null || paths.length === 0) return;
   try {
-    const removed = await invoke("remove_from_collection", {
-      collection: currentCollection,
-      paths,
-    });
-    // The removed sample leaves the list, but its sound keeps playing.
-    await refresh({ stopIfGone: false });
+    const removed = await invoke("remove_from_collection", { collection, paths });
+    // From the open collection, the removed sample leaves the list, but its
+    // sound keeps playing.
+    if (collection === currentCollection) await refresh({ stopIfGone: false });
     await loadCollections();
     status.textContent = `${removed} sample(s) removed from the collection.`;
   } catch (error) {
@@ -708,19 +775,36 @@ async function removeFromCollection(paths = chosenPaths()) {
 // offers the collections.
 const contextMenu = document.getElementById("context-menu");
 
-function menuButton(label, action) {
+// `keepOpen`: the menu stays open after the action and shows the new state
+// (adding to or removing from collections, several in a row); otherwise it
+// closes first.
+function menuButton(label, action, keepOpen = false) {
   const button = document.createElement("button");
   button.textContent = label;
-  button.addEventListener("click", () => {
-    closeContextMenu();
-    action();
+  button.addEventListener("click", async () => {
+    if (!keepOpen) closeContextMenu();
+    await action();
+    if (keepOpen) updateContextMenu();
   });
   return button;
+}
+
+// Where the menu was opened, to draw it again at the same place.
+let menuPosition = { x: 0, y: 0 };
+
+// Draws the open menu again; closes it if the selection is now empty (its
+// samples left the open collection). Left closed if it was closed meanwhile
+// (a click elsewhere, Esc).
+function updateContextMenu() {
+  if (contextMenu.hidden) return;
+  if (chosenPaths().length === 0) closeContextMenu();
+  else openContextMenu(menuPosition.x, menuPosition.y);
 }
 
 // The collections that already hold the samples are shown, marked and
 // greyed, but cannot be clicked.
 async function openContextMenu(x, y) {
+  menuPosition = { x, y };
   let holding;
   try {
     holding = await invoke("collections_holding", { paths: chosenPaths() });
@@ -734,12 +818,24 @@ async function openContextMenu(x, y) {
   const items = [label];
   for (const collection of collections) {
     if (holding.includes(collection.id)) {
+      // Already there: the name cannot be clicked, a × next to it takes the
+      // samples out.
       const already = menuButton(`✓ ${collection.name}`, () => {});
       already.disabled = true;
       already.title = "Already in this collection";
-      items.push(already);
+      const remove = menuButton(
+        "×",
+        () => removeFromCollection(undefined, collection.id),
+        true,
+      );
+      remove.className = "remove-from";
+      remove.title = `Remove from ${collection.name}`;
+      const line = document.createElement("div");
+      line.className = "held";
+      line.append(already, remove);
+      items.push(line);
     } else {
-      items.push(menuButton(collection.name, () => addToCollection(collection)));
+      items.push(menuButton(collection.name, () => addToCollection(collection), true));
     }
   }
   // A new collection, named here, gets the sample at once.
@@ -753,9 +849,9 @@ async function openContextMenu(x, y) {
     if (event.key === "Escape") closeContextMenu();
     if (event.key !== "Enter" || newName.value.trim() === "") return;
     const name = newName.value.trim();
-    closeContextMenu();
     const id = await createCollection(name);
     if (id !== null) await addToCollection({ id, name });
+    updateContextMenu();
   });
   items.push(newName);
   if (currentCollection !== null) {
@@ -779,7 +875,9 @@ tbody.addEventListener("contextmenu", (event) => {
   if (!row) return;
   event.preventDefault();
   const index = [...tbody.children].indexOf(row);
-  if (index !== selected) select(index, false);
+  // A row outside the selection becomes the only one selected; inside it,
+  // the menu acts on the whole selection.
+  if (!selectedPaths.has(samples[index].path)) select(index, "single", false);
   openContextMenu(event.clientX, event.clientY);
 });
 
@@ -797,6 +895,8 @@ async function search() {
       collection: currentCollection,
     });
     selected = -1;
+    selectedPaths = new Set();
+    anchor = -1;
     peaks = [];
     drawWaveform();
     render();
@@ -864,7 +964,7 @@ document.addEventListener("keydown", (event) => {
   // Ctrl+D, or Cmd+D on Mac (the usual bookmark keys), to make the selected
   // sample a favorite or no longer.
   if ((event.ctrlKey || event.metaKey) && event.key === "d") {
-    toggleFavorite(selected);
+    toggleSelectedFavorites();
     event.preventDefault();
     return;
   }
@@ -876,10 +976,10 @@ document.addEventListener("keydown", (event) => {
   }
   switch (event.key) {
     case "ArrowDown":
-      select(selected + 1);
+      select(selected + 1, event.shiftKey ? "range" : "single");
       break;
     case "ArrowUp":
-      select(selected - 1);
+      select(selected - 1, event.shiftKey ? "range" : "single");
       break;
     case "Enter":
       play();
