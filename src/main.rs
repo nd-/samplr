@@ -39,6 +39,12 @@ enum Command {
     Scan { folder: PathBuf },
     /// Shows every sample in the database, with its tags
     List,
+    /// Lists the scanned folders and how many samples each holds
+    Folders,
+    /// Removes a scanned folder: no longer followed, its samples leave the
+    /// list. Their tags are kept and come back if the folder is scanned
+    /// again. The audio files are not touched
+    RemoveFolder { folder: PathBuf },
     /// Follows the scanned folders and updates the database live (Ctrl+C to stop)
     Watch,
     /// Plays a file on the default audio output
@@ -84,6 +90,8 @@ fn main() {
     let result = match args.command {
         Command::Scan { folder } => scan(&folder),
         Command::List => search(&[], None),
+        Command::Folders => list_folders(),
+        Command::RemoveFolder { folder } => remove_folder(&folder),
         Command::Watch => watch(),
         Command::Play { file } => play(&file),
         Command::Tag { file, tags } => tag(&file, &tags),
@@ -187,6 +195,28 @@ fn watch() -> Result<(), Box<dyn Error>> {
             }
         }
     }
+    Ok(())
+}
+
+fn list_folders() -> Result<(), Box<dyn Error>> {
+    let db = db::open()?;
+    let mut out = io::stdout().lock();
+    for folder in db::folders(&db)? {
+        let missing = if folder.is_dir() { "" } else { "  (not found)" };
+        writeln!(
+            out,
+            "{:>6}  {}{missing}",
+            db::count_under(&db, &folder)?,
+            folder.display()
+        )?;
+    }
+    Ok(())
+}
+
+fn remove_folder(folder: &Path) -> Result<(), Box<dyn Error>> {
+    let mut db = db::open()?;
+    let hidden = samplr::remove_folder(&mut db, folder)?;
+    println!("Folder removed, {hidden} sample(s) hidden (tags kept).");
     Ok(())
 }
 

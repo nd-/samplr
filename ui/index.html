@@ -13,6 +13,7 @@
     <button id="stop" type="button" title="Stop playback (Esc)" disabled>■ Stop</button>
     <label id="volume-box" title="Preview volume">Vol. <input id="volume" type="range" min="0" max="100" value="80"></label>
     <button id="add-folder" type="button" title="Add a folder of samples">+ Folder</button>
+    <button id="show-folders" type="button" title="The scanned folders">Folders…</button>
   </header>
   <div id="wave-box">
     <canvas id="wave"></canvas>
@@ -34,6 +35,12 @@
     <span id="status"></span>
     <span class="keys">↑ ↓ browse and play · Enter replay · Esc stop · Ctrl+T tag · drag a row into your DAW</span>
   </footer>
+  <dialog id="folders">
+    <h2>Scanned folders</h2>
+    <ul id="folder-list"></ul>
+    <p class="hint">Removing a folder takes its samples out of the list. Their tags are kept, and come back if the folder is added again. The audio files are not touched.</p>
+    <form method="dialog"><button>Close</button></form>
+  </dialog>
   <script src="main.js"></script>
 </body>
 </html>

@@ -56,6 +56,40 @@ header button {
   width: 7rem;
 }
 
+#folders {
+  width: min(40rem, 90vw);
+  border: 1px solid var(--border);
+  background: light-dark(#fff, #1b1b1b);
+  color: inherit;
+}
+
+#folders h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+#folder-list {
+  list-style: none;
+  padding: 0;
+}
+
+#folder-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+#folder-list .path {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+#folder-list .count, #folders .hint, .missing {
+  color: var(--muted);
+}
+
 #wave-box {
   position: relative;
   border-bottom: 1px solid var(--border);

@@ -383,6 +383,68 @@ async function addFolder() {
 
 addFolderButton.addEventListener("click", addFolder);
 
+// The scanned folders, each with the number of samples it holds and a button
+// to remove it from the library.
+const foldersDialog = document.getElementById("folders");
+const folderList = document.getElementById("folder-list");
+
+async function showFolders() {
+  let folders;
+  try {
+    folders = await invoke("folders");
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+    return;
+  }
+  const items = folders.map((folder) => {
+    const item = document.createElement("li");
+    const path = document.createElement("span");
+    path.className = "path";
+    path.textContent = folder.path;
+    if (!folder.found) {
+      const missing = document.createElement("span");
+      missing.className = "missing";
+      missing.textContent = " (not found)";
+      path.append(missing);
+    }
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = `${folder.samples} sample(s)`;
+    const remove = document.createElement("button");
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => removeFolder(folder));
+    item.append(path, count, remove);
+    return item;
+  });
+  if (items.length === 0) {
+    const empty = document.createElement("li");
+    empty.textContent = "No folder yet: add one with + Folder.";
+    items.push(empty);
+  }
+  folderList.replaceChildren(...items);
+  if (!foldersDialog.open) foldersDialog.showModal();
+}
+
+async function removeFolder(folder) {
+  const confirmed = await window.__TAURI__.dialog.ask(
+    `Remove ${folder.path} from the library?\n\n` +
+      `Its ${folder.samples} sample(s) leave the list. Their tags are kept, ` +
+      "and come back if the folder is added again. The audio files are not touched.",
+    { title: "Remove folder", kind: "warning" },
+  );
+  if (!confirmed) return;
+  try {
+    const hidden = await invoke("remove_folder", { folder: folder.path });
+    await refresh();
+    await showFolders();
+    status.textContent = `Folder removed, ${hidden} sample(s) hidden.`;
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+  }
+}
+
+document.getElementById("show-folders").addEventListener("click", showFolders);
+
 // The folders changed on disk (samples added, renamed or deleted): the same
 // search again, keeping the selected sample and the sound playing.
 async function refresh() {
@@ -433,6 +495,9 @@ searchBox.addEventListener("input", () => {
 // The keys work wherever the focus is, search box included, so that one
 // can type a search and browse the results without touching the mouse.
 document.addEventListener("keydown", (event) => {
+  // The folders window has its own keys (Esc closes it, Tab moves between
+  // its buttons): the list behind must not react.
+  if (foldersDialog.open) return;
   // In the tag box, Enter adds the tags typed, Backspace on an empty box
   // removes the last tag, and Esc goes back to the search box.
   if (event.target === tagInput) {

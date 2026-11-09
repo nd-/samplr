@@ -88,6 +88,22 @@ pub fn scan(db: &mut Connection, folder: &Path) -> Result<Scan, Box<dyn Error>> 
     })
 }
 
+/// Removes a scanned folder from the library (see `db::remove_folder`):
+/// no longer followed, its samples hidden but kept with their tags. Returns
+/// the number of samples hidden. The audio files are not touched.
+pub fn remove_folder(db: &mut Connection, folder: &Path) -> Result<usize, Box<dyn Error>> {
+    // Scanned folders are saved as absolute paths. An unplugged disk can no
+    // longer be resolved: the path is then taken as typed, made absolute.
+    let folder = match dunce::canonicalize(folder) {
+        Ok(folder) => folder,
+        Err(_) => std::path::absolute(folder)?,
+    };
+    let transaction = db.transaction()?;
+    let hidden = db::remove_folder(&transaction, &folder)?;
+    transaction.commit()?;
+    Ok(hidden)
+}
+
 /// Walks `folder` and its subfolders and saves each sample to the database.
 /// Returns the saved samples and the number of unreadable files.
 pub fn index(db: &Connection, folder: &Path) -> (Vec<SampleInfo>, usize) {

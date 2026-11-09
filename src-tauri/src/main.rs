@@ -75,6 +75,44 @@ struct Position {
     seconds: f64,
 }
 
+/// A scanned folder, as the `folders` command describes it.
+#[derive(Serialize)]
+struct Folder {
+    path: PathBuf,
+    /// Samples shown from this folder.
+    samples: u32,
+    /// `false` when the folder is not on disk (unplugged disk, deleted).
+    found: bool,
+}
+
+/// The scanned folders, in alphabetical order.
+#[tauri::command(async)]
+fn folders() -> Result<Vec<Folder>, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    let mut list = Vec::new();
+    for path in db::folders(&db).map_err(|e| e.to_string())? {
+        list.push(Folder {
+            samples: db::count_under(&db, &path).map_err(|e| e.to_string())?,
+            found: path.is_dir(),
+            path,
+        });
+    }
+    Ok(list)
+}
+
+/// Removes a folder from the library, like `samplr remove-folder`: no longer
+/// followed, its samples hidden but kept with their tags. Returns the number
+/// of samples hidden.
+#[tauri::command(async)]
+fn remove_folder(folder: PathBuf, library: State<Library>) -> Result<usize, String> {
+    let mut db = db::open().map_err(|e| e.to_string())?;
+    let hidden = samplr::remove_folder(&mut db, &folder).map_err(|e| e.to_string())?;
+    if let Err(error) = library.update_watched() {
+        eprintln!("Watched folders not updated: {error}");
+    }
+    Ok(hidden)
+}
+
 /// What `add_folder` reports to the page.
 #[derive(Serialize)]
 struct Added {
@@ -286,7 +324,16 @@ fn main() {
         .manage(Audio { requests })
         .manage(Library::new())
         .invoke_handler(tauri::generate_handler![
-            search, waveform, add_tags, remove_tag, play, stop, set_volume, add_folder
+            search,
+            waveform,
+            add_tags,
+            remove_tag,
+            play,
+            stop,
+            set_volume,
+            add_folder,
+            folders,
+            remove_folder
         ])
         .run(tauri::generate_context!())
         .expect("could not start the interface");

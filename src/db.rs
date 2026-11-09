@@ -68,8 +68,31 @@ pub fn open() -> Result<Connection, Box<dyn Error>> {
             peaks    BLOB NOT NULL
         );",
     )?;
+    migrate(&db)?;
 
     Ok(db)
+}
+
+/// Brings a database created by an older samplr up to date. Its version is
+/// kept by SQLite (`user_version`, 0 for a new database); each step runs once.
+/// A new database goes through every step too: the tables above are those of
+/// version 0.
+fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
+    // `IMMEDIATE` takes the write lock before reading the version: the app
+    // and a `samplr` command opening the database together cannot both run
+    // the same step.
+    db.execute_batch("BEGIN IMMEDIATE")?;
+    let version: i64 = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if version < 1 {
+        // Samples of a folder removed from the library: hidden, but kept with
+        // their tags in case the folder is added again.
+        db.execute_batch(
+            "ALTER TABLE files ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;
+             PRAGMA user_version = 1;",
+        )?;
+    }
+    db.execute_batch("COMMIT")?;
+    Ok(())
 }
 
 /// Remembers a scanned folder, so that `samplr watch` follows it.
@@ -91,6 +114,47 @@ pub fn folders(db: &Connection) -> Result<Vec<PathBuf>, Box<dyn Error>> {
         folders.push(PathBuf::from(path?));
     }
     Ok(folders)
+}
+
+/// Removes a folder from the library: it is no longer followed, and its
+/// samples are hidden, unless another scanned folder still contains them.
+/// Their tags and info are kept, in case the folder is added again; their
+/// waveforms are deleted. Returns the number of samples hidden.
+pub fn remove_folder(db: &Connection, folder: &Path) -> Result<usize, Box<dyn Error>> {
+    let removed = db.execute(
+        "DELETE FROM folders WHERE path = ?1",
+        [path_as_text(folder)?],
+    )?;
+    if removed == 0 {
+        return Err(format!("{} is not a scanned folder", folder.display()).into());
+    }
+    let others = folders(db)?;
+
+    let mut hidden = 0;
+    for path in files_under(db, folder)? {
+        if others.iter().any(|other| path.starts_with(other)) {
+            continue;
+        }
+        let text = path_as_text(&path)?;
+        db.execute("UPDATE files SET hidden = 1 WHERE path = ?1", [text])?;
+        db.execute(
+            "DELETE FROM waveforms WHERE file_id = (SELECT id FROM files WHERE path = ?1)",
+            [text],
+        )?;
+        hidden += 1;
+    }
+    Ok(hidden)
+}
+
+/// The number of samples shown (not hidden) in `folder` or its subfolders.
+pub fn count_under(db: &Connection, folder: &Path) -> Result<u32, Box<dyn Error>> {
+    let folder = path_as_text(folder)?;
+    let count = db.query_row(
+        &format!("SELECT COUNT(*) FROM files WHERE hidden = 0 AND {UNDER_PATH}"),
+        named_params! { ":path": folder, ":prefix": folder_prefix(folder) },
+        |row| row.get(0),
+    )?;
+    Ok(count)
 }
 
 /// The samples in the database located in `folder` or its subfolders.
@@ -171,7 +235,8 @@ pub fn save(db: &Connection, info: &SampleInfo) -> Result<i64, Box<dyn Error>> {
 
     // `ON CONFLICT … DO UPDATE` updates the existing row instead of replacing
     // it: the sample keeps its `id`, hence its tags. `RETURNING id` gives
-    // that `id` in both cases, insert or update.
+    // that `id` in both cases, insert or update. A sample hidden with its
+    // folder shows again when found again.
     let id = db.query_row(
         "INSERT INTO files (path, duration_secs, sample_rate, channels, bits)
          VALUES (?1, ?2, ?3, ?4, ?5)
@@ -179,7 +244,8 @@ pub fn save(db: &Connection, info: &SampleInfo) -> Result<i64, Box<dyn Error>> {
              duration_secs = excluded.duration_secs,
              sample_rate   = excluded.sample_rate,
              channels      = excluded.channels,
-             bits          = excluded.bits
+             bits          = excluded.bits,
+             hidden        = 0
          RETURNING id",
         params![
             path,
@@ -193,9 +259,9 @@ pub fn save(db: &Connection, info: &SampleInfo) -> Result<i64, Box<dyn Error>> {
     Ok(id)
 }
 
-/// Every sample in the database: its `id` and its path, sorted by path.
+/// Every sample shown (not hidden): its `id` and its path, sorted by path.
 pub fn all_files(db: &Connection) -> Result<Vec<(i64, PathBuf)>, Box<dyn Error>> {
-    let mut query = db.prepare("SELECT id, path FROM files ORDER BY path")?;
+    let mut query = db.prepare("SELECT id, path FROM files WHERE hidden = 0 ORDER BY path")?;
     let rows = query.query_map([], |row| {
         Ok((row.get(0)?, PathBuf::from(row.get::<_, String>(1)?)))
     })?;
@@ -347,11 +413,13 @@ pub fn tags_of(db: &Connection, file_id: i64) -> Result<Vec<String>, Box<dyn Err
     Ok(tags)
 }
 
-/// Every tag, with the number of samples carrying it, in alphabetical order.
+/// Every tag carried by a shown sample (not hidden), with the number of such
+/// samples, in alphabetical order.
 pub fn list_tags(db: &Connection) -> Result<Vec<(String, u32)>, Box<dyn Error>> {
     let mut query = db.prepare(
         "SELECT t.name, COUNT(*)
          FROM tags t JOIN file_tags ft ON ft.tag_id = t.id
+                     JOIN files f ON f.id = ft.file_id AND f.hidden = 0
          GROUP BY t.id
          ORDER BY t.name",
     )?;
@@ -367,7 +435,8 @@ pub fn list_tags(db: &Connection) -> Result<Vec<(String, u32)>, Box<dyn Error>> 
 /// The samples carrying **all** the given `tags`, whose path contains `text`,
 /// and where each of the `words` is found in the path or in one of the tags
 /// (case-insensitive), sorted by path. With no tag, no word and an empty
-/// text, every sample in the database.
+/// text, every sample shown. Hidden samples (see `remove_folder`) are left
+/// out.
 pub fn search(
     db: &Connection,
     tags: &[String],
@@ -382,7 +451,7 @@ pub fn search(
                  FROM file_tags ft JOIN tags t ON t.id = ft.tag_id
                  WHERE ft.file_id = f.id)
          FROM files f
-         WHERE instr(lower(f.path), lower(?1)) > 0",
+         WHERE f.hidden = 0 AND instr(lower(f.path), lower(?1)) > 0",
     );
     let mut values = vec![text.to_string()];
 
