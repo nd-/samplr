@@ -75,6 +75,7 @@ function buildRow(index) {
   if (selectedPaths.has(sample.path)) tr.classList.add("selected");
   if (index === selected && selectedPaths.size > 1) tr.classList.add("current");
   const star = cell(sample.favorite ? "★" : "☆", "star");
+  star.classList.toggle("off", !sample.favorite);
   star.title = "Favorite (Ctrl+D)";
   tr.append(
     star,
@@ -950,7 +951,10 @@ async function setFavorite(chosen, favorite) {
   for (const sample of chosen) {
     sample.favorite = favorite;
     const star = rowElement(samples.indexOf(sample))?.querySelector(".star");
-    if (star) star.textContent = favorite ? "★" : "☆";
+    if (star) {
+      star.textContent = favorite ? "★" : "☆";
+      star.classList.toggle("off", !favorite);
+    }
   }
 }
 

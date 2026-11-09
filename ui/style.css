@@ -634,6 +634,11 @@ td.star {
 	cursor: pointer;
 }
 
+/* Not a favorite: the empty star, faded. */
+td.star.off {
+	opacity: 0.35;
+}
+
 /* No padding and no ellipsis: the × button fills its narrow cell, which
    would otherwise show "…" beside it. */
 .remove {
