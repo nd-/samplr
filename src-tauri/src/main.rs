@@ -5,6 +5,8 @@
 // next to the app.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod library;
+
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -17,6 +19,8 @@ use samplr::waveform::Peak;
 use samplr::{SampleInfo, db};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
+
+use library::Library;
 
 /// What the audio thread is asked to do.
 enum AudioRequest {
@@ -78,12 +82,17 @@ struct Added {
     unreadable: usize,
 }
 
-/// Adds a folder of samples, like `samplr scan`. A big folder takes a while:
-/// `(async)` keeps the window responsive meanwhile.
+/// Adds a folder of samples, like `samplr scan`, and follows it from then
+/// on. A big folder takes a while: `(async)` keeps the window responsive
+/// meanwhile.
 #[tauri::command(async)]
-fn add_folder(folder: PathBuf) -> Result<Added, String> {
+fn add_folder(folder: PathBuf, library: State<Library>) -> Result<Added, String> {
     let mut db = db::open().map_err(|e| e.to_string())?;
     let scan = samplr::scan(&mut db, &folder).map_err(|e| e.to_string())?;
+    // The samples are saved even if the folder cannot be watched.
+    if let Err(error) = library.update_watched() {
+        eprintln!("{}: not watched: {error}", scan.folder.display());
+    }
     Ok(Added {
         samples: scan.samples.len(),
         unreadable: scan.unreadable,
@@ -268,10 +277,13 @@ fn main() {
         .setup(move |app| {
             let handle = app.handle().clone();
             thread::spawn(move || audio_thread(receiver, handle));
+            library::start(app.handle().clone());
             Ok(())
         })
-        // Stored by Tauri and handed to every command that asks for `State<Audio>`.
+        // Stored by Tauri and handed to every command that asks for
+        // `State<Audio>` or `State<Library>`.
         .manage(Audio { requests })
+        .manage(Library::new())
         .invoke_handler(tauri::generate_handler![
             search, waveform, add_tags, remove_tag, play, stop, set_volume, add_folder
         ])

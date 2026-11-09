@@ -2,6 +2,7 @@
 // both need (database, waveforms, reading audio files).
 
 pub mod db;
+pub mod watch;
 pub mod waveform;
 
 use std::error::Error;

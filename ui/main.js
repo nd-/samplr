@@ -383,6 +383,32 @@ async function addFolder() {
 
 addFolderButton.addEventListener("click", addFolder);
 
+// The folders changed on disk (samples added, renamed or deleted): the same
+// search again, keeping the selected sample and the sound playing.
+async function refresh() {
+  const selectedPath = samples[selected]?.path;
+  const statusText = status.textContent;
+  try {
+    samples = await invoke("search", { query: searchBox.value });
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+    return;
+  }
+  render();
+  // While a sound plays, the status line keeps showing it.
+  if (!stopButton.disabled) status.textContent = statusText;
+  selected = samples.findIndex((sample) => sample.path === selectedPath);
+  if (selected >= 0) {
+    tbody.children[selected].classList.add("selected");
+  } else {
+    peaks = [];
+    drawWaveform();
+  }
+  renderTags();
+}
+
+window.__TAURI__.event.listen("library-changed", refresh);
+
 async function search() {
   try {
     samples = await invoke("search", { query: searchBox.value });
