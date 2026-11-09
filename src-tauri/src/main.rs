@@ -72,6 +72,61 @@ fn search(
     db::search(&db, &tags, &words, "", favorites, collection).map_err(|e| e.to_string())
 }
 
+/// The palette, in its order.
+#[tauri::command(async)]
+fn colors() -> Result<Vec<db::Color>, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    db::colors(&db).map_err(|e| e.to_string())
+}
+
+/// Adds a colour at the end of the palette and returns its `id`.
+#[tauri::command(async)]
+fn add_color(name: String, hex: String) -> Result<i64, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    db::add_color(&db, &name, &hex).map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+fn update_color(id: i64, name: String, hex: String) -> Result<(), String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    db::update_color(&db, id, &name, &hex).map_err(|e| e.to_string())
+}
+
+/// How many tags and collections use a colour: `[tags, collections]`.
+#[tauri::command(async)]
+fn color_usage(id: i64) -> Result<(u32, u32), String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    db::color_usage(&db, id).map_err(|e| e.to_string())
+}
+
+/// Deletes a colour; its tags and collections are left without colour.
+#[tauri::command(async)]
+fn delete_color(id: i64) -> Result<(), String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    db::delete_color(&db, id).map_err(|e| e.to_string())
+}
+
+/// The tags that have a colour: `[name, colour id]` pairs.
+#[tauri::command(async)]
+fn tag_colors() -> Result<Vec<(String, i64)>, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    db::tag_colors(&db).map_err(|e| e.to_string())
+}
+
+/// Gives a tag a colour, or none (`null` from the page).
+#[tauri::command(async)]
+fn set_tag_color(tag: String, color: Option<i64>) -> Result<(), String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    db::set_tag_color(&db, &tag, color).map_err(|e| e.to_string())
+}
+
+/// Gives a collection a colour, or none (`null` from the page).
+#[tauri::command(async)]
+fn set_collection_color(collection: i64, color: Option<i64>) -> Result<(), String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    db::set_collection_color(&db, collection, color).map_err(|e| e.to_string())
+}
+
 /// The collections, sorted by name, with their number of samples.
 #[tauri::command(async)]
 fn collections() -> Result<Vec<db::Collection>, String> {
@@ -451,6 +506,14 @@ fn main() {
             add_tags,
             remove_tag,
             set_favorite,
+            colors,
+            add_color,
+            update_color,
+            color_usage,
+            delete_color,
+            tag_colors,
+            set_tag_color,
+            set_collection_color,
             collections,
             create_collection,
             delete_collection,

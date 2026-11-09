@@ -56,7 +56,7 @@ header button {
   width: 7rem;
 }
 
-#folders {
+#folders, #settings {
   width: min(40rem, 90vw);
   border: 1px solid var(--border);
   background: light-dark(#fff, #1b1b1b);
@@ -529,4 +529,61 @@ footer {
 
 .flash {
   animation: flash 0.8s ease-out;
+}
+
+/* Colours of tags and collections (palette in the Settings window). */
+.dot {
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-right: 0.4em;
+  border-radius: 50%;
+  vertical-align: baseline;
+}
+
+/* A coloured tag in the list's Tags column. */
+.chip {
+  display: inline-block;
+  padding: 0 0.45em;
+  border-radius: 0.6em;
+  line-height: 1.5;
+}
+
+#settings h3 {
+  margin: 0.5rem 0 0.2rem;
+  font-size: 1rem;
+}
+
+#color-list {
+  list-style: none;
+  padding: 0;
+}
+
+#color-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+}
+
+#color-list input[type="text"] {
+  flex: 1;
+  font: inherit;
+  padding: 0.2rem 0.4rem;
+}
+
+#color-list input[type="color"] {
+  width: 2.4rem;
+  height: 1.8rem;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+#color-list button {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
 }

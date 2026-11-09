@@ -112,6 +112,27 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
              PRAGMA user_version = 3;",
         )?;
     }
+    if version < 4 {
+        // A palette to colour tags and collections, filled with a first set
+        // of colours that the settings panel lets one change. Deleting a
+        // colour leaves its tags and collections without colour.
+        db.execute_batch(
+            "CREATE TABLE colors (
+                 id       INTEGER PRIMARY KEY,
+                 name     TEXT NOT NULL,
+                 hex      TEXT NOT NULL,
+                 position INTEGER NOT NULL
+             );
+             INSERT INTO colors (name, hex, position) VALUES
+                 ('Red', '#e5484d', 1), ('Orange', '#f76b15', 2), ('Amber', '#ffc53d', 3),
+                 ('Green', '#30a46c', 4), ('Teal', '#12a594', 5), ('Blue', '#0090ff', 6),
+                 ('Indigo', '#3e63dd', 7), ('Purple', '#8e4ec6', 8), ('Pink', '#d6409f', 9),
+                 ('Grey', '#8b8d98', 10);
+             ALTER TABLE tags ADD COLUMN color_id INTEGER REFERENCES colors(id) ON DELETE SET NULL;
+             ALTER TABLE collections ADD COLUMN color_id INTEGER REFERENCES colors(id) ON DELETE SET NULL;
+             PRAGMA user_version = 4;",
+        )?;
+    }
     db.execute_batch("COMMIT")?;
     Ok(())
 }
@@ -417,6 +438,118 @@ fn delete_orphan_tags(db: &Connection) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// A colour of the palette: `hex` is `#rrggbb`.
+#[derive(Serialize)]
+pub struct Color {
+    pub id: i64,
+    pub name: String,
+    pub hex: String,
+}
+
+/// The palette, in its order.
+pub fn colors(db: &Connection) -> Result<Vec<Color>, Box<dyn Error>> {
+    let mut query = db.prepare("SELECT id, name, hex FROM colors ORDER BY position, id")?;
+    let rows = query.query_map([], |row| {
+        Ok(Color {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            hex: row.get(2)?,
+        })
+    })?;
+
+    let mut colors = Vec::new();
+    for color in rows {
+        colors.push(color?);
+    }
+    Ok(colors)
+}
+
+/// `#rrggbb`, lowercase, as an `<input type="color">` gives it.
+fn check_hex(hex: &str) -> Result<String, Box<dyn Error>> {
+    let hex = hex.trim().to_lowercase();
+    let digits = hex.strip_prefix('#').unwrap_or("");
+    if digits.len() != 6 || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!("invalid colour: \"{hex}\" (expected #rrggbb)").into());
+    }
+    Ok(hex)
+}
+
+/// Adds a colour at the end of the palette and returns its `id`.
+pub fn add_color(db: &Connection, name: &str, hex: &str) -> Result<i64, Box<dyn Error>> {
+    let id = db.query_row(
+        "INSERT INTO colors (name, hex, position)
+         VALUES (?1, ?2, (SELECT COALESCE(MAX(position), 0) + 1 FROM colors))
+         RETURNING id",
+        params![name.trim(), check_hex(hex)?],
+        |row| row.get(0),
+    )?;
+    Ok(id)
+}
+
+/// Renames a colour or changes its value.
+pub fn update_color(db: &Connection, id: i64, name: &str, hex: &str) -> Result<(), Box<dyn Error>> {
+    db.execute(
+        "UPDATE colors SET name = ?1, hex = ?2 WHERE id = ?3",
+        params![name.trim(), check_hex(hex)?, id],
+    )?;
+    Ok(())
+}
+
+/// How many tags and how many collections use a colour.
+pub fn color_usage(db: &Connection, id: i64) -> Result<(u32, u32), Box<dyn Error>> {
+    let usage = db.query_row(
+        "SELECT (SELECT COUNT(*) FROM tags WHERE color_id = ?1),
+                (SELECT COUNT(*) FROM collections WHERE color_id = ?1)",
+        [id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    Ok(usage)
+}
+
+/// Deletes a colour; its tags and collections are left without colour.
+pub fn delete_color(db: &Connection, id: i64) -> Result<(), Box<dyn Error>> {
+    db.execute("DELETE FROM colors WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+/// The tags that have a colour: their name and their colour's `id`.
+pub fn tag_colors(db: &Connection) -> Result<Vec<(String, i64)>, Box<dyn Error>> {
+    let mut query = db.prepare("SELECT name, color_id FROM tags WHERE color_id IS NOT NULL")?;
+    let rows = query.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+
+    let mut tags = Vec::new();
+    for tag in rows {
+        tags.push(tag?);
+    }
+    Ok(tags)
+}
+
+/// Gives a tag a colour, or none (`None`).
+pub fn set_tag_color(
+    db: &Connection,
+    tag: &str,
+    color_id: Option<i64>,
+) -> Result<(), Box<dyn Error>> {
+    db.execute(
+        "UPDATE tags SET color_id = ?1 WHERE name = ?2",
+        params![color_id, normalize_tag(tag)?],
+    )?;
+    Ok(())
+}
+
+/// Gives a collection a colour, or none (`None`).
+pub fn set_collection_color(
+    db: &Connection,
+    collection_id: i64,
+    color_id: Option<i64>,
+) -> Result<(), Box<dyn Error>> {
+    db.execute(
+        "UPDATE collections SET color_id = ?1 WHERE id = ?2",
+        params![color_id, collection_id],
+    )?;
+    Ok(())
+}
+
 /// Marks a sample as a favorite, or no longer.
 pub fn set_favorite(db: &Connection, file_id: i64, favorite: bool) -> Result<(), Box<dyn Error>> {
     db.execute(
@@ -433,6 +566,8 @@ pub struct Collection {
     pub name: String,
     /// Samples shown (not hidden) in the collection.
     pub samples: u32,
+    /// Its colour in the palette, if it has one.
+    pub color_id: Option<i64>,
 }
 
 /// The collections, sorted by name (case-insensitive).
@@ -440,7 +575,8 @@ pub fn collections(db: &Connection) -> Result<Vec<Collection>, Box<dyn Error>> {
     let mut query = db.prepare(
         "SELECT c.id, c.name,
                 (SELECT COUNT(*) FROM collection_files cf JOIN files f ON f.id = cf.file_id
-                 WHERE cf.collection_id = c.id AND f.hidden = 0)
+                 WHERE cf.collection_id = c.id AND f.hidden = 0),
+                c.color_id
          FROM collections c
          ORDER BY c.name COLLATE NOCASE",
     )?;
@@ -449,6 +585,7 @@ pub fn collections(db: &Connection) -> Result<Vec<Collection>, Box<dyn Error>> {
             id: row.get(0)?,
             name: row.get(1)?,
             samples: row.get(2)?,
+            color_id: row.get(3)?,
         })
     })?;
 

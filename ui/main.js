@@ -79,7 +79,7 @@ function buildRow(index) {
     cell(name),
     cell(folder, "folder"),
     cell(formatDuration(sample.duration_secs), "number"),
-    cell(sample.tags.join(" "), "tags"),
+    tagsCell(sample.tags),
   );
   // In an open collection, a button at the end of the row takes that
   // sample out of it, whether it is selected or not.
@@ -410,6 +410,15 @@ function renderTags() {
     const chip = document.createElement("span");
     chip.className = "tag";
     chip.textContent = tag;
+    paint(chip, tagColor(tag));
+    chip.title = "Right-click to give it a colour";
+    chip.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      openColorMenu(event.clientX, event.clientY, tagColorIds.get(tag) ?? null, async (color) => {
+        await invoke("set_tag_color", { tag, color });
+        await loadColors();
+      });
+    });
     const remove = document.createElement("button");
     remove.textContent = "×";
     remove.title = `Remove ${tag}`;
@@ -426,8 +435,9 @@ function showTags(changed, allTags) {
   changed.forEach((sample, i) => {
     sample.tags = allTags[i];
     const row = rowElement(samples.indexOf(sample));
-    if (row) row.querySelector(".tags").textContent = sample.tags.join(" ");
   });
+  // A tag added may be coloured: the rows are drawn again (a screenful).
+  drawRows();
   renderTags();
 }
 
@@ -941,13 +951,14 @@ async function loadCollections() {
 
 // `id`: the collection's, kept on the item to find it under a drop; none for
 // "All samples", which takes no drop.
-function collectionItem(label, count, active, open, id) {
+function collectionItem(label, count, active, open, id, hex = null) {
   const item = document.createElement("li");
   if (active) item.classList.add("active");
   if (id !== undefined) item.dataset.id = id;
   const name = document.createElement("span");
   name.className = "name";
-  name.textContent = label;
+  if (hex) name.append(dot(hex));
+  name.append(label);
   name.addEventListener("click", open);
   item.append(name);
   if (count !== null) {
@@ -970,7 +981,16 @@ function renderCollections() {
       collection.id === currentCollection,
       () => openCollection(collection.id),
       collection.id,
+      colorHex(collection.color_id),
     );
+    item.title = "Right-click to give it a colour";
+    item.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      openColorMenu(event.clientX, event.clientY, collection.color_id, async (color) => {
+        await invoke("set_collection_color", { collection: collection.id, color });
+        await loadCollections();
+      });
+    });
     const remove = document.createElement("button");
     remove.textContent = "×";
     remove.title = `Delete the collection ${collection.name} (its samples stay in the library)`;
@@ -1144,9 +1164,11 @@ const contextMenu = document.getElementById("context-menu");
 // `keepOpen`: the menu stays open after the action and shows the new state
 // (adding to or removing from collections, several in a row); otherwise it
 // closes first.
-function menuButton(label, action, keepOpen = false) {
+// `hex`: a coloured dot before the label.
+function menuButton(label, action, keepOpen = false, hex = null) {
   const button = document.createElement("button");
-  button.textContent = label;
+  if (hex) button.append(dot(hex));
+  button.append(label);
   button.addEventListener("click", async () => {
     if (!keepOpen) closeContextMenu();
     await action();
@@ -1186,7 +1208,12 @@ async function openContextMenu(x, y) {
     if (holding.includes(collection.id)) {
       // Already there: the name cannot be clicked, a × next to it takes the
       // samples out.
-      const already = menuButton(`✓ ${collection.name}`, () => {});
+      const already = menuButton(
+        `✓ ${collection.name}`,
+        () => {},
+        false,
+        colorHex(collection.color_id),
+      );
       already.disabled = true;
       already.title = "Already in this collection";
       const remove = menuButton(
@@ -1201,7 +1228,14 @@ async function openContextMenu(x, y) {
       line.append(already, remove);
       items.push(line);
     } else {
-      items.push(menuButton(collection.name, () => addToCollection(collection), true));
+      items.push(
+        menuButton(
+          collection.name,
+          () => addToCollection(collection),
+          true,
+          colorHex(collection.color_id),
+        ),
+      );
     }
   }
   // A new collection, named here, gets the sample at once.
@@ -1287,7 +1321,7 @@ searchBox.addEventListener("input", () => {
 document.addEventListener("keydown", (event) => {
   // The folders window has its own keys (Esc closes it, Tab moves between
   // its buttons): the list behind must not react.
-  if (foldersDialog.open) return;
+  if (foldersDialog.open || settingsDialog.open) return;
   // Typing a collection name: Enter creates it (the form's own behaviour),
   // and the list's keys must not react.
   if (event.target === collectionName) return;
@@ -1367,5 +1401,163 @@ document.addEventListener("keydown", (event) => {
   event.preventDefault();
 });
 
+// The palette, and the colours of the tags (by name).
+let palette = [];
+let tagColorIds = new Map();
+
+function colorHex(id) {
+  return palette.find((color) => color.id === id)?.hex ?? null;
+}
+
+function tagColor(tag) {
+  return colorHex(tagColorIds.get(tag) ?? null);
+}
+
+// Black or white text, whichever reads better on `hex` (perceived
+// brightness of the colour).
+function textOn(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return r * 0.299 + g * 0.587 + b * 0.114 > 150 ? "#1b1b1b" : "#ffffff";
+}
+
+// Gives an element a coloured background, or takes it away (`null`).
+function paint(element, hex) {
+  element.style.background = hex ?? "";
+  element.style.color = hex ? textOn(hex) : "";
+}
+
+function dot(hex) {
+  const span = document.createElement("span");
+  span.className = "dot";
+  span.style.background = hex;
+  return span;
+}
+
+// The Tags cell of a row: coloured tags as chips, the others as text.
+function tagsCell(tags) {
+  const td = cell("", "tags");
+  tags.forEach((tag, i) => {
+    if (i > 0) td.append(" ");
+    const hex = tagColor(tag);
+    if (hex) {
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      chip.textContent = tag;
+      paint(chip, hex);
+      td.append(chip);
+    } else {
+      td.append(tag);
+    }
+  });
+  return td;
+}
+
+async function loadColors() {
+  try {
+    palette = await invoke("colors");
+    tagColorIds = new Map(await invoke("tag_colors"));
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+    return;
+  }
+  drawRows();
+  renderTags();
+  renderCollections();
+}
+
+// The palette's colours to choose from, plus "No colour"; `current` is
+// marked. Used for a tag and for a collection.
+function openColorMenu(x, y, current, choose) {
+  const items = [];
+  const none = menuButton(current === null ? "✓ No colour" : "No colour", () => choose(null));
+  items.push(none);
+  for (const color of palette) {
+    const label = color.id === current ? `✓ ${color.name}` : color.name;
+    items.push(menuButton(label, () => choose(color.id), false, color.hex));
+  }
+  contextMenu.replaceChildren(...items);
+  contextMenu.hidden = false;
+  const { width, height } = contextMenu.getBoundingClientRect();
+  contextMenu.style.left = `${Math.min(x, window.innerWidth - width - 4)}px`;
+  contextMenu.style.top = `${Math.min(y, window.innerHeight - height - 4)}px`;
+}
+
+// The Settings window: for now, the palette. Each change is saved at once.
+const settingsDialog = document.getElementById("settings");
+const colorList = document.getElementById("color-list");
+
+function renderSettings() {
+  const items = palette.map((color) => {
+    const item = document.createElement("li");
+    const picker = document.createElement("input");
+    picker.type = "color";
+    picker.value = color.hex;
+    const name = document.createElement("input");
+    name.type = "text";
+    name.value = color.name;
+    name.spellcheck = false;
+    const save = async () => {
+      try {
+        await invoke("update_color", { id: color.id, name: name.value, hex: picker.value });
+      } catch (error) {
+        status.textContent = `Error: ${error}`;
+        return;
+      }
+      await loadColors();
+    };
+    // `change`: when the picker closes or the name box is left, not at
+    // every step.
+    picker.addEventListener("change", save);
+    name.addEventListener("change", save);
+    const remove = document.createElement("button");
+    remove.textContent = "×";
+    remove.title = `Delete ${color.name}`;
+    remove.addEventListener("click", () => deleteColor(color));
+    item.append(picker, name, remove);
+    return item;
+  });
+  colorList.replaceChildren(...items);
+}
+
+async function deleteColor(color) {
+  try {
+    const [tags, collectionCount] = await invoke("color_usage", { id: color.id });
+    if (tags + collectionCount > 0) {
+      const confirmed = await window.__TAURI__.dialog.ask(
+        `Delete the colour ${color.name}?\n\n` +
+          `${tags} tag(s) and ${collectionCount} collection(s) use it; ` +
+          "they will be left without colour.",
+        { title: "Delete colour", kind: "warning" },
+      );
+      if (!confirmed) return;
+    }
+    await invoke("delete_color", { id: color.id });
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+    return;
+  }
+  await loadColors();
+  await loadCollections();
+  renderSettings();
+}
+
+document.getElementById("add-color").addEventListener("click", async () => {
+  try {
+    await invoke("add_color", { name: "New colour", hex: "#888888" });
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+    return;
+  }
+  await loadColors();
+  renderSettings();
+  colorList.lastElementChild?.querySelector('input[type="text"]').select();
+});
+
+document.getElementById("show-settings").addEventListener("click", () => {
+  renderSettings();
+  settingsDialog.showModal();
+});
+
 search();
 loadCollections();
+loadColors();
