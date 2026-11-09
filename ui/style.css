@@ -40,6 +40,17 @@ header {
   font: inherit;
 }
 
+#volume-box {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+}
+
+#volume {
+  width: 7rem;
+}
+
 #wave {
   display: block;
   width: 100%;

@@ -52,7 +52,7 @@ Audio pitfalls met so far:
 
 ## Roadmap
 1. ✅ Scan a folder and list the samples.
-2. ✅ Preview: `play` tested on Linux and on the Mac (remaining: volume).
+2. ✅ Preview: `play` tested on Linux and on the Mac. Volume: in the interface only (step 7).
 3. ✅ **SQLite** database (`rusqlite`): files, tags and link tables. Tags stay in the database, never in the audio files.
 4. ✅ CLI commands to tag and search, with `clap`.
 5. ✅ Folder watching (`samplr watch`), tested on Linux only. Remaining: test it on the Mac (renames), a command to stop following a scanned folder.
@@ -77,6 +77,7 @@ Audio pitfalls met so far:
 - 7b: one search box (each word must be in the path or in one of the tags; a `#tag` word requires that exact tag), the list of results, ↑ ↓ to move and play, Enter to replay, Esc to stop, a click plays. An audio thread opens the output once for the whole session and gets the sounds to play through a channel; each sound gets a new `rodio::Player`, dropping the previous one cuts it. The file is opened by the `play` command, so an unreadable file is reported to the page.
 - 7c: the selected sample's waveform is drawn on a `<canvas>` above the list, at the screen's real resolution. `samplr::peaks` (in `src/lib.rs`, shared with `samplr wave`) returns the cached peaks or computes and caches them. A late answer for a sample no longer selected is ignored.
 - 7d: a tag bar under the waveform shows the selected sample's tags, each with a × to remove it. Ctrl+T (Cmd+T on Mac) moves to the tag box; there, Enter adds the tags typed (separated by spaces), Backspace on an empty box removes the last tag, Esc goes back to the search box. The `add_tags` and `remove_tag` commands return the sample's tags after the change.
+- Preview controls: a Stop button (same as Esc) and a volume slider in the header. The slider's position is squared before reaching rodio (`set_volume` command, 0.0 to 1.0), so that it acts evenly over its whole travel (a linear slider barely changes the loudness in its top half); it is remembered in the web view's `localStorage`. The audio thread receives `AudioRequest::Play`, `Stop` or `Volume`, and applies the volume to the sound playing and to the next ones.
 - Rust functions called from the page are marked `#[tauri::command]` in `src-tauri/src/main.rs` and listed in `generate_handler!`. They return `Result<T, String>`: the error must be serialisable to reach JavaScript, `Box<dyn Error>` is not.
 
 ## Known limitations

@@ -16,10 +16,15 @@ use samplr::waveform::Peak;
 use samplr::{SampleInfo, db};
 use tauri::State;
 
-/// What the audio thread is asked to do: play this sound, or stop (`None`).
-/// The decoder reads the file through a buffer (`BufReader`), a few
-/// kilobytes at a time rather than byte by byte.
-type AudioRequest = Option<Decoder<BufReader<File>>>;
+/// What the audio thread is asked to do.
+enum AudioRequest {
+    /// The decoder reads the file through a buffer (`BufReader`), a few
+    /// kilobytes at a time rather than byte by byte.
+    Play(Decoder<BufReader<File>>),
+    Stop,
+    /// 0.0 is silence, 1.0 the file's own level.
+    Volume(rodio::Float),
+}
 
 /// Shared by every command through `State`: the way to talk to the audio thread.
 struct Audio {
@@ -92,12 +97,19 @@ fn play(path: PathBuf, audio: State<Audio>) -> Result<(), String> {
     // unreadable file is reported to the page.
     let file = File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let decoder = Decoder::try_from(file).map_err(|e| format!("{}: {e}", path.display()))?;
-    send(&audio, Some(decoder))
+    send(&audio, AudioRequest::Play(decoder))
 }
 
 #[tauri::command]
 fn stop(audio: State<Audio>) -> Result<(), String> {
-    send(&audio, None)
+    send(&audio, AudioRequest::Stop)
+}
+
+/// Sets the preview volume, from 0.0 (silence) to 1.0 (the file's own level),
+/// for the sound playing and the next ones.
+#[tauri::command]
+fn set_volume(volume: rodio::Float, audio: State<Audio>) -> Result<(), String> {
+    send(&audio, AudioRequest::Volume(volume.clamp(0.0, 1.0)))
 }
 
 fn send(audio: &Audio, request: AudioRequest) -> Result<(), String> {
@@ -127,13 +139,24 @@ fn audio_thread(requests: Receiver<AudioRequest>) {
     // A new `Player` per sound: replacing the old one drops it, and a
     // dropped `Player` stops its sound at once.
     let mut current: Option<rodio::Player> = None;
+    let mut volume = 1.0;
     // `for` waits for each request in turn, and ends when the app closes.
     for request in requests {
-        current = request.map(|decoder| {
-            let player = rodio::Player::connect_new(sink.mixer());
-            player.append(decoder);
-            player
-        });
+        match request {
+            AudioRequest::Play(decoder) => {
+                let player = rodio::Player::connect_new(sink.mixer());
+                player.set_volume(volume);
+                player.append(decoder);
+                current = Some(player);
+            }
+            AudioRequest::Stop => current = None,
+            AudioRequest::Volume(new_volume) => {
+                volume = new_volume;
+                if let Some(player) = &current {
+                    player.set_volume(volume);
+                }
+            }
+        }
     }
     drop(current);
 }
@@ -159,7 +182,7 @@ fn main() {
         // Stored by Tauri and handed to every command that asks for `State<Audio>`.
         .manage(Audio { requests })
         .invoke_handler(tauri::generate_handler![
-            search, waveform, add_tags, remove_tag, play, stop
+            search, waveform, add_tags, remove_tag, play, stop, set_volume
         ])
         .run(tauri::generate_context!())
         .expect("could not start the interface");

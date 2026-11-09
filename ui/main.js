@@ -187,6 +187,30 @@ function stop() {
 
 stopButton.addEventListener("click", stop);
 
+// The slider's position is squared: the ear hears loudness roughly on a
+// logarithmic scale, and a linear slider would do almost nothing in its top
+// half. The position is remembered between sessions, on this computer only.
+const volumeSlider = document.getElementById("volume");
+
+function applyVolume() {
+  const position = volumeSlider.value / 100;
+  invoke("set_volume", { volume: position * position });
+  try {
+    localStorage.setItem("volume", volumeSlider.value);
+  } catch {
+    // Storage unavailable: the volume is simply not remembered.
+  }
+}
+
+try {
+  const saved = localStorage.getItem("volume");
+  if (saved !== null) volumeSlider.value = saved;
+} catch {
+  // Storage unavailable: keep the default position.
+}
+volumeSlider.addEventListener("input", applyVolume);
+applyVolume();
+
 // The web view would otherwise start its own drag (of the text under the
 // mouse) alongside the native one, and take its place.
 document.addEventListener("dragstart", (event) => event.preventDefault());
