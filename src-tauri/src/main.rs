@@ -93,6 +93,7 @@ fn add_folder(folder: PathBuf, library: State<Library>) -> Result<Added, String>
     if let Err(error) = library.update_watched() {
         eprintln!("{}: not watched: {error}", scan.folder.display());
     }
+    library.update_waveforms();
     Ok(Added {
         samples: scan.samples.len(),
         unreadable: scan.unreadable,

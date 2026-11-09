@@ -18,8 +18,8 @@ use clap::{Parser, Subcommand};
 use rusqlite::Connection;
 // The shared code lives in the `samplr` library (src/lib.rs), which the
 // graphical interface will use too.
-use samplr::db::{self, FileStamp};
-use samplr::{SampleInfo, is_audio, is_mac_metadata, read_info, waveform};
+use samplr::db;
+use samplr::{SampleInfo, WaveformUpdate, is_audio, is_mac_metadata, read_info, waveform};
 
 // clap reads this description to parse the command line: each variant of
 // `Command` becomes a subcommand (`Scan` → `samplr scan`), its fields become
@@ -250,25 +250,14 @@ fn compute_waveforms() -> Result<(), Box<dyn Error>> {
     // writing, and each waveform saved right away is kept even if the
     // command is stopped halfway with Ctrl+C.
     for (file_id, path) in db::all_files(&db)? {
-        // The stamp is read before decoding: if the file changes meanwhile,
-        // the saved stamp will no longer match and the waveform will be
-        // computed again next time.
-        let Ok(stamp) = FileStamp::read(&path) else {
-            // Deleted file, or disk unplugged.
-            missing += 1;
-            continue;
-        };
-        if db::waveform(&db, file_id, stamp)?.is_some() {
-            up_to_date += 1;
-            continue;
-        }
-        match waveform::compute(&path) {
-            Ok(peaks) => {
-                db::save_waveform(&db, file_id, stamp, &peaks)?;
+        match samplr::update_waveform(&db, file_id, &path)? {
+            WaveformUpdate::Computed => {
                 computed += 1;
                 println!("+ {}", path.display());
             }
-            Err(error) => {
+            WaveformUpdate::UpToDate => up_to_date += 1,
+            WaveformUpdate::Missing => missing += 1,
+            WaveformUpdate::Unreadable(error) => {
                 eprintln!("{}: {error}", path.display());
                 unreadable += 1;
             }

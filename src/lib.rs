@@ -158,6 +158,41 @@ pub fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
     })
 }
 
+/// What `update_waveform` did.
+pub enum WaveformUpdate {
+    Computed,
+    UpToDate,
+    /// Deleted file, or disk unplugged.
+    Missing,
+    /// The file could not be decoded: the reason.
+    Unreadable(String),
+}
+
+/// Computes and caches the waveform of a sample of the database if it is
+/// missing or stale.
+pub fn update_waveform(
+    db: &Connection,
+    file_id: i64,
+    path: &Path,
+) -> Result<WaveformUpdate, Box<dyn Error>> {
+    // The stamp is read before decoding: if the file changes meanwhile, the
+    // saved stamp will no longer match and the waveform will be computed
+    // again next time.
+    let Ok(stamp) = db::FileStamp::read(path) else {
+        return Ok(WaveformUpdate::Missing);
+    };
+    if db::waveform(db, file_id, stamp)?.is_some() {
+        return Ok(WaveformUpdate::UpToDate);
+    }
+    match waveform::compute(path) {
+        Ok(peaks) => {
+            db::save_waveform(db, file_id, stamp, &peaks)?;
+            Ok(WaveformUpdate::Computed)
+        }
+        Err(error) => Ok(WaveformUpdate::Unreadable(error.to_string())),
+    }
+}
+
 /// The waveform of a sample of the database: the cached one if the file has
 /// not changed since, otherwise computed now and cached.
 pub fn peaks(

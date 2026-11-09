@@ -1,20 +1,25 @@
 // Follows the scanned folders while the app is open, like `samplr watch`:
 // samples added, renamed (tags kept) or deleted on disk show up in the list.
 // The page is told with a `library-changed` event and searches again.
+// New samples get their waveform computed in the background, so that it shows
+// at once when they are selected.
 
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
-use samplr::db;
 use samplr::watch::{self, RecursiveMode, Watcher};
+use samplr::{WaveformUpdate, db};
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Shared through `State`: the watcher and the folders it watches, so that
 /// `add_folder` can watch a new folder at once.
 pub struct Library {
     watching: Mutex<Option<Watching>>,
+    /// Wakes up the thread that computes the missing waveforms.
+    waveforms: Sender<()>,
 }
 
 struct Watching {
@@ -24,9 +29,19 @@ struct Watching {
 
 impl Library {
     pub fn new() -> Self {
+        let (waveforms, wake_ups) = mpsc::channel();
+        thread::spawn(move || compute_waveforms(wake_ups));
         Library {
             watching: Mutex::new(None),
+            waveforms,
         }
+    }
+
+    /// Asks for the missing or stale waveforms to be computed, in the
+    /// background.
+    pub fn update_waveforms(&self) {
+        // Fails only if the thread has stopped, when the app closes.
+        let _ = self.waveforms.send(());
     }
 
     /// Watches the folders of the database that are not watched yet, and
@@ -100,6 +115,7 @@ fn follow(app: &AppHandle) -> Result<(), Box<dyn Error>> {
     if changed {
         tell_page(app);
     }
+    library.update_waveforms();
 
     // Ends when the watcher is dropped, that is when the app closes.
     for batch in events {
@@ -123,6 +139,30 @@ fn follow(app: &AppHandle) -> Result<(), Box<dyn Error>> {
         }
         if changed {
             tell_page(app);
+            library.update_waveforms();
+        }
+    }
+    Ok(())
+}
+
+/// Runs for the whole session: at each wake-up, computes every missing or
+/// stale waveform, like `samplr waveforms`.
+fn compute_waveforms(wake_ups: Receiver<()>) {
+    // Ends when the app closes.
+    while wake_ups.recv().is_ok() {
+        // Wake-ups that came during the last pass need only one more pass.
+        while wake_ups.try_recv().is_ok() {}
+        if let Err(error) = update_all_waveforms() {
+            eprintln!("Waveforms: {error}");
+        }
+    }
+}
+
+fn update_all_waveforms() -> Result<(), Box<dyn Error>> {
+    let db = db::open()?;
+    for (file_id, path) in db::all_files(&db)? {
+        if let WaveformUpdate::Unreadable(error) = samplr::update_waveform(&db, file_id, &path)? {
+            eprintln!("{}: {error}", path.display());
         }
     }
     Ok(())
