@@ -8,19 +8,24 @@
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
+use std::time::Duration;
 
 use rodio::Decoder;
 use samplr::waveform::Peak;
 use samplr::{SampleInfo, db};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 /// What the audio thread is asked to do.
 enum AudioRequest {
     /// The decoder reads the file through a buffer (`BufReader`), a few
-    /// kilobytes at a time rather than byte by byte.
-    Play(Decoder<BufReader<File>>),
+    /// kilobytes at a time rather than byte by byte. `id` is chosen by the
+    /// page and sent back when the sound ends.
+    Play {
+        decoder: Decoder<BufReader<File>>,
+        id: u32,
+    },
     Stop,
     /// 0.0 is silence, 1.0 the file's own level.
     Volume(rodio::Float),
@@ -90,14 +95,16 @@ fn file_id(db: &rusqlite::Connection, path: &Path) -> Result<i64, String> {
         .ok_or_else(|| format!("{} is not in the database", path.display()))
 }
 
-/// Starts playing a file, cutting the one that was playing.
+/// Starts playing a file, cutting the one that was playing. When the sound
+/// has played to its end, the page receives a `playback-ended` event carrying
+/// `id`.
 #[tauri::command(async)]
-fn play(path: PathBuf, audio: State<Audio>) -> Result<(), String> {
+fn play(path: PathBuf, id: u32, audio: State<Audio>) -> Result<(), String> {
     // The file is opened here rather than in the audio thread, so that an
     // unreadable file is reported to the page.
     let file = File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let decoder = Decoder::try_from(file).map_err(|e| format!("{}: {e}", path.display()))?;
-    send(&audio, AudioRequest::Play(decoder))
+    send(&audio, AudioRequest::Play { decoder, id })
 }
 
 #[tauri::command]
@@ -126,7 +133,7 @@ fn send(audio: &Audio, request: AudioRequest) -> Result<(), String> {
 /// play`, which opens and closes it every time: an output suspended by the
 /// system swallows the start of the sound, and closing it too early cuts
 /// a short sample.
-fn audio_thread(requests: Receiver<AudioRequest>) {
+fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
     let mut sink = match rodio::DeviceSinkBuilder::open_default_sink() {
         Ok(sink) => sink,
         Err(error) => {
@@ -139,26 +146,44 @@ fn audio_thread(requests: Receiver<AudioRequest>) {
     // A new `Player` per sound: replacing the old one drops it, and a
     // dropped `Player` stops its sound at once.
     let mut current: Option<rodio::Player> = None;
+    // The id of the sound playing, until its end has been reported.
+    let mut playing_id: Option<u32> = None;
     let mut volume = 1.0;
-    // `for` waits for each request in turn, and ends when the app closes.
-    for request in requests {
-        match request {
-            AudioRequest::Play(decoder) => {
+    loop {
+        // Waits for a request, but no more than 100 ms, to notice the end of
+        // the sound playing.
+        match requests.recv_timeout(Duration::from_millis(100)) {
+            Ok(AudioRequest::Play { decoder, id }) => {
                 let player = rodio::Player::connect_new(sink.mixer());
                 player.set_volume(volume);
                 player.append(decoder);
                 current = Some(player);
+                playing_id = Some(id);
             }
-            AudioRequest::Stop => current = None,
-            AudioRequest::Volume(new_volume) => {
+            Ok(AudioRequest::Stop) => {
+                current = None;
+                playing_id = None;
+            }
+            Ok(AudioRequest::Volume(new_volume)) => {
                 volume = new_volume;
                 if let Some(player) = &current {
                     player.set_volume(volume);
                 }
             }
+            Err(RecvTimeoutError::Timeout) => {}
+            // The app is closing.
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+        // The finished `Player` is kept rather than dropped: its last
+        // samples may still be on their way to the sound card.
+        if let (Some(player), Some(id)) = (&current, playing_id)
+            && player.empty()
+        {
+            playing_id = None;
+            // Fails only if the window is already closed: nothing to tell.
+            let _ = app.emit("playback-ended", id);
         }
     }
-    drop(current);
 }
 
 fn main() {
@@ -173,12 +198,17 @@ fn main() {
     }
 
     let (requests, receiver) = mpsc::channel();
-    // `move` gives the closure ownership of `receiver`: the new thread keeps
-    // it after `main` has moved on.
-    thread::spawn(move || audio_thread(receiver));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_drag::init())
+        // The audio thread starts once the app exists, to get the handle it
+        // sends events to the page with. `move` gives it ownership of
+        // `receiver`.
+        .setup(move |app| {
+            let handle = app.handle().clone();
+            thread::spawn(move || audio_thread(receiver, handle));
+            Ok(())
+        })
         // Stored by Tauri and handed to every command that asks for `State<Audio>`.
         .manage(Audio { requests })
         .invoke_handler(tauri::generate_handler![

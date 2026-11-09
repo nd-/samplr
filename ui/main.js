@@ -169,21 +169,34 @@ function drawWaveform() {
 
 window.addEventListener("resize", drawWaveform);
 
+// Each sound played gets a new number: the end of a sound already replaced
+// by another one may still be reported, and must then be ignored.
+let playId = 0;
+
 function play() {
   const sample = samples[selected];
   if (!sample) return;
+  playId += 1;
   status.textContent = `▶ ${splitPath(sample.path).name}`;
   stopButton.disabled = false;
-  invoke("play", { path: sample.path }).catch((error) => {
+  invoke("play", { path: sample.path, id: playId }).catch((error) => {
     status.textContent = `Error: ${error}`;
   });
 }
 
-function stop() {
-  invoke("stop");
+function showStopped() {
   stopButton.disabled = true;
   status.textContent = `${samples.length} sample(s)`;
 }
+
+function stop() {
+  invoke("stop");
+  showStopped();
+}
+
+window.__TAURI__.event.listen("playback-ended", (event) => {
+  if (event.payload === playId) showStopped();
+});
 
 stopButton.addEventListener("click", stop);
 
