@@ -344,9 +344,10 @@ header button {
   font: inherit;
 }
 
+/* Scrolls both ways: sideways when the columns are wider than the list. */
 main {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto;
   outline: none;
 }
 

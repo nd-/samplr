@@ -58,7 +58,9 @@ function spacer(height) {
   const tr = document.createElement("tr");
   tr.className = "spacer";
   const td = document.createElement("td");
-  td.colSpan = 7;
+  // Exactly the columns shown: one more would make a phantom column that
+  // takes a share of the free width from Tags.
+  td.colSpan = removeHeader.hidden ? 6 : 7;
   td.style.height = `${height}px`;
   tr.append(td);
   return tr;
@@ -157,13 +159,13 @@ function ensureVisible(index) {
 }
 
 function render() {
-  drawRows();
   removeHeader.hidden = currentCollection === null;
   // The column of the × exists only in a collection. Its <col> is taken out
   // rather than given no width: WebKit treats a zero-width <col> as an
   // automatic one, which then shares the free width with Tags.
   if (currentCollection === null) removeColumn.remove();
   else columnGroup.append(removeColumn);
+  drawRows();
   applyColumnWidths();
   status.textContent = `${samples.length} sample(s)`;
 }
@@ -214,27 +216,53 @@ try {
   // Storage unavailable or unreadable: the default widths.
 }
 
-// The table always fills the list's width, no more: the widths shown are
-// the chosen ones, shrunk together when they do not fit, with at least
-// `minTagsWidth` left for Tags. The chosen widths are kept, so a wider window
-// brings them back.
+// The table fills the list's width, Tags taking the rest, and never less
+// than what shows every sample's tags whole. When that does not fit, the
+// table grows wider than the list, which then scrolls sideways. The width is
+// set outright: WebKit ignores `min-width` on a fixed-layout table.
 const minTagsWidth = 80;
+const measure = document.createElement("canvas").getContext("2d");
 
-// The width Name, Folder and Length may share.
-function availableWidth() {
-  const star = document.querySelector("th.star").offsetWidth;
-  const remove = removeHeader.hidden ? 0 : removeHeader.offsetWidth;
-  return listBox.clientWidth - star - remove - minTagsWidth;
+// The width the longest Tags cell needs: measured on the text rather than on
+// the cells, as the virtual list only has the rows on screen.
+function tagsWidth() {
+  const sampleCell = tbody.querySelector("td.tags");
+  if (!sampleCell) return minTagsWidth;
+  const style = getComputedStyle(sampleCell);
+  measure.font = style.font;
+  const fontSize = parseFloat(style.fontSize);
+  // Padding of a chip (0.45em on each side) and of the cell.
+  const chipPadding = fontSize * 0.9;
+  const cellPadding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+  const space = measure.measureText(" ").width;
+  const widths = new Map();
+  let widest = 0;
+  for (const sample of samples) {
+    const key = sample.tags.join(" ");
+    if (!widths.has(key)) {
+      let width = 0;
+      sample.tags.forEach((tag, i) => {
+        width += measure.measureText(tag).width + (tagColor(tag) ? chipPadding : 0);
+        if (i > 0) width += space;
+      });
+      widths.set(key, width);
+    }
+    widest = Math.max(widest, widths.get(key));
+  }
+  // A few pixels more against rounding, which would bring the ellipsis back.
+  return Math.max(minTagsWidth, Math.ceil(widest + cellPadding + 4));
 }
+const table = document.querySelector("#list table");
 
 function applyColumnWidths() {
-  const total = Object.values(columnWidths).reduce((sum, width) => sum + width, 0);
-  const available = availableWidth();
-  const scale = total > available && available > 0 ? available / total : 1;
   for (const [name, width] of Object.entries(columnWidths)) {
-    document.querySelector(`col[data-col="${name}"]`).style.width =
-      `${Math.floor(width * scale)}px`;
+    document.querySelector(`col[data-col="${name}"]`).style.width = `${width}px`;
   }
+  const star = document.querySelector("th.star").offsetWidth;
+  const remove = removeHeader.hidden ? 0 : removeHeader.offsetWidth;
+  const total = Object.values(columnWidths).reduce((sum, width) => sum + width, 0);
+  const needed = star + remove + total + tagsWidth();
+  table.style.width = `${Math.max(listBox.clientWidth, needed)}px`;
 }
 
 window.addEventListener("resize", applyColumnWidths);
@@ -251,23 +279,13 @@ for (const handle of document.querySelectorAll(".resizer")) {
   const name = handle.dataset.col;
   handle.addEventListener("pointerdown", (event) => {
     event.preventDefault();
-    // Shrunk to fit a narrow window, the columns start from the widths shown,
-    // so that the one dragged does not jump.
-    for (const other of Object.keys(columnWidths)) {
-      columnWidths[other] = parseInt(document.querySelector(`col[data-col="${other}"]`).style.width);
-    }
     const startX = event.clientX;
     const startWidth = columnWidths[name];
     // The pointer stays with the handle even when it leaves the header.
     handle.setPointerCapture(event.pointerId);
     handle.classList.add("dragging");
     const resize = (move) => {
-      // No wider than the room the other columns leave.
-      const others = Object.entries(columnWidths)
-        .filter(([other]) => other !== name)
-        .reduce((sum, [, width]) => sum + width, 0);
-      const widest = Math.max(40, availableWidth() - others);
-      columnWidths[name] = Math.min(widest, Math.max(40, startWidth + move.clientX - startX));
+      columnWidths[name] = Math.max(40, startWidth + move.clientX - startX);
       applyColumnWidths();
     };
     handle.addEventListener("pointermove", resize);
@@ -438,8 +456,10 @@ function showTags(changed, allTags) {
     sample.tags = allTags[i];
     const row = rowElement(samples.indexOf(sample));
   });
-  // A tag added may be coloured: the rows are drawn again (a screenful).
+  // A tag added may be coloured, or longer: the rows are drawn again (a
+  // screenful) and the Tags column may need more room.
   drawRows();
+  applyColumnWidths();
   renderTags();
 }
 
@@ -1486,6 +1506,8 @@ async function loadColors() {
     return;
   }
   drawRows();
+  // A coloured tag is a chip, a little wider than plain text.
+  applyColumnWidths();
   renderTags();
   renderCollections();
 }
