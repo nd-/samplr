@@ -59,10 +59,12 @@
     <span class="keys">↑ ↓ browse and play · Enter replay · Esc stop · Shift/Ctrl+click select several · Ctrl+T tag · Ctrl+D favorite · Ctrl+B collections · drag a row into your DAW</span>
   </footer>
   <dialog id="folders">
-    <h2>Scanned folders</h2>
+    <div class="dialog-head">
+      <h2>Scanned folders</h2>
+      <form method="dialog"><button class="close" title="Close (Esc)" aria-label="Close">×</button></form>
+    </div>
     <ul id="folder-list"></ul>
     <p class="hint">Removing a folder takes its samples out of the list. Their tags are kept, and come back if the folder is added again. The audio files are not touched.</p>
-    <form method="dialog"><button>Close</button></form>
   </dialog>
   <dialog id="settings">
     <div class="dialog-head">
