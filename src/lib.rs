@@ -65,8 +65,13 @@ pub struct Scan {
 }
 
 /// Saves the folder (followed by `samplr watch`) and the samples it contains
-/// to the database.
-pub fn scan(db: &mut Connection, folder: &Path) -> Result<Scan, Box<dyn Error>> {
+/// to the database. `progress` is called after each audio file with the
+/// number gone through so far and the total, counted first.
+pub fn scan(
+    db: &mut Connection,
+    folder: &Path,
+    progress: &mut dyn FnMut(usize, usize),
+) -> Result<Scan, Box<dyn Error>> {
     if !folder.is_dir() {
         return Err(format!("\"{}\" is not a folder", folder.display()).into());
     }
@@ -77,9 +82,10 @@ pub fn scan(db: &mut Connection, folder: &Path) -> Result<Scan, Box<dyn Error>> 
     // A transaction groups all the writes: SQLite writes to disk only once,
     // on `commit`, instead of once per sample (hundreds of times slower on a
     // big folder).
+    let total = count_audio_files(&folder);
     let transaction = db.transaction()?;
     db::add_folder(&transaction, &folder)?;
-    let (samples, unreadable) = index(&transaction, &folder);
+    let (samples, unreadable) = index(&transaction, &folder, &mut |done| progress(done, total));
     transaction.commit()?;
     Ok(Scan {
         folder,
@@ -104,11 +110,28 @@ pub fn remove_folder(db: &mut Connection, folder: &Path) -> Result<usize, Box<dy
     Ok(hidden)
 }
 
+/// The number of audio files in `folder` and its subfolders, without reading
+/// them: fast, used to show a scan's progress.
+pub fn count_audio_files(folder: &Path) -> usize {
+    WalkDir::new(folder)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_type().is_file() && is_audio(entry.path()))
+        .count()
+}
+
 /// Walks `folder` and its subfolders and saves each sample to the database.
-/// Returns the saved samples and the number of unreadable files.
-pub fn index(db: &Connection, folder: &Path) -> (Vec<SampleInfo>, usize) {
+/// Returns the saved samples and the number of unreadable files. `progress`
+/// is called after each audio file, readable or not, with the number of audio
+/// files gone through so far.
+pub fn index(
+    db: &Connection,
+    folder: &Path,
+    progress: &mut dyn FnMut(usize),
+) -> (Vec<SampleInfo>, usize) {
     let mut samples = Vec::new();
     let mut unreadable = 0;
+    let mut done = 0;
 
     for entry in WalkDir::new(folder).sort_by_file_name() {
         // An unreadable folder (missing permissions…) must not stop everything.
@@ -119,16 +142,18 @@ pub fn index(db: &Connection, folder: &Path) -> (Vec<SampleInfo>, usize) {
             continue;
         }
 
-        let Ok(info) = read_info(path) else {
-            unreadable += 1;
-            continue;
-        };
-        if let Err(error) = db::save(db, &info) {
-            eprintln!("{}: {error}", path.display());
-            unreadable += 1;
-            continue;
+        match read_info(path) {
+            Ok(info) => match db::save(db, &info) {
+                Ok(_) => samples.push(info),
+                Err(error) => {
+                    eprintln!("{}: {error}", path.display());
+                    unreadable += 1;
+                }
+            },
+            Err(_) => unreadable += 1,
         }
-        samples.push(info);
+        done += 1;
+        progress(done);
     }
     (samples, unreadable)
 }

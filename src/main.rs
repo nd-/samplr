@@ -126,7 +126,7 @@ fn scan(folder: &Path) -> Result<(), Box<dyn Error>> {
         folder,
         samples,
         unreadable,
-    } = samplr::scan(&mut db, folder)?;
+    } = samplr::scan(&mut db, folder, &mut |_, _| {})?;
 
     // The output is only a report: if it is closed (`samplr scan … | head`),
     // write failures are ignored (`let _ =`).

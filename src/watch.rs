@@ -61,7 +61,7 @@ pub fn catch_up(
             removed += db::forget(&transaction, &path)?;
         }
     }
-    let (samples, unreadable) = index(&transaction, root);
+    let (samples, unreadable) = index(&transaction, root, &mut |_| {});
     transaction.commit()?;
 
     report(format!(
@@ -138,7 +138,7 @@ fn sync(
         }
     } else if path.is_dir() {
         if appeared {
-            let (samples, _) = index(db, path);
+            let (samples, _) = index(db, path, &mut |_| {});
             if !samples.is_empty() {
                 report(format!(
                     "+ {} ({} sample(s))",

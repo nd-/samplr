@@ -12,7 +12,7 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rodio::{Decoder, Source};
 use samplr::waveform::Peak;
@@ -113,6 +113,13 @@ fn remove_folder(folder: PathBuf, library: State<Library>) -> Result<usize, Stri
     Ok(hidden)
 }
 
+/// The `scan-progress` event: audio files gone through, out of `total`.
+#[derive(Serialize, Clone)]
+struct ScanProgress {
+    done: usize,
+    total: usize,
+}
+
 /// What `add_folder` reports to the page.
 #[derive(Serialize)]
 struct Added {
@@ -122,11 +129,21 @@ struct Added {
 
 /// Adds a folder of samples, like `samplr scan`, and follows it from then
 /// on. A big folder takes a while: `(async)` keeps the window responsive
-/// meanwhile.
+/// meanwhile, and the page receives `scan-progress` events with the number of
+/// audio files gone through so far.
 #[tauri::command(async)]
-fn add_folder(folder: PathBuf, library: State<Library>) -> Result<Added, String> {
+fn add_folder(folder: PathBuf, library: State<Library>, app: AppHandle) -> Result<Added, String> {
     let mut db = db::open().map_err(|e| e.to_string())?;
-    let scan = samplr::scan(&mut db, &folder).map_err(|e| e.to_string())?;
+    // At most one event every 100 ms: one per file would flood the page.
+    let mut last_report = Instant::now();
+    let mut progress = |done: usize, total: usize| {
+        if last_report.elapsed() >= Duration::from_millis(100) {
+            last_report = Instant::now();
+            // Fails only if the window is already closed: nothing to tell.
+            let _ = app.emit("scan-progress", ScanProgress { done, total });
+        }
+    };
+    let scan = samplr::scan(&mut db, &folder, &mut progress).map_err(|e| e.to_string())?;
     // The samples are saved even if the folder cannot be watched.
     if let Err(error) = library.update_watched() {
         eprintln!("{}: not watched: {error}", scan.folder.display());

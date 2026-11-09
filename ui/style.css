@@ -198,6 +198,16 @@ tbody tr.selected {
   background: var(--selected);
 }
 
+#status-box {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+#scan-bar {
+  width: 12rem;
+}
+
 footer {
   display: flex;
   justify-content: space-between;

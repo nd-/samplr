@@ -361,6 +361,20 @@ function dragImage(sample) {
 // takes a while, during which the button stays disabled.
 const addFolderButton = document.getElementById("add-folder");
 
+// The folder being scanned, or `null`: progress events arriving after the
+// end of the scan are ignored. Without a value, the bar shows an activity
+// (the files are being counted); then it fills up.
+let scanning = null;
+const scanBar = document.getElementById("scan-bar");
+
+window.__TAURI__.event.listen("scan-progress", (event) => {
+  if (scanning === null) return;
+  const { done, total } = event.payload;
+  scanBar.max = total;
+  scanBar.value = done;
+  status.textContent = `Scanning ${scanning}… ${done} / ${total}`;
+});
+
 async function addFolder() {
   const folder = await window.__TAURI__.dialog.open({
     directory: true,
@@ -369,6 +383,9 @@ async function addFolder() {
   if (folder === null) return;
   addFolderButton.disabled = true;
   status.textContent = `Scanning ${folder}…`;
+  scanning = folder;
+  scanBar.removeAttribute("value");
+  scanBar.hidden = false;
   try {
     const added = await invoke("add_folder", { folder });
     await search();
@@ -377,6 +394,8 @@ async function addFolder() {
   } catch (error) {
     status.textContent = `Error: ${error}`;
   } finally {
+    scanning = null;
+    scanBar.hidden = true;
     addFolderButton.disabled = false;
   }
 }
