@@ -22,6 +22,8 @@ Desktop audio sample manager for **macOS and Linux**: listen to, tag and organis
 - `notify-debouncer-full` 0.7 (re-exports `notify` 8): folder watching. Groups the events of a single file for 1 s, and matches both ends of a rename (`RenameMode::Both`), including on Mac where FSEvents sends them separately.
 - `clap` 4 (feature `derive`): subcommands are described by the `enum Command` in `main.rs`; the `///` comments become the `samplr help` output.
 
+- Debug builds compile the **dependencies with optimisations** (`[profile.dev.package."*"]` in the root `Cargo.toml`): unoptimised, symphonia decoded an MP3 about 30 times slower (waveform of a 54 s MP3: 2.3 s, 0.24 s with this setting, 0.07 s in release). Costs a few minutes once, after a `cargo clean` or a dependency update; our own code still rebuilds in about a second.
+
 Linux system dependencies: `build-essential pkg-config libasound2-dev` (ALSA).
 
 On the Mac, the project is opened from the Linux machine's SMB share (`/Volumes/nico/Sites/projets/sample browser`). The share does not support the file locking Cargo needs ("could not create session directory lock file"): the Mac's `~/.cargo/config.toml` therefore sends the build to `/Users/nico/cargo-target` (`build.target-dir`), which also avoids mixing macOS and Linux binaries in `target/`. Do not put this setting in the project's `.cargo/config.toml`: the path does not exist on Linux.
@@ -36,7 +38,7 @@ On the Mac, the project is opened from the Linux machine's SMB share (`/Volumes/
 - `samplr search [tag]... [--path <text>]`: samples carrying **all** the given tags, whose path contains the text (case-insensitive, `_` taken literally).
 - `samplr play <file>`: plays a file on the default output.
 - `samplr wave <file> [--width N]`: draws the waveform in the terminal, computing and caching it first if needed.
-- `samplr waveforms`: computes every missing or stale waveform (about 0.6 s for 10 min of audio in release, about 4 times slower in debug). `scan` does not compute waveforms: decoding every file would make it much slower on a big library.
+- `samplr waveforms`: computes every missing or stale waveform (about 0.6 s for 10 min of audio in release). `scan` does not compute waveforms: decoding every file would make it much slower on a big library.
 
 Database: `samplr.db` in the system data folder (`~/.local/share/samplr` on Linux, `~/Library/Application Support/samplr` on Mac). The `SAMPLR_DB` variable points to another database, for experiments. Tables `files`, `tags`, `file_tags`, `folders` (the folders given to `scan`, followed by `watch`), `waveforms`. A waveform is 1024 (min, max) peaks over all channels, stored as signed bytes (2 KB), with the file's size and modification date: if either has changed, the waveform is stale and computed again. Peaks are built on the fly by merging buckets two by two, so memory use does not depend on the file length, which is not always known in advance (some MP3s). Tags are stored lowercase, without spaces; a tag no longer used by any sample is deleted. **Unplugged disk**: if the scanned folder itself has disappeared, nothing is removed from the database, at startup or live. Otherwise unplugging an external disk would erase the tags of all its samples.
 
