@@ -23,13 +23,20 @@ body {
 }
 
 header {
+  display: flex;
+  gap: 0.6rem;
   padding: 0.6rem;
   border-bottom: 1px solid var(--border);
 }
 
 #search {
-  width: 100%;
+  flex: 1;
   padding: 0.4rem 0.6rem;
+  font: inherit;
+}
+
+#stop {
+  padding: 0.4rem 0.8rem;
   font: inherit;
 }
 
@@ -101,6 +108,7 @@ th, td {
 
 td {
   cursor: default;
+  user-select: none;
 }
 
 .folder, .tags {

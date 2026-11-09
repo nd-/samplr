@@ -8,6 +8,7 @@ const status = document.getElementById("status");
 const canvas = document.getElementById("wave");
 const tagList = document.getElementById("tags");
 const tagInput = document.getElementById("new-tags");
+const stopButton = document.getElementById("stop");
 
 let samples = [];
 let selected = -1;
@@ -46,6 +47,7 @@ function render() {
       cell(sample.tags.join(" "), "tags"),
     );
     tr.addEventListener("click", () => select(index));
+    tr.addEventListener("mousedown", (event) => watchForDrag(event, sample));
     rows.append(tr);
   });
   tbody.replaceChildren(rows);
@@ -171,9 +173,75 @@ function play() {
   const sample = samples[selected];
   if (!sample) return;
   status.textContent = `▶ ${splitPath(sample.path).name}`;
+  stopButton.disabled = false;
   invoke("play", { path: sample.path }).catch((error) => {
     status.textContent = `Error: ${error}`;
   });
+}
+
+function stop() {
+  invoke("stop");
+  stopButton.disabled = true;
+  status.textContent = `${samples.length} sample(s)`;
+}
+
+stopButton.addEventListener("click", stop);
+
+// The web view would otherwise start its own drag (of the text under the
+// mouse) alongside the native one, and take its place.
+document.addEventListener("dragstart", (event) => event.preventDefault());
+
+// A drag starts once the mouse has moved a few pixels with the button held
+// down, so that a plain click still selects and plays.
+function watchForDrag(event, sample) {
+  if (event.button !== 0) return;
+  const startX = event.clientX;
+  const startY = event.clientY;
+
+  function onMove(move) {
+    if (Math.hypot(move.clientX - startX, move.clientY - startY) < 5) return;
+    stopWatching();
+    startDrag(sample);
+  }
+  function stopWatching() {
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", stopWatching);
+  }
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", stopWatching);
+}
+
+// The web page alone cannot hand a file to another application: the drag
+// goes through the system's native drag and drop (tauri-plugin-drag). The
+// file is offered as a copy, so the receiving app never moves the original.
+async function startDrag(sample) {
+  try {
+    await window.__TAURI__.drag.startDrag({
+      item: [sample.path],
+      icon: dragImage(sample),
+      mode: "copy",
+    });
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+  }
+}
+
+// The image under the cursor while dragging: the sample's name.
+function dragImage(sample) {
+  const label = splitPath(sample.path).name;
+  const image = document.createElement("canvas");
+  const context = image.getContext("2d");
+  context.font = "14px system-ui, sans-serif";
+  image.width = Math.ceil(context.measureText(label).width) + 20;
+  image.height = 28;
+  // Resizing a canvas resets its settings: the font is set again.
+  context.font = "14px system-ui, sans-serif";
+  context.fillStyle = "#f5a524";
+  context.fillRect(0, 0, image.width, image.height);
+  context.fillStyle = "#1b1b1b";
+  context.textBaseline = "middle";
+  context.fillText(label, 10, image.height / 2);
+  return image.toDataURL("image/png");
 }
 
 async function search() {
@@ -237,8 +305,7 @@ document.addEventListener("keydown", (event) => {
       play();
       break;
     case "Escape":
-      invoke("stop");
-      status.textContent = `${samples.length} sample(s)`;
+      stop();
       break;
     default:
       return;

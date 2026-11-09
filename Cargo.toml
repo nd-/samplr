@@ -29,3 +29,12 @@ walkdir = "2.5"
 # workspace: one Cargo.lock and one target/ folder for both.
 [workspace]
 members = ["src-tauri"]
+exclude = ["vendor/drag"]
+
+# Copy of the `drag` crate (used by tauri-plugin-drag) with two Linux fixes:
+# file URIs are escaped (a `#` or a space broke the path), and the drag's
+# signal handlers stay connected until the next drag, so the receiver can
+# still ask for the file after the drop.
+# Upstream issue: https://github.com/crabnebula-dev/drag-rs/issues/84
+[patch.crates-io]
+drag = { path = "vendor/drag" }

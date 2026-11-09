@@ -17,3 +17,6 @@ rodio = { version = "0.23", features = ["symphonia-all"] }
 # Desktop window showing the web interface of ui/, through the system's web
 # engine (WebKitGTK on Linux, WKWebView on Mac, WebView2 on Windows)
 tauri = { version = "2", features = [] }
+# Drag samples out of the window into a DAW or a file manager, through each
+# system's native drag and drop (the web page alone can only drag inside it)
+tauri-plugin-drag = "2"

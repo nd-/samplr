@@ -139,12 +139,23 @@ fn audio_thread(requests: Receiver<AudioRequest>) {
 }
 
 fn main() {
+    // GTK 3 under Wayland answers only the first request for the dragged
+    // file's path: the drop reaches the receiver empty. Through XWayland the
+    // drag goes through X11, which works, and is what most Linux DAWs use.
+    // A `GDK_BACKEND` set by the user still wins.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() && std::env::var_os("GDK_BACKEND").is_none() {
+        // SAFETY: no other thread is running yet to read the environment.
+        unsafe { std::env::set_var("GDK_BACKEND", "x11") };
+    }
+
     let (requests, receiver) = mpsc::channel();
     // `move` gives the closure ownership of `receiver`: the new thread keeps
     // it after `main` has moved on.
     thread::spawn(move || audio_thread(receiver));
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_drag::init())
         // Stored by Tauri and handed to every command that asks for `State<Audio>`.
         .manage(Audio { requests })
         .invoke_handler(tauri::generate_handler![
