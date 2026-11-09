@@ -35,9 +35,14 @@ header {
   font: inherit;
 }
 
-#stop, #add-folder {
+header button {
   padding: 0.4rem 0.8rem;
   font: inherit;
+}
+
+/* Loop mode on: the button stays lit until Play is pressed. */
+#play-loop[aria-pressed="true"] {
+  background: var(--selected);
 }
 
 #volume-box {

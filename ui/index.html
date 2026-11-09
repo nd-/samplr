@@ -8,9 +8,11 @@
 <body>
   <header>
     <input id="search" type="search" placeholder="Search: words in the path, #tag" autofocus spellcheck="false">
+    <button id="play" type="button" title="Play once (Enter)">▶ Play</button>
+    <button id="play-loop" type="button" title="Play in a loop, this sample and the next ones selected" aria-pressed="false">↻ Play loop</button>
     <button id="stop" type="button" title="Stop playback (Esc)" disabled>■ Stop</button>
-    <button id="add-folder" type="button" title="Add a folder of samples">+ Folder</button>
     <label id="volume-box" title="Preview volume">Vol. <input id="volume" type="range" min="0" max="100" value="80"></label>
+    <button id="add-folder" type="button" title="Add a folder of samples">+ Folder</button>
   </header>
   <canvas id="wave"></canvas>
   <div id="tagbar">

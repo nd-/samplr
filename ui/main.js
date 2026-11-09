@@ -172,6 +172,9 @@ window.addEventListener("resize", drawWaveform);
 // Each sound played gets a new number: the end of a sound already replaced
 // by another one may still be reported, and must then be ignored.
 let playId = 0;
+// Loop mode: set by "Play loop", kept when another sample is selected,
+// left only with "Play".
+let looping = false;
 
 function play() {
   const sample = samples[selected];
@@ -179,7 +182,7 @@ function play() {
   playId += 1;
   status.textContent = `▶ ${splitPath(sample.path).name}`;
   stopButton.disabled = false;
-  invoke("play", { path: sample.path, id: playId }).catch((error) => {
+  invoke("play", { path: sample.path, id: playId, looping }).catch((error) => {
     status.textContent = `Error: ${error}`;
   });
 }
@@ -199,6 +202,23 @@ window.__TAURI__.event.listen("playback-ended", (event) => {
 });
 
 stopButton.addEventListener("click", stop);
+
+const playButton = document.getElementById("play");
+const loopButton = document.getElementById("play-loop");
+
+function setLooping(on) {
+  looping = on;
+  loopButton.setAttribute("aria-pressed", String(on));
+}
+
+playButton.addEventListener("click", () => {
+  setLooping(false);
+  play();
+});
+loopButton.addEventListener("click", () => {
+  setLooping(true);
+  play();
+});
 
 // The slider's position is squared: the ear hears loudness roughly on a
 // logarithmic scale, and a linear slider would do almost nothing in its top

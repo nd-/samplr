@@ -12,7 +12,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::Duration;
 
-use rodio::Decoder;
+use rodio::{Decoder, Source};
 use samplr::waveform::Peak;
 use samplr::{SampleInfo, db};
 use serde::Serialize;
@@ -20,11 +20,11 @@ use tauri::{AppHandle, Emitter, State};
 
 /// What the audio thread is asked to do.
 enum AudioRequest {
-    /// The decoder reads the file through a buffer (`BufReader`), a few
-    /// kilobytes at a time rather than byte by byte. `id` is chosen by the
-    /// page and sent back when the sound ends.
+    /// A sound played once or in a loop: two different decoder types, hence
+    /// the `Box<dyn Source>`, which holds either. `id` is chosen by the page
+    /// and sent back when the sound ends.
     Play {
-        decoder: Decoder<BufReader<File>>,
+        sound: Box<dyn Source + Send>,
         id: u32,
     },
     Stop,
@@ -115,16 +115,30 @@ fn file_id(db: &rusqlite::Connection, path: &Path) -> Result<i64, String> {
         .ok_or_else(|| format!("{} is not in the database", path.display()))
 }
 
-/// Starts playing a file, cutting the one that was playing. When the sound
-/// has played to its end, the page receives a `playback-ended` event carrying
-/// `id`.
+/// Starts playing a file, once or in a loop, cutting the one that was
+/// playing. When a sound played once reaches its end, the page receives a
+/// `playback-ended` event carrying `id`; a loop never ends by itself.
 #[tauri::command(async)]
-fn play(path: PathBuf, id: u32, audio: State<Audio>) -> Result<(), String> {
+fn play(path: PathBuf, id: u32, looping: bool, audio: State<Audio>) -> Result<(), String> {
     // The file is opened here rather than in the audio thread, so that an
     // unreadable file is reported to the page.
-    let file = File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let decoder = Decoder::try_from(file).map_err(|e| format!("{}: {e}", path.display()))?;
-    send(&audio, AudioRequest::Play { decoder, id })
+    let error = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
+    let file = File::open(&path).map_err(|e| error(&e))?;
+    let sound: Box<dyn Source + Send> = if looping {
+        // Goes back to the start of the file at each end, without loading the
+        // whole sound into memory. Same settings as `Decoder::try_from(file)`.
+        let length = file.metadata().map_err(|e| error(&e))?.len();
+        let decoder = Decoder::builder()
+            .with_data(BufReader::new(file))
+            .with_byte_len(length)
+            .with_seekable(true)
+            .build_looped()
+            .map_err(|e| error(&e))?;
+        Box::new(decoder)
+    } else {
+        Box::new(Decoder::try_from(file).map_err(|e| error(&e))?)
+    };
+    send(&audio, AudioRequest::Play { sound, id })
 }
 
 #[tauri::command]
@@ -173,10 +187,10 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
         // Waits for a request, but no more than 100 ms, to notice the end of
         // the sound playing.
         match requests.recv_timeout(Duration::from_millis(100)) {
-            Ok(AudioRequest::Play { decoder, id }) => {
+            Ok(AudioRequest::Play { sound, id }) => {
                 let player = rodio::Player::connect_new(sink.mixer());
                 player.set_volume(volume);
-                player.append(decoder);
+                player.append(sound);
                 current = Some(player);
                 playing_id = Some(id);
             }
