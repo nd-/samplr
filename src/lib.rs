@@ -55,6 +55,38 @@ pub fn is_audio(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// The result of `scan`.
+pub struct Scan {
+    /// The scanned folder, as an absolute path.
+    pub folder: PathBuf,
+    pub samples: Vec<SampleInfo>,
+    pub unreadable: usize,
+}
+
+/// Saves the folder (followed by `samplr watch`) and the samples it contains
+/// to the database.
+pub fn scan(db: &mut Connection, folder: &Path) -> Result<Scan, Box<dyn Error>> {
+    if !folder.is_dir() {
+        return Err(format!("\"{}\" is not a folder", folder.display()).into());
+    }
+    // Absolute path: the database must find the files again whatever folder
+    // samplr is run from.
+    let folder = dunce::canonicalize(folder)?;
+
+    // A transaction groups all the writes: SQLite writes to disk only once,
+    // on `commit`, instead of once per sample (hundreds of times slower on a
+    // big folder).
+    let transaction = db.transaction()?;
+    db::add_folder(&transaction, &folder)?;
+    let (samples, unreadable) = index(&transaction, &folder);
+    transaction.commit()?;
+    Ok(Scan {
+        folder,
+        samples,
+        unreadable,
+    })
+}
+
 /// Walks `folder` and its subfolders and saves each sample to the database.
 /// Returns the saved samples and the number of unreadable files.
 pub fn index(db: &Connection, folder: &Path) -> (Vec<SampleInfo>, usize) {

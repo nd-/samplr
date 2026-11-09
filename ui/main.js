@@ -281,6 +281,32 @@ function dragImage(sample) {
   return image.toDataURL("image/png");
 }
 
+// The folder is chosen in the system's own window; scanning a big folder
+// takes a while, during which the button stays disabled.
+const addFolderButton = document.getElementById("add-folder");
+
+async function addFolder() {
+  const folder = await window.__TAURI__.dialog.open({
+    directory: true,
+    title: "Add a folder of samples",
+  });
+  if (folder === null) return;
+  addFolderButton.disabled = true;
+  status.textContent = `Scanning ${folder}…`;
+  try {
+    const added = await invoke("add_folder", { folder });
+    await search();
+    status.textContent =
+      `${added.samples} sample(s) saved, ${added.unreadable} unreadable.`;
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+  } finally {
+    addFolderButton.disabled = false;
+  }
+}
+
+addFolderButton.addEventListener("click", addFolder);
+
 async function search() {
   try {
     samples = await invoke("search", { query: searchBox.value });

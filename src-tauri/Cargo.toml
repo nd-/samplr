@@ -12,6 +12,8 @@ tauri-build = { version = "2", features = [] }
 samplr = { path = ".." }
 # Database access (same version as the library uses)
 rusqlite = "0.41"
+# Turns the commands' answers into JSON for the page (already compiled for Tauri)
+serde = { version = "1", features = ["derive"] }
 # Preview playback (same version as the library uses)
 rodio = { version = "0.23", features = ["symphonia-all"] }
 # Desktop window showing the web interface of ui/, through the system's web
@@ -20,3 +22,5 @@ tauri = { version = "2", features = [] }
 # Drag samples out of the window into a DAW or a file manager, through each
 # system's native drag and drop (the web page alone can only drag inside it)
 tauri-plugin-drag = "2"
+# The system's own "choose a folder" window, to add a sample folder
+tauri-plugin-dialog = "2"

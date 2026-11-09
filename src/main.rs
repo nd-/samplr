@@ -117,21 +117,12 @@ fn main() {
 /// Saves the folder and the samples it contains to the database, then shows
 /// them as a table.
 fn scan(folder: &Path) -> Result<(), Box<dyn Error>> {
-    if !folder.is_dir() {
-        return Err(format!("\"{}\" is not a folder", folder.display()).into());
-    }
-    // Absolute path: the database must find the files again whatever folder
-    // samplr is run from.
-    let folder = dunce::canonicalize(folder)?;
-
     let mut db = db::open()?;
-    // A transaction groups all the writes: SQLite writes to disk only once,
-    // on `commit`, instead of once per sample (hundreds of times slower on a
-    // big folder).
-    let transaction = db.transaction()?;
-    db::add_folder(&transaction, &folder)?;
-    let (samples, unreadable) = index(&transaction, &folder);
-    transaction.commit()?;
+    let samplr::Scan {
+        folder,
+        samples,
+        unreadable,
+    } = samplr::scan(&mut db, folder)?;
 
     // The output is only a report: if it is closed (`samplr scan … | head`),
     // write failures are ignored (`let _ =`).

@@ -35,7 +35,7 @@ header {
   font: inherit;
 }
 
-#stop {
+#stop, #add-folder {
   padding: 0.4rem 0.8rem;
   font: inherit;
 }

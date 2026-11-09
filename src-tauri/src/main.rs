@@ -15,6 +15,7 @@ use std::time::Duration;
 use rodio::Decoder;
 use samplr::waveform::Peak;
 use samplr::{SampleInfo, db};
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 /// What the audio thread is asked to do.
@@ -58,6 +59,25 @@ fn search(query: String) -> Result<Vec<SampleInfo>, String> {
 
     let db = db::open().map_err(|e| e.to_string())?;
     db::search(&db, &tags, &words, "").map_err(|e| e.to_string())
+}
+
+/// What `add_folder` reports to the page.
+#[derive(Serialize)]
+struct Added {
+    samples: usize,
+    unreadable: usize,
+}
+
+/// Adds a folder of samples, like `samplr scan`. A big folder takes a while:
+/// `(async)` keeps the window responsive meanwhile.
+#[tauri::command(async)]
+fn add_folder(folder: PathBuf) -> Result<Added, String> {
+    let mut db = db::open().map_err(|e| e.to_string())?;
+    let scan = samplr::scan(&mut db, &folder).map_err(|e| e.to_string())?;
+    Ok(Added {
+        samples: scan.samples.len(),
+        unreadable: scan.unreadable,
+    })
 }
 
 /// The waveform of a sample of the database, computed and cached first if
@@ -201,6 +221,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_drag::init())
+        .plugin(tauri_plugin_dialog::init())
         // The audio thread starts once the app exists, to get the handle it
         // sends events to the page with. `move` gives it ownership of
         // `receiver`.
@@ -212,7 +233,7 @@ fn main() {
         // Stored by Tauri and handed to every command that asks for `State<Audio>`.
         .manage(Audio { requests })
         .invoke_handler(tauri::generate_handler![
-            search, waveform, add_tags, remove_tag, play, stop, set_volume
+            search, waveform, add_tags, remove_tag, play, stop, set_volume, add_folder
         ])
         .run(tauri::generate_context!())
         .expect("could not start the interface");
