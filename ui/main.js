@@ -2,6 +2,22 @@
 // `window.__TAURI__`, so the page needs no build tool to import it.
 const { invoke } = window.__TAURI__.core;
 
+// Settings > Confirmations: ask before deleting a collection, removing a
+// folder or deleting a colour (on unless turned off). Remembered on
+// this computer, like the theme.
+let askBeforeDeleting = true;
+try {
+  askBeforeDeleting = localStorage.getItem("askBeforeDeleting") !== "false";
+} catch {
+  // Storage unavailable: ask.
+}
+
+// Returns true when the action may go ahead: confirmed, or no question asked.
+async function confirmAction(message, title) {
+  if (!askBeforeDeleting) return true;
+  return window.__TAURI__.dialog.ask(message, { title, kind: "warning" });
+}
+
 const searchBox = document.getElementById("search");
 const tbody = document.getElementById("samples");
 const status = document.getElementById("status");
@@ -860,11 +876,11 @@ async function showFolders() {
 }
 
 async function removeFolder(folder) {
-  const confirmed = await window.__TAURI__.dialog.ask(
+  const confirmed = await confirmAction(
     `Remove ${folder.path} from the library?\n\n` +
       `Its ${folder.samples} sample(s) leave the list. Their tags are kept, ` +
       "and come back if the folder is added again. The audio files are not touched.",
-    { title: "Remove folder", kind: "warning" },
+    "Remove folder",
   );
   if (!confirmed) return;
   try {
@@ -1046,13 +1062,13 @@ function openCollection(id) {
   search();
 }
 
-// Deleting a whole collection loses the gathering: it is confirmed, unlike
-// taking a few samples out of it.
+// Deleting a whole collection loses the gathering: it is confirmed (unless
+// turned off in Settings), unlike taking a few samples out of it.
 async function deleteCollection(collection) {
-  const confirmed = await window.__TAURI__.dialog.ask(
+  const confirmed = await confirmAction(
     `Delete the collection ${collection.name}?\n\n` +
       `Its ${collection.samples} sample(s) stay in the library.`,
-    { title: "Delete collection", kind: "warning" },
+    "Delete collection",
   );
   if (!confirmed) return;
   try {
@@ -1579,15 +1595,16 @@ function renderSettings() {
 async function deleteColor(color) {
   try {
     const [tags, collectionCount] = await invoke("color_usage", { id: color.id });
-    if (tags + collectionCount > 0) {
-      const confirmed = await window.__TAURI__.dialog.ask(
-        `Delete the colour ${color.name}?\n\n` +
-          `${tags} tag(s) and ${collectionCount} collection(s) use it; ` +
-          "they will be left without colour.",
-        { title: "Delete colour", kind: "warning" },
-      );
-      if (!confirmed) return;
-    }
+    const usage =
+      tags + collectionCount > 0
+        ? `${tags} tag(s) and ${collectionCount} collection(s) use it; ` +
+          "they will be left without colour."
+        : "No tag or collection uses it.";
+    const confirmed = await confirmAction(
+      `Delete the colour ${color.name}?\n\n${usage}`,
+      "Delete colour",
+    );
+    if (!confirmed) return;
     await invoke("delete_color", { id: color.id });
   } catch (error) {
     status.textContent = `Error: ${error}`;
@@ -1631,6 +1648,17 @@ themeSelect.addEventListener("change", () => {
   }
   // The waveform is drawn in the accent colour.
   drawWaveform();
+});
+
+const askCheckbox = document.getElementById("ask-before-deleting");
+askCheckbox.checked = askBeforeDeleting;
+askCheckbox.addEventListener("change", () => {
+  askBeforeDeleting = askCheckbox.checked;
+  try {
+    localStorage.setItem("askBeforeDeleting", String(askBeforeDeleting));
+  } catch {
+    // Storage unavailable: the choice holds until the app closes.
+  }
 });
 
 document.getElementById("show-settings").addEventListener("click", () => {

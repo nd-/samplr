@@ -739,6 +739,12 @@ footer {
 	padding: var(--space-2) var(--space-4);
 }
 
+.check {
+	display: flex;
+	align-items: center;
+	gap: var(--space-4);
+}
+
 #settings h3 {
 	margin: var(--space-4) 0 var(--space-2);
 	font-size: 1rem;
