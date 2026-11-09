@@ -337,6 +337,25 @@ th, td {
   white-space: nowrap;
 }
 
+th[data-sort] {
+  cursor: pointer;
+  user-select: none;
+}
+
+th[data-sort]:hover {
+  background: var(--hover);
+}
+
+th.sorted-ascending::after {
+  content: " ▲";
+  font-size: 0.75em;
+}
+
+th.sorted-descending::after {
+  content: " ▼";
+  font-size: 0.75em;
+}
+
 td {
   cursor: default;
   user-select: none;

@@ -92,6 +92,69 @@ function render() {
 
 const removeHeader = document.querySelector("th.remove");
 
+// Sorting by a column header: a first click sorts, a second one reverses.
+// Done in the page, without asking the database again; kept from one search
+// to the next. With no column chosen, the list keeps the database's order
+// (by path).
+let sortKey = null;
+let sortAscending = true;
+
+// Names compared like a person would: "kick 2" before "kick 10", case
+// ignored.
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+// `null`: no value (unknown length, no tag), always at the end of the list
+// whichever the direction.
+const sortValues = {
+  favorite: (sample) => (sample.favorite ? 0 : 1),
+  name: (sample) => splitPath(sample.path).name,
+  folder: (sample) => splitPath(sample.path).folder,
+  length: (sample) => sample.duration_secs,
+  tags: (sample) => sample.tags.join(" ") || null,
+};
+
+function compareValues(x, y) {
+  if (x === null || y === null) return 0;
+  return typeof x === "number" ? x - y : collator.compare(x, y);
+}
+
+function sortSamples() {
+  if (sortKey === null) return;
+  const value = sortValues[sortKey];
+  samples.sort((a, b) => {
+    const x = value(a);
+    const y = value(b);
+    if ((x === null) !== (y === null)) return x === null ? 1 : -1;
+    const order = compareValues(x, y);
+    // Equal values: by path, so that the order stays the same every time.
+    return (sortAscending ? order : -order) || collator.compare(a.path, b.path);
+  });
+}
+
+for (const header of document.querySelectorAll("th[data-sort]")) {
+  header.addEventListener("click", () => {
+    if (sortKey === header.dataset.sort) {
+      sortAscending = !sortAscending;
+    } else {
+      sortKey = header.dataset.sort;
+      sortAscending = true;
+    }
+    for (const other of document.querySelectorAll("th[data-sort]")) {
+      other.classList.remove("sorted-ascending", "sorted-descending");
+    }
+    header.classList.add(sortAscending ? "sorted-ascending" : "sorted-descending");
+    // The selection and the current sample follow their rows.
+    const currentPath = samples[selected]?.path;
+    sortSamples();
+    selected = samples.findIndex((sample) => sample.path === currentPath);
+    anchor = selected;
+    const statusText = status.textContent;
+    render();
+    status.textContent = statusText;
+    tbody.children[selected]?.scrollIntoView({ block: "nearest" });
+  });
+}
+
 function paintSelection() {
   [...tbody.children].forEach((row, index) => {
     row.classList.toggle("selected", selectedPaths.has(samples[index].path));
@@ -564,6 +627,7 @@ async function refresh({ stopIfGone = true } = {}) {
       favorites: favoritesOnly,
       collection: currentCollection,
     });
+    sortSamples();
   } catch (error) {
     status.textContent = `Error: ${error}`;
     return;
@@ -936,6 +1000,7 @@ async function search() {
       favorites: favoritesOnly,
       collection: currentCollection,
     });
+    sortSamples();
     selected = -1;
     selectedPaths = new Set();
     anchor = -1;
