@@ -421,6 +421,25 @@ td {
   user-select: none;
 }
 
+/* Every row has the same height: the virtual list (see `drawRows` in
+   main.js) places rows by computing, not by measuring each one. */
+tbody tr:not(.spacer) td {
+  height: 26px;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 26px;
+}
+
+/* The empty rows above and below the rows on screen. */
+tbody tr.spacer td {
+  padding: 0;
+  border: none;
+}
+
+tbody tr.spacer:hover {
+  background: none;
+}
+
 .star {
   text-align: center;
   color: var(--wave);
@@ -474,9 +493,10 @@ tbody tr.selected {
 }
 
 /* With several samples selected: the current one, played and shown above. */
+/* Inner shadows rather than borders: a border could add a pixel to the
+   row's height, and shift the virtual list. */
 tbody tr.current td {
-  border-top: 1px solid var(--wave);
-  border-bottom: 1px solid var(--wave);
+  box-shadow: inset 0 1px var(--wave), inset 0 -1px var(--wave);
 }
 
 #status-box {

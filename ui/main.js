@@ -41,51 +41,122 @@ function cell(text, className) {
   return td;
 }
 
-function render() {
+// The list is virtual: only the rows on screen, and `overscan` more above
+// and below, are in the table, between two empty rows that give it its full
+// height. Building and laying out thousands of rows took a few hundred
+// milliseconds at each search; a screenful takes a few. Rows have a fixed
+// height (CSS), measured on the first row shown.
+const listBox = document.getElementById("list");
+const tableHead = document.querySelector("thead");
+const overscan = 10;
+let rowHeight = 0;
+// The samples whose rows are in the table: `firstDrawn` to `lastDrawn`.
+let firstDrawn = 0;
+let lastDrawn = -1;
+
+function spacer(height) {
+  const tr = document.createElement("tr");
+  tr.className = "spacer";
+  const td = document.createElement("td");
+  td.colSpan = 6;
+  td.style.height = `${height}px`;
+  tr.append(td);
+  return tr;
+}
+
+function buildRow(index) {
+  const sample = samples[index];
+  const { folder, name } = splitPath(sample.path);
+  const tr = document.createElement("tr");
+  tr.dataset.index = index;
+  tr.title = sample.path;
+  if (selectedPaths.has(sample.path)) tr.classList.add("selected");
+  if (index === selected && selectedPaths.size > 1) tr.classList.add("current");
+  const star = cell(sample.favorite ? "★" : "☆", "star");
+  star.title = "Favorite (Ctrl+D)";
+  tr.append(
+    star,
+    cell(name),
+    cell(folder, "folder"),
+    cell(formatDuration(sample.duration_secs), "number"),
+    cell(sample.tags.join(" "), "tags"),
+  );
+  // In an open collection, a button at the end of the row takes that
+  // sample out of it, whether it is selected or not.
+  if (currentCollection !== null) {
+    const remove = document.createElement("button");
+    remove.textContent = "×";
+    remove.title = "Remove from this collection";
+    const end = cell("", "remove");
+    end.append(remove);
+    tr.append(end);
+  }
+  return tr;
+}
+
+// The range of samples on screen, without the overscan.
+function visibleRange() {
+  const height = rowHeight || 26;
+  const first = Math.floor(listBox.scrollTop / height);
+  const count = Math.ceil(listBox.clientHeight / height);
+  return [first, Math.min(samples.length - 1, first + count)];
+}
+
+function drawRows() {
+  const [first, last] = visibleRange();
+  firstDrawn = Math.max(0, first - overscan);
+  lastDrawn = Math.min(samples.length - 1, last + overscan);
+  const height = rowHeight || 26;
   const rows = document.createDocumentFragment();
-  samples.forEach((sample, index) => {
-    const { folder, name } = splitPath(sample.path);
-    const tr = document.createElement("tr");
-    tr.title = sample.path;
-    const star = cell(sample.favorite ? "★" : "☆", "star");
-    star.title = "Favorite (Ctrl+D)";
-    // Only toggles the favorite: the row is not selected, nothing plays.
-    star.addEventListener("click", (event) => {
-      event.stopPropagation();
-      toggleFavorite(index);
-    });
-    tr.append(
-      star,
-      cell(name),
-      cell(folder, "folder"),
-      cell(formatDuration(sample.duration_secs), "number"),
-      cell(sample.tags.join(" "), "tags"),
-    );
-    // In an open collection, a button at the end of the row takes that
-    // sample out of it, whether it is selected or not.
-    if (currentCollection !== null) {
-      const remove = document.createElement("button");
-      remove.textContent = "×";
-      remove.title = "Remove from this collection";
-      remove.addEventListener("click", (event) => {
-        event.stopPropagation();
-        removeFromCollection([sample.path]);
-      });
-      const end = cell("", "remove");
-      end.append(remove);
-      tr.append(end);
-    }
-    tr.addEventListener("click", (event) => {
-      // Cmd on a Mac, Ctrl elsewhere (Ctrl+click is a right-click on a Mac).
-      if (event.metaKey || event.ctrlKey) select(index, "toggle");
-      else if (event.shiftKey) select(index, "range");
-      else select(index);
-    });
-    tr.addEventListener("mousedown", (event) => watchForDrag(event, sample));
-    rows.append(tr);
-  });
+  rows.append(spacer(firstDrawn * height));
+  for (let index = firstDrawn; index <= lastDrawn; index++) rows.append(buildRow(index));
+  rows.append(spacer(Math.max(0, samples.length - 1 - lastDrawn) * height));
   tbody.replaceChildren(rows);
-  paintSelection();
+  // The first time, the real height of a row; drawn again if the guess was
+  // wrong, so that the spacers are right.
+  if (rowHeight === 0 && lastDrawn >= firstDrawn) {
+    rowHeight = rowElement(firstDrawn).getBoundingClientRect().height;
+    drawRows();
+  }
+}
+
+// Draws again only when the rows on screen are no longer all in the table.
+function drawRowsIfNeeded() {
+  const [first, last] = visibleRange();
+  if (first < firstDrawn || (last > lastDrawn && lastDrawn < samples.length - 1)) drawRows();
+}
+
+let scrollPending = false;
+listBox.addEventListener("scroll", () => {
+  if (scrollPending) return;
+  scrollPending = true;
+  requestAnimationFrame(() => {
+    scrollPending = false;
+    drawRowsIfNeeded();
+  });
+});
+window.addEventListener("resize", drawRowsIfNeeded);
+
+// The row of a sample, or `null` if it is off screen (not in the table).
+function rowElement(index) {
+  if (index < firstDrawn || index > lastDrawn) return null;
+  return tbody.children[index - firstDrawn + 1] ?? null;
+}
+
+// Scrolls just enough for the row to show below the sticky header.
+function ensureVisible(index) {
+  if (index < 0 || rowHeight === 0) return;
+  const top = index * rowHeight;
+  const bottom = tableHead.offsetHeight + top + rowHeight;
+  if (top < listBox.scrollTop) listBox.scrollTop = top;
+  else if (bottom > listBox.scrollTop + listBox.clientHeight) {
+    listBox.scrollTop = bottom - listBox.clientHeight;
+  }
+  drawRowsIfNeeded();
+}
+
+function render() {
+  drawRows();
   removeHeader.hidden = currentCollection === null;
   // The column of the × exists only in a collection. Its <col> is taken out
   // rather than given no width: WebKit treats a zero-width <col> as an
@@ -95,6 +166,37 @@ function render() {
   applyColumnWidths();
   status.textContent = `${samples.length} sample(s)`;
 }
+
+// The rows are built again on scrolling: their events are listened to once,
+// on the table body.
+function rowIndex(event) {
+  const row = event.target.closest("tr[data-index]");
+  return row ? Number(row.dataset.index) : -1;
+}
+
+tbody.addEventListener("click", (event) => {
+  const index = rowIndex(event);
+  if (index < 0) return;
+  // The star only toggles the favorite: the row is not selected, nothing
+  // plays. The same for the × of a collection.
+  if (event.target.closest("td.star")) {
+    toggleFavorite(index);
+    return;
+  }
+  if (event.target.closest("td.remove button")) {
+    removeFromCollection([samples[index].path]);
+    return;
+  }
+  // Cmd on a Mac, Ctrl elsewhere (Ctrl+click is a right-click on a Mac).
+  if (event.metaKey || event.ctrlKey) select(index, "toggle");
+  else if (event.shiftKey) select(index, "range");
+  else select(index);
+});
+
+tbody.addEventListener("mousedown", (event) => {
+  const index = rowIndex(event);
+  if (index >= 0) watchForDrag(event, samples[index]);
+});
 
 const removeHeader = document.querySelector("th.remove");
 const removeColumn = document.querySelector("col.col-remove");
@@ -116,7 +218,6 @@ try {
 // `minTagsWidth` left for Tags. The chosen widths are kept, so a wider window
 // brings them back.
 const minTagsWidth = 80;
-const listBox = document.getElementById("list");
 
 // The width Name, Folder and Length may share.
 function availableWidth() {
@@ -249,15 +350,16 @@ for (const header of document.querySelectorAll("th[data-sort]")) {
     const statusText = status.textContent;
     render();
     status.textContent = statusText;
-    tbody.children[selected]?.scrollIntoView({ block: "nearest" });
+    ensureVisible(selected);
   });
 }
 
 function paintSelection() {
-  [...tbody.children].forEach((row, index) => {
+  for (let index = firstDrawn; index <= lastDrawn; index++) {
+    const row = rowElement(index);
     row.classList.toggle("selected", selectedPaths.has(samples[index].path));
     row.classList.toggle("current", index === selected && selectedPaths.size > 1);
-  });
+  }
 }
 
 // The selected samples, in the list's order.
@@ -288,8 +390,8 @@ function select(index, mode = "single", andPlay = true) {
     anchor = index;
   }
   selected = index;
+  ensureVisible(selected);
   paintSelection();
-  tbody.children[selected].scrollIntoView({ block: "nearest" });
   if (andPlay) play();
   loadWaveform();
   renderTags();
@@ -323,7 +425,7 @@ function renderTags() {
 function showTags(changed, allTags) {
   changed.forEach((sample, i) => {
     sample.tags = allTags[i];
-    const row = tbody.children[samples.indexOf(sample)];
+    const row = rowElement(samples.indexOf(sample));
     if (row) row.querySelector(".tags").textContent = sample.tags.join(" ");
   });
   renderTags();
@@ -344,10 +446,14 @@ function flash(elements) {
   }
 }
 
-// The list rows showing these paths (those out of the list are left out).
+// The rows on screen showing these paths (the others are left out).
 function rowsOf(paths) {
   const wanted = new Set(paths);
-  return samples.flatMap((sample, index) => (wanted.has(sample.path) ? [tbody.children[index]] : []));
+  const rows = [];
+  for (let index = firstDrawn; index <= lastDrawn; index++) {
+    if (wanted.has(samples[index].path)) rows.push(rowElement(index));
+  }
+  return rows;
 }
 
 async function addTags() {
@@ -805,7 +911,7 @@ async function setFavorite(chosen, favorite) {
   }
   for (const sample of chosen) {
     sample.favorite = favorite;
-    const star = tbody.children[samples.indexOf(sample)]?.querySelector(".star");
+    const star = rowElement(samples.indexOf(sample))?.querySelector(".star");
     if (star) star.textContent = favorite ? "★" : "☆";
   }
 }
@@ -1131,10 +1237,9 @@ function closeContextMenu() {
 }
 
 tbody.addEventListener("contextmenu", (event) => {
-  const row = event.target.closest("tr");
-  if (!row) return;
+  const index = rowIndex(event);
+  if (index < 0) return;
   event.preventDefault();
-  const index = [...tbody.children].indexOf(row);
   // A row outside the selection becomes the only one selected; inside it,
   // the menu acts on the whole selection.
   if (!selectedPaths.has(samples[index].path)) select(index, "single", false);
@@ -1158,6 +1263,8 @@ async function search() {
     selected = -1;
     selectedPaths = new Set();
     anchor = -1;
+    // New results: back to the top of the list.
+    listBox.scrollTop = 0;
     peaks = [];
     drawWaveform();
     render();
