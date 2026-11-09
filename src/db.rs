@@ -8,6 +8,7 @@ use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use rusqlite::{Connection, OptionalExtension, named_params, params, params_from_iter};
+use serde::Serialize;
 
 use crate::SampleInfo;
 use crate::waveform::{self, Peak};
@@ -95,6 +96,20 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
         db.execute_batch(
             "ALTER TABLE files ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;
              PRAGMA user_version = 2;",
+        )?;
+    }
+    if version < 3 {
+        db.execute_batch(
+            "CREATE TABLE collections (
+                 id   INTEGER PRIMARY KEY,
+                 name TEXT NOT NULL UNIQUE
+             );
+             CREATE TABLE collection_files (
+                 collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+                 file_id       INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                 PRIMARY KEY (collection_id, file_id)
+             );
+             PRAGMA user_version = 3;",
         )?;
     }
     db.execute_batch("COMMIT")?;
@@ -411,6 +426,119 @@ pub fn set_favorite(db: &Connection, file_id: i64, favorite: bool) -> Result<(),
     Ok(())
 }
 
+/// A collection: samples gathered by hand. A sample can be in several.
+#[derive(Serialize)]
+pub struct Collection {
+    pub id: i64,
+    pub name: String,
+    /// Samples shown (not hidden) in the collection.
+    pub samples: u32,
+}
+
+/// The collections, sorted by name (case-insensitive).
+pub fn collections(db: &Connection) -> Result<Vec<Collection>, Box<dyn Error>> {
+    let mut query = db.prepare(
+        "SELECT c.id, c.name,
+                (SELECT COUNT(*) FROM collection_files cf JOIN files f ON f.id = cf.file_id
+                 WHERE cf.collection_id = c.id AND f.hidden = 0)
+         FROM collections c
+         ORDER BY c.name COLLATE NOCASE",
+    )?;
+    let rows = query.query_map([], |row| {
+        Ok(Collection {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            samples: row.get(2)?,
+        })
+    })?;
+
+    let mut collections = Vec::new();
+    for collection in rows {
+        collections.push(collection?);
+    }
+    Ok(collections)
+}
+
+/// Creates an empty collection and returns its `id`.
+pub fn create_collection(db: &Connection, name: &str) -> Result<i64, Box<dyn Error>> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("a collection needs a name".into());
+    }
+    let id = db
+        .query_row(
+            "INSERT INTO collections (name) VALUES (?1)
+             ON CONFLICT (name) DO NOTHING
+             RETURNING id",
+            [name],
+            |row| row.get(0),
+        )
+        .optional()?;
+    id.ok_or_else(|| format!("a collection named \"{name}\" already exists").into())
+}
+
+/// Deletes a collection. The samples are not touched.
+pub fn delete_collection(db: &Connection, collection_id: i64) -> Result<(), Box<dyn Error>> {
+    db.execute("DELETE FROM collections WHERE id = ?1", [collection_id])?;
+    Ok(())
+}
+
+/// Adds samples to a collection; those already in it are left as they are.
+/// Returns the number added.
+pub fn add_to_collection(
+    db: &Connection,
+    collection_id: i64,
+    file_ids: &[i64],
+) -> Result<usize, Box<dyn Error>> {
+    let mut added = 0;
+    for file_id in file_ids {
+        added += db.execute(
+            "INSERT OR IGNORE INTO collection_files (collection_id, file_id) VALUES (?1, ?2)",
+            [collection_id, *file_id],
+        )?;
+    }
+    Ok(added)
+}
+
+/// The `id`s of the collections that already hold every one of `file_ids`.
+pub fn collections_holding(db: &Connection, file_ids: &[i64]) -> Result<Vec<i64>, Box<dyn Error>> {
+    if file_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let marks = vec!["?"; file_ids.len()].join(", ");
+    let mut query = db.prepare(&format!(
+        "SELECT collection_id FROM collection_files
+         WHERE file_id IN ({marks})
+         GROUP BY collection_id
+         HAVING COUNT(*) = {}",
+        file_ids.len()
+    ))?;
+    let rows = query.query_map(params_from_iter(file_ids), |row| row.get(0))?;
+
+    let mut ids = Vec::new();
+    for id in rows {
+        ids.push(id?);
+    }
+    Ok(ids)
+}
+
+/// Takes samples out of a collection (only the links: the samples stay in
+/// the library). Returns the number removed.
+pub fn remove_from_collection(
+    db: &Connection,
+    collection_id: i64,
+    file_ids: &[i64],
+) -> Result<usize, Box<dyn Error>> {
+    let mut removed = 0;
+    for file_id in file_ids {
+        removed += db.execute(
+            "DELETE FROM collection_files WHERE collection_id = ?1 AND file_id = ?2",
+            [collection_id, *file_id],
+        )?;
+    }
+    Ok(removed)
+}
+
 /// A sample's tags, in alphabetical order.
 pub fn tags_of(db: &Connection, file_id: i64) -> Result<Vec<String>, Box<dyn Error>> {
     let mut query = db.prepare(
@@ -451,13 +579,15 @@ pub fn list_tags(db: &Connection) -> Result<Vec<(String, u32)>, Box<dyn Error>> 
 /// and where each of the `words` is found in the path or in one of the tags
 /// (case-insensitive), sorted by path. With no tag, no word and an empty
 /// text, every sample shown. Hidden samples (see `remove_folder`) are left
-/// out. `favorites_only`: only the favorites.
+/// out. `favorites_only`: only the favorites. `collection`: only the samples
+/// of that collection.
 pub fn search(
     db: &Connection,
     tags: &[String],
     words: &[&str],
     text: &str,
     favorites_only: bool,
+    collection: Option<i64>,
 ) -> Result<Vec<SampleInfo>, Box<dyn Error>> {
     // `instr` looks for the text as is: with `LIKE`, a `_` in the text
     // (common in sample names) would act as a wildcard.
@@ -474,6 +604,16 @@ pub fn search(
         sql.push_str(" AND f.favorite = 1");
     }
     let mut values = vec![text.to_string()];
+    if let Some(collection) = collection {
+        // Bound as text like the other values: compared with an INTEGER
+        // column, SQLite turns it back into a number.
+        values.push(collection.to_string());
+        sql.push_str(&format!(
+            " AND EXISTS (SELECT 1 FROM collection_files cf
+                          WHERE cf.file_id = f.id AND cf.collection_id = ?{})",
+            values.len()
+        ));
+    }
 
     // The number of tags varies: one condition, and one `?N`, per tag.
     for tag in tags {

@@ -46,13 +46,18 @@ struct Audio {
 /// Samples matching the search box. Each word must be found in the path or
 /// in one of the tags (`kick` finds `Kick_01.wav` and the samples tagged
 /// `kick` or `kicks`); a word starting with `#` is a tag the sample must
-/// carry exactly. `favorites`: only the favorites.
+/// carry exactly. `favorites`: only the favorites. `collection`: only the
+/// samples of that collection (`null` from the page: the whole library).
 /// `(async)` runs the command outside the main thread: the window stays
 /// responsive while the database answers.
 /// The error travels to the page as text: `Box<dyn Error>` cannot be turned
 /// into JSON, a `String` can.
 #[tauri::command(async)]
-fn search(query: String, favorites: bool) -> Result<Vec<SampleInfo>, String> {
+fn search(
+    query: String,
+    favorites: bool,
+    collection: Option<i64>,
+) -> Result<Vec<SampleInfo>, String> {
     let mut tags = Vec::new();
     let mut words = Vec::new();
     for word in query.split_whitespace() {
@@ -64,7 +69,54 @@ fn search(query: String, favorites: bool) -> Result<Vec<SampleInfo>, String> {
     }
 
     let db = db::open().map_err(|e| e.to_string())?;
-    db::search(&db, &tags, &words, "", favorites).map_err(|e| e.to_string())
+    db::search(&db, &tags, &words, "", favorites, collection).map_err(|e| e.to_string())
+}
+
+/// The collections, sorted by name, with their number of samples.
+#[tauri::command(async)]
+fn collections() -> Result<Vec<db::Collection>, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    db::collections(&db).map_err(|e| e.to_string())
+}
+
+/// Creates an empty collection and returns its `id`.
+#[tauri::command(async)]
+fn create_collection(name: String) -> Result<i64, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    db::create_collection(&db, &name).map_err(|e| e.to_string())
+}
+
+/// Deletes a collection. The samples are not touched.
+#[tauri::command(async)]
+fn delete_collection(collection: i64) -> Result<(), String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    db::delete_collection(&db, collection).map_err(|e| e.to_string())
+}
+
+/// Adds samples to a collection. Returns the number added (those already in
+/// it are not counted).
+#[tauri::command(async)]
+fn add_to_collection(collection: i64, paths: Vec<PathBuf>) -> Result<usize, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    let file_ids = file_ids(&db, &paths)?;
+    db::add_to_collection(&db, collection, &file_ids).map_err(|e| e.to_string())
+}
+
+/// The `id`s of the collections that already hold all these samples.
+#[tauri::command(async)]
+fn collections_holding(paths: Vec<PathBuf>) -> Result<Vec<i64>, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    let file_ids = file_ids(&db, &paths)?;
+    db::collections_holding(&db, &file_ids).map_err(|e| e.to_string())
+}
+
+/// Takes samples out of a collection; they stay in the library. Returns the
+/// number removed.
+#[tauri::command(async)]
+fn remove_from_collection(collection: i64, paths: Vec<PathBuf>) -> Result<usize, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    let file_ids = file_ids(&db, &paths)?;
+    db::remove_from_collection(&db, collection, &file_ids).map_err(|e| e.to_string())
 }
 
 /// Marks a sample as a favorite, or no longer.
@@ -189,6 +241,11 @@ fn remove_tag(path: PathBuf, tag: String) -> Result<Vec<String>, String> {
     let file_id = file_id(&db, &path)?;
     db::remove_tags(&db, file_id, &[tag]).map_err(|e| e.to_string())?;
     db::tags_of(&db, file_id).map_err(|e| e.to_string())
+}
+
+/// The `id`s of samples of the database.
+fn file_ids(db: &rusqlite::Connection, paths: &[PathBuf]) -> Result<Vec<i64>, String> {
+    paths.iter().map(|path| file_id(db, path)).collect()
 }
 
 /// The `id` of a sample of the database.
@@ -354,6 +411,12 @@ fn main() {
             add_tags,
             remove_tag,
             set_favorite,
+            collections,
+            create_collection,
+            delete_collection,
+            add_to_collection,
+            collections_holding,
+            remove_from_collection,
             play,
             stop,
             set_volume,

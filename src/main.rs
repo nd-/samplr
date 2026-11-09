@@ -239,7 +239,7 @@ fn remove_folder(folder: &Path) -> Result<(), Box<dyn Error>> {
 /// contains `path`; with no tag and no path, every sample.
 fn search(tags: &[String], path: Option<&str>, favorites_only: bool) -> Result<(), Box<dyn Error>> {
     let db = db::open()?;
-    let samples = db::search(&db, tags, &[], path.unwrap_or(""), favorites_only)?;
+    let samples = db::search(&db, tags, &[], path.unwrap_or(""), favorites_only, None)?;
 
     let mut out = io::stdout().lock();
     print_header(&mut out)?;

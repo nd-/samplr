@@ -54,22 +54,40 @@ function render() {
       cell(formatDuration(sample.duration_secs), "number"),
       cell(sample.tags.join(" "), "tags"),
     );
+    // In an open collection, a button at the end of the row takes that
+    // sample out of it, whether it is selected or not.
+    if (currentCollection !== null) {
+      const remove = document.createElement("button");
+      remove.textContent = "×";
+      remove.title = "Remove from this collection";
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        removeFromCollection([sample.path]);
+      });
+      const end = cell("", "remove");
+      end.append(remove);
+      tr.append(end);
+    }
     tr.addEventListener("click", () => select(index));
     tr.addEventListener("mousedown", (event) => watchForDrag(event, sample));
     rows.append(tr);
   });
   tbody.replaceChildren(rows);
+  removeHeader.hidden = currentCollection === null;
   status.textContent = `${samples.length} sample(s)`;
 }
 
-function select(index) {
+const removeHeader = document.querySelector("th.remove");
+
+// `andPlay`: false for a right-click, which selects without playing.
+function select(index, andPlay = true) {
   if (index < 0 || index >= samples.length) return;
   tbody.children[selected]?.classList.remove("selected");
   selected = index;
   const row = tbody.children[selected];
   row.classList.add("selected");
   row.scrollIntoView({ block: "nearest" });
-  play();
+  if (andPlay) play();
   loadWaveform();
   renderTags();
 }
@@ -479,11 +497,17 @@ document.getElementById("show-folders").addEventListener("click", showFolders);
 
 // The folders changed on disk (samples added, renamed or deleted): the same
 // search again, keeping the selected sample and the sound playing.
-async function refresh() {
+// `stopIfGone: false` when the selected sample only left the open collection:
+// it is still in the library, its sound keeps playing.
+async function refresh({ stopIfGone = true } = {}) {
   const selectedPath = samples[selected]?.path;
   const statusText = status.textContent;
   try {
-    samples = await invoke("search", { query: searchBox.value, favorites: favoritesOnly });
+    samples = await invoke("search", {
+      query: searchBox.value,
+      favorites: favoritesOnly,
+      collection: currentCollection,
+    });
   } catch (error) {
     status.textContent = `Error: ${error}`;
     return;
@@ -498,22 +522,21 @@ async function refresh() {
     // The selected sample left the library (folder removed, file deleted or
     // renamed): its sound stops with it. A sound that is merely outside the
     // current search is not selected, and keeps playing.
-    if (selectedPath !== undefined && selectedPath === playingPath) stop();
+    if (stopIfGone && selectedPath !== undefined && selectedPath === playingPath) stop();
     peaks = [];
     drawWaveform();
   }
   renderTags();
 }
 
-window.__TAURI__.event.listen("library-changed", refresh);
+window.__TAURI__.event.listen("library-changed", () => refresh());
 
 // "★ Favorites" on: the list shows only the favorites.
 let favoritesOnly = false;
 const favoritesButton = document.getElementById("favorites-only");
 
 favoritesButton.addEventListener("click", () => {
-  favoritesOnly = !favoritesOnly;
-  favoritesButton.setAttribute("aria-pressed", String(favoritesOnly));
+  setFavoritesOnly(!favoritesOnly);
   search();
 });
 
@@ -534,9 +557,245 @@ async function toggleFavorite(index) {
   if (star) star.textContent = favorite ? "★" : "☆";
 }
 
+// Collections: samples gathered by hand. `currentCollection` is the one
+// open in the list, `null` for the whole library.
+const collectionList = document.getElementById("collection-list");
+const collectionForm = document.getElementById("new-collection");
+const collectionName = document.getElementById("collection-name");
+let collections = [];
+let currentCollection = null;
+
+async function loadCollections() {
+  try {
+    collections = await invoke("collections");
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+    return;
+  }
+  // The open collection may have been deleted meanwhile.
+  if (currentCollection !== null && !collections.some((c) => c.id === currentCollection)) {
+    currentCollection = null;
+    search();
+  }
+  renderCollections();
+}
+
+function collectionItem(label, count, active, open) {
+  const item = document.createElement("li");
+  if (active) item.classList.add("active");
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = label;
+  name.addEventListener("click", open);
+  item.append(name);
+  if (count !== null) {
+    const number = document.createElement("span");
+    number.className = "count";
+    number.textContent = count;
+    item.append(number);
+  }
+  return item;
+}
+
+function renderCollections() {
+  const items = [
+    collectionItem("All samples", null, currentCollection === null, () => openCollection(null)),
+  ];
+  for (const collection of collections) {
+    const item = collectionItem(
+      collection.name,
+      collection.samples,
+      collection.id === currentCollection,
+      () => openCollection(collection.id),
+    );
+    const remove = document.createElement("button");
+    remove.textContent = "×";
+    remove.title = `Delete the collection ${collection.name} (its samples stay in the library)`;
+    remove.addEventListener("click", () => deleteCollection(collection));
+    item.append(remove);
+    items.push(item);
+  }
+  collectionList.replaceChildren(...items);
+}
+
+function setFavoritesOnly(on) {
+  favoritesOnly = on;
+  favoritesButton.setAttribute("aria-pressed", String(on));
+}
+
+function openCollection(id) {
+  currentCollection = id;
+  renderCollections();
+  search();
+}
+
+// Deleting a whole collection loses the gathering: it is confirmed, unlike
+// taking a few samples out of it.
+async function deleteCollection(collection) {
+  const confirmed = await window.__TAURI__.dialog.ask(
+    `Delete the collection ${collection.name}?\n\n` +
+      `Its ${collection.samples} sample(s) stay in the library.`,
+    { title: "Delete collection", kind: "warning" },
+  );
+  if (!confirmed) return;
+  try {
+    await invoke("delete_collection", { collection: collection.id });
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+    return;
+  }
+  await loadCollections();
+}
+
+// Returns the new collection's id, or `null` if it could not be created.
+async function createCollection(name) {
+  try {
+    const id = await invoke("create_collection", { name });
+    await loadCollections();
+    return id;
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+    return null;
+  }
+}
+
+collectionForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const name = collectionName.value.trim();
+  if (name === "") return;
+  if ((await createCollection(name)) !== null) collectionName.value = "";
+});
+
+// The samples the collection commands act on: the selected one, for now.
+function chosenPaths() {
+  const sample = samples[selected];
+  return sample ? [sample.path] : [];
+}
+
+async function addToCollection(collection) {
+  const paths = chosenPaths();
+  if (paths.length === 0) return;
+  try {
+    const added = await invoke("add_to_collection", { collection: collection.id, paths });
+    status.textContent = `${added} sample(s) added to ${collection.name}.`;
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+    return;
+  }
+  await loadCollections();
+}
+
+// Only the links go: the samples stay in the library. No confirmation, as
+// nothing is lost that cannot be added back.
+// `paths`: the samples to take out, by default the selected one.
+async function removeFromCollection(paths = chosenPaths()) {
+  if (currentCollection === null || paths.length === 0) return;
+  try {
+    const removed = await invoke("remove_from_collection", {
+      collection: currentCollection,
+      paths,
+    });
+    // The removed sample leaves the list, but its sound keeps playing.
+    await refresh({ stopIfGone: false });
+    await loadCollections();
+    status.textContent = `${removed} sample(s) removed from the collection.`;
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+  }
+}
+
+// Right-click on a row: the row is selected (without playing it) and a menu
+// offers the collections.
+const contextMenu = document.getElementById("context-menu");
+
+function menuButton(label, action) {
+  const button = document.createElement("button");
+  button.textContent = label;
+  button.addEventListener("click", () => {
+    closeContextMenu();
+    action();
+  });
+  return button;
+}
+
+// The collections that already hold the samples are shown, marked and
+// greyed, but cannot be clicked.
+async function openContextMenu(x, y) {
+  let holding;
+  try {
+    holding = await invoke("collections_holding", { paths: chosenPaths() });
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+    return;
+  }
+  const label = document.createElement("div");
+  label.className = "label";
+  label.textContent = "Add to collection";
+  const items = [label];
+  for (const collection of collections) {
+    if (holding.includes(collection.id)) {
+      const already = menuButton(`✓ ${collection.name}`, () => {});
+      already.disabled = true;
+      already.title = "Already in this collection";
+      items.push(already);
+    } else {
+      items.push(menuButton(collection.name, () => addToCollection(collection)));
+    }
+  }
+  // A new collection, named here, gets the sample at once.
+  const newName = document.createElement("input");
+  newName.placeholder = "New collection…";
+  newName.spellcheck = false;
+  newName.addEventListener("keydown", async (event) => {
+    // The keys typed here are for the name only: Enter must not also replay
+    // the sample, nor the arrows browse the list.
+    event.stopPropagation();
+    if (event.key === "Escape") closeContextMenu();
+    if (event.key !== "Enter" || newName.value.trim() === "") return;
+    const name = newName.value.trim();
+    closeContextMenu();
+    const id = await createCollection(name);
+    if (id !== null) await addToCollection({ id, name });
+  });
+  items.push(newName);
+  if (currentCollection !== null) {
+    items.push(document.createElement("hr"));
+    items.push(menuButton("Remove from this collection (Del)", removeFromCollection));
+  }
+  contextMenu.replaceChildren(...items);
+  contextMenu.hidden = false;
+  // Kept inside the window.
+  const { width, height } = contextMenu.getBoundingClientRect();
+  contextMenu.style.left = `${Math.min(x, window.innerWidth - width - 4)}px`;
+  contextMenu.style.top = `${Math.min(y, window.innerHeight - height - 4)}px`;
+}
+
+function closeContextMenu() {
+  contextMenu.hidden = true;
+}
+
+tbody.addEventListener("contextmenu", (event) => {
+  const row = event.target.closest("tr");
+  if (!row) return;
+  event.preventDefault();
+  const index = [...tbody.children].indexOf(row);
+  if (index !== selected) select(index, false);
+  openContextMenu(event.clientX, event.clientY);
+});
+
+document.addEventListener("mousedown", (event) => {
+  if (!contextMenu.hidden && !contextMenu.contains(event.target)) closeContextMenu();
+});
+window.addEventListener("blur", closeContextMenu);
+document.getElementById("list").addEventListener("scroll", closeContextMenu);
+
 async function search() {
   try {
-    samples = await invoke("search", { query: searchBox.value, favorites: favoritesOnly });
+    samples = await invoke("search", {
+      query: searchBox.value,
+      favorites: favoritesOnly,
+      collection: currentCollection,
+    });
     selected = -1;
     peaks = [];
     drawWaveform();
@@ -561,6 +820,27 @@ document.addEventListener("keydown", (event) => {
   // The folders window has its own keys (Esc closes it, Tab moves between
   // its buttons): the list behind must not react.
   if (foldersDialog.open) return;
+  // Typing a collection name: Enter creates it (the form's own behaviour),
+  // and the list's keys must not react.
+  if (event.target === collectionName) return;
+  if (!contextMenu.hidden) {
+    if (event.key === "Escape") {
+      closeContextMenu();
+      event.preventDefault();
+    }
+    return;
+  }
+  // Del (Backspace on a Mac keyboard) takes the selected sample out of the
+  // open collection; not while typing, where the keys edit the text.
+  if (
+    (event.key === "Delete" || event.key === "Backspace") &&
+    currentCollection !== null &&
+    !(event.target instanceof HTMLInputElement)
+  ) {
+    removeFromCollection();
+    event.preventDefault();
+    return;
+  }
   // In the tag box, Enter adds the tags typed, Backspace on an empty box
   // removes the last tag, and Esc goes back to the search box.
   if (event.target === tagInput) {
@@ -614,3 +894,4 @@ document.addEventListener("keydown", (event) => {
 });
 
 search();
+loadCollections();

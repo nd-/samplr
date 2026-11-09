@@ -16,6 +16,16 @@
     <button id="add-folder" type="button" title="Add a folder of samples">+ Folder</button>
     <button id="show-folders" type="button" title="The scanned folders">Folders…</button>
   </header>
+  <div id="content">
+  <aside id="collections">
+    <h2>Collections</h2>
+    <ul id="collection-list"></ul>
+    <form id="new-collection">
+      <input id="collection-name" type="text" placeholder="New collection" spellcheck="false" required>
+      <button type="submit">Create</button>
+    </form>
+  </aside>
+  <div id="workspace">
   <div id="wave-box">
     <canvas id="wave"></canvas>
     <div id="playhead" hidden></div>
@@ -27,11 +37,13 @@
   <main id="list" tabindex="-1">
     <table>
       <thead>
-        <tr><th class="star" title="Favorite (Ctrl+D)">★</th><th>Name</th><th>Folder</th><th class="number">Length</th><th>Tags</th></tr>
+        <tr><th class="star" title="Favorite (Ctrl+D)">★</th><th>Name</th><th>Folder</th><th class="number">Length</th><th>Tags</th><th class="remove" hidden></th></tr>
       </thead>
       <tbody id="samples"></tbody>
     </table>
   </main>
+  </div>
+  </div>
   <footer>
     <span id="status-box">
       <progress id="scan-bar" hidden></progress>
@@ -45,6 +57,7 @@
     <p class="hint">Removing a folder takes its samples out of the list. Their tags are kept, and come back if the folder is added again. The audio files are not touched.</p>
     <form method="dialog"><button>Close</button></form>
   </dialog>
+  <div id="context-menu" role="menu" hidden></div>
   <script src="main.js"></script>
 </body>
 </html>
