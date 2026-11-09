@@ -1,600 +1,774 @@
 :root {
-  /* Every padding, margin and gap comes from this scale, so that the same
-     distances come back everywhere. Named after tenths of a rem. */
-  --space-1: 0.1rem;
-  --space-2: 0.2rem;
-  --space-3: 0.3rem;
-  --space-4: 0.4rem;
-  --space-6: 0.6rem;
-  --space-8: 0.8rem;
-  color-scheme: light dark;
-  font-family: system-ui, sans-serif;
-  font-size: 14px;
-  --border: light-dark(#d0d0d0, #3a3a3a);
-  --muted: light-dark(#666, #999);
-  --selected: light-dark(#ffe2a8, #5a4310);
-  --hover: light-dark(#f2f2f2, #2a2a2a);
-  --wave: light-dark(#c47f00, #f5a524);
+	/* Every padding, margin and gap comes from this scale, so that the same
+	   distances come back everywhere. Named after tenths of a rem. */
+	--space-1: 0.1rem;
+	--space-2: 0.2rem;
+	--space-3: 0.3rem;
+	--space-4: 0.4rem;
+	--space-6: 0.6rem;
+	--space-8: 0.8rem;
+	font-family: system-ui, sans-serif;
+	font-size: 14px;
+	/* Every colour comes from these variables; a theme (below) gives them
+	   other values. Three colours per palette: `--wave` the main one (waveform,
+	   stars, current row, handles), `--selected` the second (selection, open
+	   collection, tag chips), `--signal` the complementary one (active buttons,
+	   flash after an addition, drop target). Without a theme chosen ("System"),
+	   the Soul palette, light or dark after the system's setting. */
+	color-scheme: light dark;
+	--bg: light-dark(#FCFAF6, #1C1914);
+	--fg: light-dark(#2A241B, #ECE4D6);
+	--surface: light-dark(#F4EFE6, #26221B);
+	--header: light-dark(#F1EADD, #231F19);
+	--border: light-dark(#E3D9C8, #3A342A);
+	--muted: light-dark(#7A6E5C, #A39885);
+	--selected: light-dark(#F4E1B6, #4F3F1C);
+	--wave: light-dark(#C47A08, #F2A93B);
+	--signal: light-dark(#3F5BD9, #8EA2FF);
+	/* Derived, so that a theme only gives its base colours. */
+	--hover: color-mix(in srgb, var(--fg) 6%, var(--bg));
+	--signal-soft: color-mix(in srgb, var(--signal) 22%, var(--bg));
+}
+
+/* Themes, chosen in Settings (`data-theme` on <html>): six palettes, each
+   light and dark. `color-scheme` makes the native controls (buttons, inputs,
+   scrollbars) light or dark too. */
+:root[data-theme="soul-light"] {
+	color-scheme: light;
+	--bg: #FCFAF6;
+	--fg: #2A241B;
+	--surface: #F4EFE6;
+	--header: #F1EADD;
+	--border: #E3D9C8;
+	--muted: #7A6E5C;
+	--selected: #F4E1B6;
+	--wave: #C47A08;
+	--signal: #3F5BD9;
+}
+
+:root[data-theme="soul-dark"] {
+	color-scheme: dark;
+	--bg: #1C1914;
+	--fg: #ECE4D6;
+	--surface: #26221B;
+	--header: #231F19;
+	--border: #3A342A;
+	--muted: #A39885;
+	--selected: #4F3F1C;
+	--wave: #F2A93B;
+	--signal: #8EA2FF;
+}
+
+:root[data-theme="synthwave-light"] {
+	color-scheme: light;
+	--bg: #F7FBFA;
+	--fg: #15302D;
+	--surface: #EAF3F1;
+	--header: #E6F0EE;
+	--border: #D3E3DF;
+	--muted: #5D7672;
+	--selected: #C8EBE5;
+	--wave: #0E8579;
+	--signal: #A78C09;
+}
+
+:root[data-theme="synthwave-dark"] {
+	color-scheme: dark;
+	--bg: #111A19;
+	--fg: #DCEBE8;
+	--surface: #182423;
+	--header: #162120;
+	--border: #2A3B39;
+	--muted: #85A39E;
+	--selected: #1D4A45;
+	--wave: #3CC8B8;
+	--signal: #FFE066;
+}
+
+:root[data-theme="house-light"] {
+	color-scheme: light;
+	--bg: #FBF9FD;
+	--fg: #2A2133;
+	--surface: #F1ECF6;
+	--header: #EEE8F4;
+	--border: #DDD3E8;
+	--muted: #75688A;
+	--selected: #E8DAF7;
+	--wave: #7A3CAD;
+	--signal: #B08705;
+}
+
+:root[data-theme="house-dark"] {
+	color-scheme: dark;
+	--bg: #18151C;
+	--fg: #E9E2F1;
+	--surface: #221D29;
+	--header: #1F1A25;
+	--border: #372F42;
+	--muted: #A397B4;
+	--selected: #3F2D57;
+	--wave: #B98AE6;
+	--signal: #FFD34D;
+}
+
+:root[data-theme="jungle-light"] {
+	color-scheme: light;
+	--bg: #FCF8F5;
+	--fg: #2E211B;
+	--surface: #F4EBE4;
+	--header: #F1E6DE;
+	--border: #E6D6CB;
+	--muted: #80685C;
+	--selected: #F5D9CB;
+	--wave: #B0441F;
+	--signal: #AC890E;
+}
+
+:root[data-theme="jungle-dark"] {
+	color-scheme: dark;
+	--bg: #1B1614;
+	--fg: #EFE2DB;
+	--surface: #261E1B;
+	--header: #221B18;
+	--border: #3D302A;
+	--muted: #A99286;
+	--selected: #55301F;
+	--wave: #E87A57;
+	--signal: #F2C94C;
+}
+
+:root[data-theme="dub-light"] {
+	color-scheme: light;
+	--bg: #F8FBF6;
+	--fg: #1F2A1B;
+	--surface: #EDF3E8;
+	--header: #E9F0E3;
+	--border: #D5E1CC;
+	--muted: #66755E;
+	--selected: #D7EBC9;
+	--wave: #447A2E;
+	--signal: #AC8A07;
+}
+
+:root[data-theme="dub-dark"] {
+	color-scheme: dark;
+	--bg: #141913;
+	--fg: #E2ECDC;
+	--surface: #1C231A;
+	--header: #192017;
+	--border: #2F3A2B;
+	--muted: #93A58A;
+	--selected: #2E4A22;
+	--wave: #86C46A;
+	--signal: #FFDB4D;
+}
+
+:root[data-theme="techno-light"] {
+	color-scheme: light;
+	--bg: #F8F9FB;
+	--fg: #1D2430;
+	--surface: #ECEFF4;
+	--header: #E9ECF2;
+	--border: #D4DAE3;
+	--muted: #66707F;
+	--selected: #D4E2F7;
+	--wave: #3566AD;
+	--signal: #B58500;
+}
+
+:root[data-theme="techno-dark"] {
+	color-scheme: dark;
+	--bg: #14171C;
+	--fg: #E3E7EE;
+	--surface: #1C2028;
+	--header: #191D24;
+	--border: #2F3540;
+	--muted: #9099A8;
+	--selected: #24395A;
+	--wave: #7FA8E8;
+	--signal: #FFC93C;
 }
 
 * {
-  box-sizing: border-box;
+	box-sizing: border-box;
 }
 
 body {
-  margin: 0;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: light-dark(#fff, #1b1b1b);
-  color: light-dark(#1b1b1b, #e8e8e8);
+	margin: 0;
+	height: 100vh;
+	display: flex;
+	flex-direction: column;
+	background: var(--bg);
+	color: var(--fg);
 }
 
 header {
-  display: flex;
-  gap: var(--space-6);
-  padding: var(--space-6);
-  border-bottom: 1px solid var(--border);
+	display: flex;
+	gap: var(--space-6);
+	padding: var(--space-6);
+	border-bottom: 1px solid var(--border);
 }
 
 #search {
-  flex: 1;
-  padding: var(--space-4) var(--space-6);
-  font: inherit;
+	flex: 1;
+	padding: var(--space-4) var(--space-6);
+	font: inherit;
 }
 
 header button {
-  padding: var(--space-4) var(--space-8);
-  font: inherit;
+	padding: var(--space-4) var(--space-8);
+	font: inherit;
 }
 
 /* Loop mode on: the button stays lit until Play is pressed. */
-#play-loop[aria-pressed="true"] {
-  background: var(--selected);
+#play-loop[aria-pressed="true"],
+#favorites-only[aria-pressed="true"] {
+	background: var(--signal-soft);
+	border-color: var(--signal);
 }
 
 #volume-box {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  color: var(--muted);
+	display: flex;
+	align-items: center;
+	gap: var(--space-4);
+	color: var(--muted);
 }
 
 #volume {
-  width: 7rem;
+	width: 7rem;
 }
 
 #folders, #settings {
-  width: min(40rem, 90vw);
-  border: 1px solid var(--border);
-  background: light-dark(#fff, #1b1b1b);
-  color: inherit;
+	width: min(40rem, 90vw);
+	border: 1px solid var(--border);
+	background: var(--surface);
+	color: inherit;
 }
 
 #folders h2 {
-  margin-top: 0;
-  font-size: 1.1rem;
+	margin-top: 0;
+	font-size: 1.1rem;
 }
 
 #folder-list {
-  list-style: none;
-  padding: 0;
+	list-style: none;
+	padding: 0;
 }
 
 #folder-list li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-6);
-  padding: var(--space-3) 0;
-  border-bottom: 1px solid var(--border);
+	display: flex;
+	align-items: center;
+	gap: var(--space-6);
+	padding: var(--space-3) 0;
+	border-bottom: 1px solid var(--border);
 }
 
 #folder-list .path {
-  flex: 1;
-  overflow-wrap: anywhere;
+	flex: 1;
+	overflow-wrap: anywhere;
 }
 
 #folder-list .count, #folders .hint, .missing {
-  color: var(--muted);
+	color: var(--muted);
 }
 
 /* Collections on the left, the waveform, tags and list on the right. The
    `min-*: 0` let the list scroll inside its box instead of stretching it. */
 #content {
-  flex: 1;
-  display: flex;
-  min-height: 0;
+	flex: 1;
+	display: flex;
+	min-height: 0;
 }
 
 #workspace {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
 }
 
 #collections {
-  width: 13rem;
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid var(--border);
-  padding: var(--space-6);
-  gap: var(--space-4);
+	width: 13rem;
+	display: flex;
+	flex-direction: column;
+	border-right: 1px solid var(--border);
+	padding: var(--space-6);
+	gap: var(--space-4);
 }
 
 #collections h2 {
-  margin: 0;
-  font-size: 0.9rem;
-  color: var(--muted);
+	margin: 0;
+	font-size: 0.9rem;
+	color: var(--muted);
 }
 
 #collections .aside-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
 }
 
 #toggle-collections {
-  border: none;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: 1.1rem;
-  cursor: pointer;
-  padding: 0 var(--space-3);
+	border: none;
+	background: none;
+	color: var(--muted);
+	font: inherit;
+	font-size: 1.1rem;
+	cursor: pointer;
+	padding: 0 var(--space-3);
 }
 
 #toggle-collections:hover {
-  color: inherit;
+	color: inherit;
 }
 
 /* Folded: a thin strip with only the button to unfold it. */
 #collections.collapsed {
-  width: auto;
-  padding: var(--space-6) var(--space-2);
+	width: auto;
+	padding: var(--space-6) var(--space-2);
 }
 
 #collections.collapsed h2,
 #collections.collapsed #collection-list,
 #collections.collapsed #new-collection {
-  display: none;
+	display: none;
 }
 
 #collection-list {
-  flex: 1;
-  overflow-y: auto;
-  list-style: none;
-  margin: 0;
-  padding: 0;
+	flex: 1;
+	overflow-y: auto;
+	list-style: none;
+	margin: 0;
+	padding: 0;
 }
 
 #collection-list li {
-  display: flex;
-  align-items: center;
-  border-radius: 4px;
+	display: flex;
+	align-items: center;
+	border-radius: 4px;
 }
 
 #collection-list li:hover {
-  background: var(--hover);
+	background: var(--hover);
 }
 
 #collection-list li.active {
-  background: var(--selected);
+	background: var(--selected);
 }
 
 /* The collection under the cursor while dragging samples. */
 #collection-list li.drop-target {
-  outline: 2px solid var(--wave);
-  outline-offset: -2px;
+	outline: 2px solid var(--signal);
+	outline-offset: -2px;
 }
 
 #collection-list .name {
-  flex: 1;
-  padding: var(--space-3) var(--space-4);
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+	flex: 1;
+	padding: var(--space-3) var(--space-4);
+	cursor: pointer;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 #collection-list .empty {
-  color: var(--muted);
-  padding: var(--space-3) var(--space-4);
+	color: var(--muted);
+	padding: var(--space-3) var(--space-4);
 }
 
 #collection-list button {
-  border: none;
-  background: none;
-  color: inherit;
-  cursor: pointer;
+	border: none;
+	background: none;
+	color: inherit;
+	cursor: pointer;
 }
 
 #collection-list .count {
-  color: var(--muted);
-  font-size: 0.85em;
+	color: var(--muted);
+	font-size: 0.85em;
 }
 
 #new-collection {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
 }
 
 #new-collection input, #new-collection button {
-  font: inherit;
-  padding: var(--space-3) var(--space-4);
+	font: inherit;
+	padding: var(--space-3) var(--space-4);
 }
 
 /* Right-click menu of the list. */
 #context-menu {
-  position: fixed;
-  z-index: 10;
-  min-width: 13rem;
-  max-height: 70vh;
-  overflow-y: auto;
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: light-dark(#fff, #262626);
-  box-shadow: 0 4px 12px rgb(0 0 0 / 25%);
+	position: fixed;
+	z-index: 10;
+	min-width: 13rem;
+	max-height: 70vh;
+	overflow-y: auto;
+	padding: var(--space-3);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	background: var(--surface);
+	box-shadow: 0 4px 12px rgb(0 0 0 / 25%);
 }
 
 #context-menu .label {
-  padding: var(--space-2) var(--space-4);
-  color: var(--muted);
-  font-size: 0.85em;
+	padding: var(--space-2) var(--space-4);
+	color: var(--muted);
+	font-size: 0.85em;
 }
 
 #context-menu button {
-  display: block;
-  width: 100%;
-  padding: var(--space-3) var(--space-4);
-  border: none;
-  border-radius: 3px;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
+	display: block;
+	width: 100%;
+	padding: var(--space-3) var(--space-4);
+	border: none;
+	border-radius: 3px;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
 }
 
 #context-menu button:hover:enabled {
-  background: var(--hover);
+	background: var(--hover);
 }
 
 #context-menu .held {
-  display: flex;
+	display: flex;
 }
 
 #context-menu .remove-from {
-  width: auto;
-  color: var(--muted);
+	width: auto;
+	color: var(--muted);
 }
 
 #context-menu .remove-from:hover {
-  color: inherit;
+	color: inherit;
 }
 
 /* A collection already holding the sample. */
 #context-menu button:disabled {
-  color: var(--muted);
-  font-style: italic;
-  cursor: default;
+	color: var(--muted);
+	font-style: italic;
+	cursor: default;
 }
 
 #context-menu input {
-  width: 100%;
-  margin: var(--space-2) 0;
-  padding: var(--space-3) var(--space-4);
-  font: inherit;
+	width: 100%;
+	margin: var(--space-2) 0;
+	padding: var(--space-3) var(--space-4);
+	font: inherit;
 }
 
 #context-menu hr {
-  border: none;
-  border-top: 1px solid var(--border);
+	border: none;
+	border-top: 1px solid var(--border);
 }
 
 #wave-box {
-  position: relative;
-  border-bottom: 1px solid var(--border);
+	position: relative;
+	border-bottom: 1px solid var(--border);
 }
 
 #wave {
-  display: block;
-  width: 100%;
-  height: 110px;
-  cursor: text;
+	display: block;
+	width: 100%;
+	height: 110px;
+	cursor: text;
 }
 
 /* A line over the waveform, moved rather than redrawing the waveform at
    every frame. */
 #playhead {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  margin-left: -1px;
-  background: light-dark(#1b1b1b, #e8e8e8);
-  pointer-events: none;
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 2px;
+	margin-left: -1px;
+	background: var(--fg);
+	pointer-events: none;
 }
 
 #tagbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-6);
-  border-bottom: 1px solid var(--border);
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-3);
+	padding: var(--space-4) var(--space-6);
+	border-bottom: 1px solid var(--border);
 }
 
 .tag {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-4);
-  border-radius: 1rem;
-  background: var(--selected);
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-1) var(--space-2) var(--space-1) var(--space-4);
+	border-radius: 1rem;
+	background: var(--selected);
 }
 
 .tag button {
-  border: none;
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  padding: 0 var(--space-3);
+	border: none;
+	background: none;
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+	padding: 0 var(--space-3);
 }
 
 #new-tags {
-  flex: 1;
-  min-width: 10rem;
-  /* WebKit may give inputs a margin of their own. */
-  margin: 0;
-  padding: var(--space-2) var(--space-4);
-  font: inherit;
+	flex: 1;
+	min-width: 10rem;
+	/* WebKit may give inputs a margin of their own. */
+	margin: 0;
+	padding: var(--space-2) var(--space-4);
+	font: inherit;
 }
 
 /* Scrolls both ways: sideways when the columns are wider than the list. */
 main {
-  flex: 1;
-  overflow: auto;
-  outline: none;
+	flex: 1;
+	overflow: auto;
+	outline: none;
 }
 
 /* Fixed layout: the columns take the widths of the <col> elements (set by
    dragging the headers' edges), not those of their content. Tags, with no
    width, takes the rest. */
 table {
-  width: 100%;
-  table-layout: fixed;
-  border-collapse: collapse;
+	width: 100%;
+	table-layout: fixed;
+	border-collapse: collapse;
 }
 
 .col-star {
-  width: 2.4rem;
+	width: 2.4rem;
 }
 
 .col-remove {
-  width: 2.6rem;
+	width: 2.6rem;
 }
 
 /* The handle on a header's right edge to change the column's width. */
 .resizer {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 6px;
-  cursor: col-resize;
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	width: 6px;
+	cursor: col-resize;
 }
 
 .resizer:hover, .resizer.dragging {
-  background: var(--wave);
+	background: var(--wave);
 }
 
 th {
-  position: sticky;
-  top: 0;
-  text-align: left;
-  font-weight: 600;
-  background: light-dark(#f7f7f7, #222);
-  border-bottom: 1px solid var(--border);
+	position: sticky;
+	top: 0;
+	text-align: left;
+	font-weight: 600;
+	background: var(--header);
+	border-bottom: 1px solid var(--border);
 }
 
 th, td {
-  padding: var(--space-3) var(--space-6);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+	padding: var(--space-3) var(--space-6);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 th[data-sort] {
-  cursor: pointer;
-  user-select: none;
+	cursor: pointer;
+	user-select: none;
 }
 
 th[data-sort]:hover {
-  background: var(--hover);
+	background: var(--hover);
 }
 
 th.sorted-ascending::after {
-  content: " ▲";
-  font-size: 0.75em;
+	content: " ▲";
+	font-size: 0.75em;
 }
 
 th.sorted-descending::after {
-  content: " ▼";
-  font-size: 0.75em;
+	content: " ▼";
+	font-size: 0.75em;
 }
 
 td {
-  cursor: default;
-  user-select: none;
+	cursor: default;
+	user-select: none;
 }
 
 /* Every row has the same height: the virtual list (see `drawRows` in
    main.js) places rows by computing, not by measuring each one. */
 tbody tr:not(.spacer) td {
-  height: 26px;
-  padding-top: 0;
-  padding-bottom: 0;
-  line-height: 26px;
+	height: 26px;
+	padding-top: 0;
+	padding-bottom: 0;
+	line-height: 26px;
 }
 
 /* The empty rows above and below the rows on screen. */
 tbody tr.spacer td {
-  padding: 0;
-  border: none;
+	padding: 0;
+	border: none;
 }
 
 tbody tr.spacer:hover {
-  background: none;
+	background: none;
 }
 
 .star {
-  text-align: center;
-  color: var(--wave);
+	text-align: center;
+	color: var(--wave);
 }
 
 td.star {
-  cursor: pointer;
-}
-
-/* Filter on: the button stays lit. */
-#favorites-only[aria-pressed="true"] {
-  background: var(--selected);
+	cursor: pointer;
 }
 
 /* No padding and no ellipsis: the × button fills its narrow cell, which
    would otherwise show "…" beside it. */
 .remove {
-  padding: 0;
-  text-overflow: clip;
-  text-align: center;
+	padding: 0;
+	text-overflow: clip;
+	text-align: center;
 }
 
 td.remove button {
-  padding: 0 var(--space-4);
-  border: none;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  cursor: pointer;
+	padding: 0 var(--space-4);
+	border: none;
+	background: none;
+	color: var(--muted);
+	font: inherit;
+	cursor: pointer;
 }
 
 td.remove button:hover {
-  color: inherit;
+	color: inherit;
 }
 
 .folder, .tags, .collections {
-  color: var(--muted);
+	color: var(--muted);
 }
 
 .number {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+	text-align: right;
+	font-variant-numeric: tabular-nums;
 }
 
 tbody tr:hover {
-  background: var(--hover);
+	background: var(--hover);
 }
 
 tbody tr.selected {
-  background: var(--selected);
+	background: var(--selected);
 }
 
 /* With several samples selected: the current one, played and shown above. */
 /* Inner shadows rather than borders: a border could add a pixel to the
    row's height, and shift the virtual list. */
 tbody tr.current td {
-  box-shadow: inset 0 1px var(--wave), inset 0 -1px var(--wave);
+	box-shadow: inset 0 1px var(--wave), inset 0 -1px var(--wave);
 }
 
 #status-box {
-  display: flex;
-  align-items: center;
-  gap: var(--space-6);
+	display: flex;
+	align-items: center;
+	gap: var(--space-6);
 }
 
 #scan-bar {
-  width: 12rem;
+	width: 12rem;
 }
 
 footer {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-8);
-  padding: var(--space-3) var(--space-6);
-  border-top: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 0.9em;
+	display: flex;
+	justify-content: space-between;
+	gap: var(--space-8);
+	padding: var(--space-3) var(--space-6);
+	border-top: 1px solid var(--border);
+	color: var(--muted);
+	font-size: 0.9em;
 }
 
 /* A short light on what just changed (see `flash` in main.js). The end of
    the animation is the element's own background. */
 @keyframes flash {
-  from {
-    background: color-mix(in srgb, var(--wave) 55%, transparent);
-  }
+	from {
+		background: color-mix(in srgb, var(--signal) 55%, transparent);
+	}
 }
 
 .flash {
-  animation: flash 0.8s ease-out;
+	animation: flash 0.8s ease-out;
 }
 
 /* Colours of tags and collections (palette in the Settings window). */
 .dot {
-  display: inline-block;
-  width: 0.6em;
-  height: 0.6em;
-  margin-right: var(--space-4);
-  border-radius: 50%;
-  vertical-align: baseline;
+	display: inline-block;
+	width: 0.6em;
+	height: 0.6em;
+	margin-right: var(--space-4);
+	border-radius: 50%;
+	vertical-align: baseline;
 }
 
 /* A coloured tag in the list's Tags column. */
 .chip {
-  display: inline-block;
-  padding: 0 var(--space-4);
-  border-radius: 0.6em;
-  line-height: 1.5;
+	display: inline-block;
+	padding: 0 var(--space-4);
+	border-radius: 0.6em;
+	line-height: 1.5;
+}
+
+#theme {
+	font: inherit;
+	padding: var(--space-2) var(--space-4);
 }
 
 #settings h3 {
-  margin: var(--space-4) 0 var(--space-2);
-  font-size: 1rem;
+	margin: var(--space-4) 0 var(--space-2);
+	font-size: 1rem;
 }
 
 #color-list {
-  list-style: none;
-  padding: 0;
+	list-style: none;
+	padding: 0;
 }
 
 #color-list li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-2) 0;
+	display: flex;
+	align-items: center;
+	gap: var(--space-4);
+	padding: var(--space-2) 0;
 }
 
 #color-list input[type="text"] {
-  flex: 1;
-  font: inherit;
-  padding: var(--space-2) var(--space-4);
+	flex: 1;
+	font: inherit;
+	padding: var(--space-2) var(--space-4);
 }
 
 #color-list input[type="color"] {
-  width: 2.4rem;
-  height: 1.8rem;
-  padding: 0;
-  border: none;
-  background: none;
+	width: 2.4rem;
+	height: 1.8rem;
+	padding: 0;
+	border: none;
+	background: none;
 }
 
 #color-list button {
-  border: none;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  cursor: pointer;
+	border: none;
+	background: none;
+	color: var(--muted);
+	font: inherit;
+	cursor: pointer;
 }

@@ -761,9 +761,11 @@ function dragImage(label) {
   image.height = 28;
   // Resizing a canvas resets its settings: the font is set again.
   context.font = "14px system-ui, sans-serif";
-  context.fillStyle = "#f5a524";
+  // In the theme's accent colour, the text black or white to read on it.
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--wave").trim();
+  context.fillStyle = accent;
   context.fillRect(0, 0, image.width, image.height);
-  context.fillStyle = "#1b1b1b";
+  context.fillStyle = textOn(accent);
   context.textBaseline = "middle";
   context.fillText(label, 10, image.height / 2);
   return image.toDataURL("image/png");
@@ -1602,6 +1604,29 @@ document.getElementById("add-color").addEventListener("click", async () => {
   await loadColors();
   renderSettings();
   colorList.lastElementChild?.querySelector('input[type="text"]').select();
+});
+
+// The theme: a `data-theme` on <html>, read by the stylesheet; applied at
+// startup by theme.js.
+const themeSelect = document.getElementById("theme");
+themeSelect.value = document.documentElement.dataset.theme ?? "system";
+// A theme remembered from an older samplr may no longer exist: back to System.
+if (themeSelect.value === "") {
+  delete document.documentElement.dataset.theme;
+  themeSelect.value = "system";
+}
+
+themeSelect.addEventListener("change", () => {
+  const theme = themeSelect.value;
+  if (theme === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+  try {
+    localStorage.setItem("theme", theme);
+  } catch {
+    // Storage unavailable: the theme is simply not remembered.
+  }
+  // The waveform is drawn in the accent colour.
+  drawWaveform();
 });
 
 document.getElementById("show-settings").addEventListener("click", () => {
