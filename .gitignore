@@ -1,4 +1,5 @@
 /target
+/.playwright-mcp/
 # Test samples, kept out of the repository
 /samples
 
