@@ -61,6 +61,14 @@ fn search(query: String) -> Result<Vec<SampleInfo>, String> {
     db::search(&db, &tags, &words, "").map_err(|e| e.to_string())
 }
 
+/// The `playback-position` event: where the sound `id` is, in seconds from
+/// its start (a loop keeps counting from its first start).
+#[derive(Serialize, Clone)]
+struct Position {
+    id: u32,
+    seconds: f64,
+}
+
 /// What `add_folder` reports to the page.
 #[derive(Serialize)]
 struct Added {
@@ -184,8 +192,8 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
     let mut playing_id: Option<u32> = None;
     let mut volume = 1.0;
     loop {
-        // Waits for a request, but no more than 100 ms, to notice the end of
-        // the sound playing.
+        // Waits for a request, but no more than 100 ms, to report the
+        // position of the sound playing and notice its end.
         match requests.recv_timeout(Duration::from_millis(100)) {
             Ok(AudioRequest::Play { sound, id }) => {
                 let player = rodio::Player::connect_new(sink.mixer());
@@ -208,14 +216,19 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
             // The app is closing.
             Err(RecvTimeoutError::Disconnected) => break,
         }
-        // The finished `Player` is kept rather than dropped: its last
-        // samples may still be on their way to the sound card.
-        if let (Some(player), Some(id)) = (&current, playing_id)
-            && player.empty()
-        {
+        let (Some(player), Some(id)) = (&current, playing_id) else {
+            continue;
+        };
+        // Emitting fails only if the window is already closed: nothing to
+        // tell then.
+        if player.empty() {
+            // The finished `Player` is kept rather than dropped: its last
+            // samples may still be on their way to the sound card.
             playing_id = None;
-            // Fails only if the window is already closed: nothing to tell.
             let _ = app.emit("playback-ended", id);
+        } else {
+            let seconds = player.get_pos().as_secs_f64();
+            let _ = app.emit("playback-position", Position { id, seconds });
         }
     }
 }

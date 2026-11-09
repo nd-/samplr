@@ -56,11 +56,27 @@ header button {
   width: 7rem;
 }
 
+#wave-box {
+  position: relative;
+  border-bottom: 1px solid var(--border);
+}
+
 #wave {
   display: block;
   width: 100%;
   height: 110px;
-  border-bottom: 1px solid var(--border);
+}
+
+/* A line over the waveform, moved rather than redrawing the waveform at
+   every frame. */
+#playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: light-dark(#1b1b1b, #e8e8e8);
+  pointer-events: none;
 }
 
 #tagbar {

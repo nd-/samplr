@@ -180,14 +180,60 @@ function play() {
   const sample = samples[selected];
   if (!sample) return;
   playId += 1;
+  startPlayhead(sample.duration_secs);
   status.textContent = `▶ ${splitPath(sample.path).name}`;
   stopButton.disabled = false;
   invoke("play", { path: sample.path, id: playId, looping }).catch((error) => {
+    stopPlayhead();
     status.textContent = `Error: ${error}`;
   });
 }
 
+// The audio thread reports the position every 100 ms; in between, the line
+// moves on the clock, so that it glides instead of jumping.
+const playhead = document.getElementById("playhead");
+let playheadDuration = null;
+// The last position reported: seconds from the start, and when it came.
+let lastPosition = null;
+// A single animation loop at a time, however many sounds are started.
+let animating = false;
+
+function startPlayhead(duration) {
+  playheadDuration = duration;
+  lastPosition = { seconds: 0, at: performance.now() };
+  // Unknown length (some MP3s): no line, its place could not be computed.
+  playhead.hidden = !(duration > 0);
+  if (!animating) {
+    animating = true;
+    requestAnimationFrame(movePlayhead);
+  }
+}
+
+function stopPlayhead() {
+  lastPosition = null;
+  playhead.hidden = true;
+}
+
+function movePlayhead() {
+  if (lastPosition === null || playhead.hidden) {
+    animating = false;
+    return;
+  }
+  let seconds = lastPosition.seconds + (performance.now() - lastPosition.at) / 1000;
+  seconds = looping
+    ? seconds % playheadDuration
+    : Math.min(seconds, playheadDuration);
+  playhead.style.left = `${(seconds / playheadDuration) * 100}%`;
+  requestAnimationFrame(movePlayhead);
+}
+
+window.__TAURI__.event.listen("playback-position", (event) => {
+  if (event.payload.id !== playId || lastPosition === null) return;
+  lastPosition = { seconds: event.payload.seconds, at: performance.now() };
+});
+
 function showStopped() {
+  stopPlayhead();
   stopButton.disabled = true;
   status.textContent = `${samples.length} sample(s)`;
 }

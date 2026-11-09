@@ -14,7 +14,10 @@
     <label id="volume-box" title="Preview volume">Vol. <input id="volume" type="range" min="0" max="100" value="80"></label>
     <button id="add-folder" type="button" title="Add a folder of samples">+ Folder</button>
   </header>
-  <canvas id="wave"></canvas>
+  <div id="wave-box">
+    <canvas id="wave"></canvas>
+    <div id="playhead" hidden></div>
+  </div>
   <div id="tagbar">
     <span id="tags"></span>
     <input id="new-tags" type="text" placeholder="Add tags" spellcheck="false" disabled>
