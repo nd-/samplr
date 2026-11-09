@@ -1661,6 +1661,21 @@ askCheckbox.addEventListener("change", () => {
   }
 });
 
+// A press outside the panel closes it. Only the press counts: selecting text
+// in a box and releasing the mouse outside must not close it. The backdrop
+// belongs to the <dialog> itself, as do its own margins, hence the position
+// check.
+settingsDialog.addEventListener("mousedown", (event) => {
+  if (event.target !== settingsDialog) return;
+  const box = settingsDialog.getBoundingClientRect();
+  const inside =
+    event.clientX >= box.left &&
+    event.clientX <= box.right &&
+    event.clientY >= box.top &&
+    event.clientY <= box.bottom;
+  if (!inside) settingsDialog.close();
+});
+
 document.getElementById("show-settings").addEventListener("click", () => {
   renderSettings();
   settingsDialog.showModal();
