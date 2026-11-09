@@ -142,6 +142,12 @@ header button {
   background: var(--selected);
 }
 
+/* The collection under the cursor while dragging samples. */
+#collection-list li.drop-target {
+  outline: 2px solid var(--wave);
+  outline-offset: -2px;
+}
+
 #collection-list .name {
   flex: 1;
   padding: 0.25rem 0.4rem;

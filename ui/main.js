@@ -649,9 +649,12 @@ async function loadCollections() {
   renderCollections();
 }
 
-function collectionItem(label, count, active, open) {
+// `id`: the collection's, kept on the item to find it under a drop; none for
+// "All samples", which takes no drop.
+function collectionItem(label, count, active, open, id) {
   const item = document.createElement("li");
   if (active) item.classList.add("active");
+  if (id !== undefined) item.dataset.id = id;
   const name = document.createElement("span");
   name.className = "name";
   name.textContent = label;
@@ -676,6 +679,7 @@ function renderCollections() {
       collection.samples,
       collection.id === currentCollection,
       () => openCollection(collection.id),
+      collection.id,
     );
     const remove = document.createElement("button");
     remove.textContent = "×";
@@ -740,17 +744,21 @@ function chosenPaths() {
   return selectedSamples().map((sample) => sample.path);
 }
 
-async function addToCollection(collection) {
-  const paths = chosenPaths();
+// `paths`: by default the selection; the dropped files for a drop.
+async function addToCollection(collection, paths = chosenPaths()) {
   if (paths.length === 0) return;
+  let result;
   try {
-    const added = await invoke("add_to_collection", { collection: collection.id, paths });
-    status.textContent = `${added} sample(s) added to ${collection.name}.`;
+    result = await invoke("add_to_collection", { collection: collection.id, paths });
   } catch (error) {
     status.textContent = `Error: ${error}`;
     return;
   }
+  // Dropped into the open collection: the new samples show in the list.
+  if (collection.id === currentCollection) await refresh({ stopIfGone: false });
   await loadCollections();
+  const unknown = result.unknown > 0 ? ` (${result.unknown} not in the library, left out)` : "";
+  status.textContent = `${result.added} sample(s) added to ${collection.name}${unknown}.`;
 }
 
 // Only the links go: the samples stay in the library. No confirmation, as
@@ -770,6 +778,40 @@ async function removeFromCollection(paths = chosenPaths(), collection = currentC
     status.textContent = `Error: ${error}`;
   }
 }
+
+// Rows dragged out of the list, or files from a file manager, dropped on a
+// collection of the left column are added to it. The drag goes through the
+// system (see `startDrag`): the page only learns of it through Tauri's
+// drag-and-drop events, which give the cursor's position in physical pixels.
+let dropTarget = null;
+
+function collectionUnder(position) {
+  const scale = window.devicePixelRatio;
+  const element = document.elementFromPoint(position.x / scale, position.y / scale);
+  return element?.closest("#collection-list li[data-id]") ?? null;
+}
+
+function setDropTarget(item) {
+  dropTarget?.classList.remove("drop-target");
+  dropTarget = item;
+  dropTarget?.classList.add("drop-target");
+}
+
+window.__TAURI__.webview.getCurrentWebview().onDragDropEvent((event) => {
+  const { type } = event.payload;
+  if (type === "leave") {
+    setDropTarget(null);
+    return;
+  }
+  const item = collectionUnder(event.payload.position);
+  if (type !== "drop") {
+    setDropTarget(item);
+    return;
+  }
+  setDropTarget(null);
+  const collection = collections.find((c) => String(c.id) === item?.dataset.id);
+  if (collection) addToCollection(collection, event.payload.paths);
+});
 
 // Right-click on a row: the row is selected (without playing it) and a menu
 // offers the collections.

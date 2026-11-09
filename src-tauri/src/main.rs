@@ -93,13 +93,31 @@ fn delete_collection(collection: i64) -> Result<(), String> {
     db::delete_collection(&db, collection).map_err(|e| e.to_string())
 }
 
-/// Adds samples to a collection. Returns the number added (those already in
-/// it are not counted).
+/// What `add_to_collection` reports to the page.
+#[derive(Serialize)]
+struct AddedToCollection {
+    /// Samples added (those already in the collection are not counted).
+    added: usize,
+    /// Paths left out because they are not in the library: files dropped
+    /// from a file manager, folders.
+    unknown: usize,
+}
+
+/// Adds samples to a collection.
 #[tauri::command(async)]
-fn add_to_collection(collection: i64, paths: Vec<PathBuf>) -> Result<usize, String> {
+fn add_to_collection(collection: i64, paths: Vec<PathBuf>) -> Result<AddedToCollection, String> {
     let db = db::open().map_err(|e| e.to_string())?;
-    let file_ids = file_ids(&db, &paths)?;
-    db::add_to_collection(&db, collection, &file_ids).map_err(|e| e.to_string())
+    let mut file_ids = Vec::new();
+    for path in &paths {
+        if let Some(file_id) = db::file_id(&db, path).map_err(|e| e.to_string())? {
+            file_ids.push(file_id);
+        }
+    }
+    let added = db::add_to_collection(&db, collection, &file_ids).map_err(|e| e.to_string())?;
+    Ok(AddedToCollection {
+        added,
+        unknown: paths.len() - file_ids.len(),
+    })
 }
 
 /// The `id`s of the collections that already hold all these samples.
