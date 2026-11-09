@@ -843,6 +843,36 @@ async function removeFromCollection(paths = chosenPaths(), collection = currentC
   }
 }
 
+// The collections column can be folded into a thin strip (button or Ctrl+B,
+// Cmd+B on Mac); remembered between sessions, on this computer only.
+const collectionsColumn = document.getElementById("collections");
+const collectionsToggle = document.getElementById("toggle-collections");
+
+function setCollectionsFolded(folded) {
+  collectionsColumn.classList.toggle("collapsed", folded);
+  collectionsToggle.textContent = folded ? "›" : "‹";
+  collectionsToggle.title = folded ? "Show the collections (Ctrl+B)" : "Hide the collections (Ctrl+B)";
+  // The waveform takes the width freed or taken.
+  drawWaveform();
+  try {
+    localStorage.setItem("collectionsFolded", String(folded));
+  } catch {
+    // Storage unavailable: the state is simply not remembered.
+  }
+}
+
+function toggleCollections() {
+  setCollectionsFolded(!collectionsColumn.classList.contains("collapsed"));
+}
+
+collectionsToggle.addEventListener("click", toggleCollections);
+
+try {
+  if (localStorage.getItem("collectionsFolded") === "true") setCollectionsFolded(true);
+} catch {
+  // Storage unavailable: the column starts unfolded.
+}
+
 // Rows dragged out of the list, or files from a file manager, dropped on a
 // collection of the left column are added to it. The drag goes through the
 // system (see `startDrag`): the page only learns of it through Tauri's
@@ -1072,6 +1102,12 @@ document.addEventListener("keydown", (event) => {
   // sample a favorite or no longer.
   if ((event.ctrlKey || event.metaKey) && event.key === "d") {
     toggleSelectedFavorites();
+    event.preventDefault();
+    return;
+  }
+  // Ctrl+B, or Cmd+B on Mac, folds or unfolds the collections column.
+  if ((event.ctrlKey || event.metaKey) && event.key === "b") {
+    toggleCollections();
     event.preventDefault();
     return;
   }

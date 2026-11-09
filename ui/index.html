@@ -18,7 +18,10 @@
   </header>
   <div id="content">
   <aside id="collections">
-    <h2>Collections</h2>
+    <div class="aside-head">
+      <h2>Collections</h2>
+      <button id="toggle-collections" type="button" title="Hide the collections (Ctrl+B)">‹</button>
+    </div>
     <ul id="collection-list"></ul>
     <form id="new-collection">
       <input id="collection-name" type="text" placeholder="New collection" spellcheck="false" required>
@@ -49,7 +52,7 @@
       <progress id="scan-bar" hidden></progress>
       <span id="status"></span>
     </span>
-    <span class="keys">↑ ↓ browse and play · Enter replay · Esc stop · Shift/Ctrl+click select several · Ctrl+T tag · Ctrl+D favorite · drag a row into your DAW</span>
+    <span class="keys">↑ ↓ browse and play · Enter replay · Esc stop · Shift/Ctrl+click select several · Ctrl+T tag · Ctrl+D favorite · Ctrl+B collections · drag a row into your DAW</span>
   </footer>
   <dialog id="folders">
     <h2>Scanned folders</h2>

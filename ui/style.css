@@ -120,6 +120,38 @@ header button {
   color: var(--muted);
 }
 
+#collections .aside-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+#toggle-collections {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0 0.3rem;
+}
+
+#toggle-collections:hover {
+  color: inherit;
+}
+
+/* Folded: a thin strip with only the button to unfold it. */
+#collections.collapsed {
+  width: auto;
+  padding: 0.6rem 0.2rem;
+}
+
+#collections.collapsed h2,
+#collections.collapsed #collection-list,
+#collections.collapsed #new-collection {
+  display: none;
+}
+
 #collection-list {
   flex: 1;
   overflow-y: auto;
