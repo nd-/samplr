@@ -3,11 +3,6 @@
 ## The project
 Desktop audio sample manager for **macOS and Linux**: listen to, tag and organise samples (for musicians, alongside a DAW).
 
-## Who develops
-- **Complete Rust beginner**: explain each new concept (ownership, borrowing, `Result`, traits, lifetimes, threads…) when it first appears in the code, in simple words. No upfront theory lessons. Explanations in the conversation stay in French.
-- Machines: a Mac M4 (Apple Silicon) and a Linux box. Main development on **Linux with RustRover**.
-- Used to Linux keyboard shortcuts. When quoting RustRover shortcuts, give the Linux keymap ones (or both versions).
-
 ## How we work
 - Move forward in **small steps that compile and run**: each step must be testable with `cargo run`.
 - **Everything in the repository is in English**: identifiers, comments, user-facing messages, command names, documentation and commit messages.
