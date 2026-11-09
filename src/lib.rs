@@ -36,6 +36,9 @@ pub struct SampleInfo {
     pub tags: Vec<String>,
     /// `false` until the sample is read back from the database.
     pub favorite: bool,
+    /// The `id`s of the collections holding the sample; empty until it is
+    /// read back from the database.
+    pub collections: Vec<i64>,
 }
 
 /// True for `._kick.wav`: metadata that macOS leaves next to `kick.wav` on a
@@ -199,6 +202,7 @@ pub fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
         bits: params.bits_per_sample,
         tags: Vec::new(),
         favorite: false,
+        collections: Vec::new(),
     })
 }
 

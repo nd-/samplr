@@ -733,7 +733,9 @@ pub fn search(
                 (SELECT group_concat(t.name, ' ' ORDER BY t.name)
                  FROM file_tags ft JOIN tags t ON t.id = ft.tag_id
                  WHERE ft.file_id = f.id),
-                f.favorite
+                f.favorite,
+                (SELECT group_concat(cf.collection_id) FROM collection_files cf
+                 WHERE cf.file_id = f.id)
          FROM files f
          WHERE f.hidden = 0 AND instr(lower(f.path), lower(?1)) > 0",
     );
@@ -787,6 +789,10 @@ pub fn search(
                 .map(|t| t.split(' ').map(String::from).collect())
                 .unwrap_or_default(),
             favorite: row.get(6)?,
+            collections: row
+                .get::<_, Option<String>>(7)?
+                .map(|ids| ids.split(',').filter_map(|id| id.parse().ok()).collect())
+                .unwrap_or_default(),
         })
     })?;
 

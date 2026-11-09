@@ -58,7 +58,7 @@ function spacer(height) {
   const tr = document.createElement("tr");
   tr.className = "spacer";
   const td = document.createElement("td");
-  td.colSpan = 6;
+  td.colSpan = 7;
   td.style.height = `${height}px`;
   tr.append(td);
   return tr;
@@ -79,6 +79,7 @@ function buildRow(index) {
     cell(name),
     cell(folder, "folder"),
     cell(formatDuration(sample.duration_secs), "number"),
+    collectionsCell(sample.collections),
     tagsCell(sample.tags),
   );
   // In an open collection, a button at the end of the row takes that
@@ -205,7 +206,7 @@ const columnGroup = removeColumn.parentElement;
 // Column widths, changed by dragging the handle on a header's right edge;
 // a double-click on it brings the default back. Remembered between
 // sessions, on this computer only. Tags takes the rest of the width.
-const defaultWidths = { name: 280, folder: 320, length: 90 };
+const defaultWidths = { name: 280, folder: 320, length: 90, collections: 160 };
 let columnWidths = { ...defaultWidths };
 try {
   columnWidths = { ...defaultWidths, ...JSON.parse(localStorage.getItem("columnWidths") ?? "{}") };
@@ -310,6 +311,7 @@ const sortValues = {
   folder: (sample) => splitPath(sample.path).folder,
   length: (sample) => sample.duration_secs,
   tags: (sample) => sample.tags.join(" ") || null,
+  collections: (sample) => collectionNames(sample.collections).join(" ") || null,
 };
 
 function compareValues(x, y) {
@@ -947,6 +949,8 @@ async function loadCollections() {
     search();
   }
   renderCollections();
+  // Names and colours of the Collections column.
+  drawRows();
 }
 
 // `id`: the collection's, kept on the item to find it under a drop; none for
@@ -1028,6 +1032,7 @@ async function deleteCollection(collection) {
     return;
   }
   await loadCollections();
+  await refresh({ stopIfGone: false });
 }
 
 // Returns the new collection's id, or `null` if it could not be created.
@@ -1064,9 +1069,10 @@ async function addToCollection(collection, paths = chosenPaths()) {
     status.textContent = `Error: ${error}`;
     return;
   }
-  // Dropped into the open collection: the new samples show in the list.
-  if (collection.id === currentCollection) await refresh({ stopIfGone: false });
+  // The Collections column changes, and dropped into the open collection,
+  // the new samples show in the list.
   await loadCollections();
+  await refresh({ stopIfGone: false });
   if (result.added > 0) {
     flash([...rowsOf(paths), collectionList.querySelector(`li[data-id="${collection.id}"]`)]);
   }
@@ -1082,10 +1088,10 @@ async function removeFromCollection(paths = chosenPaths(), collection = currentC
   if (collection === null || paths.length === 0) return;
   try {
     const removed = await invoke("remove_from_collection", { collection, paths });
-    // From the open collection, the removed sample leaves the list, but its
-    // sound keeps playing.
-    if (collection === currentCollection) await refresh({ stopIfGone: false });
+    // The Collections column changes; from the open collection, the removed
+    // sample leaves the list, but its sound keeps playing.
     await loadCollections();
+    await refresh({ stopIfGone: false });
     status.textContent = `${removed} sample(s) removed from the collection.`;
   } catch (error) {
     status.textContent = `Error: ${error}`;
@@ -1431,6 +1437,25 @@ function dot(hex) {
   span.className = "dot";
   span.style.background = hex;
   return span;
+}
+
+// The names of collections, by `id`, in the order of the left column.
+function collectionNames(ids) {
+  return collections.filter((c) => ids.includes(c.id)).map((c) => c.name);
+}
+
+// The Collections cell of a row: each name after its colour's dot.
+function collectionsCell(ids) {
+  const td = cell("", "collections");
+  collections
+    .filter((collection) => ids.includes(collection.id))
+    .forEach((collection, i) => {
+      if (i > 0) td.append(", ");
+      const hex = colorHex(collection.color_id);
+      if (hex) td.append(dot(hex));
+      td.append(collection.name);
+    });
+  return td;
 }
 
 // The Tags cell of a row: coloured tags as chips, the others as text.
