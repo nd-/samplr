@@ -186,10 +186,14 @@ let playId = 0;
 let looping = false;
 
 // `start`: where to start, in seconds from the beginning of the sample.
+// The path of the sample playing, or `null`.
+let playingPath = null;
+
 function play(start = 0) {
   const sample = samples[selected];
   if (!sample) return;
   playId += 1;
+  playingPath = sample.path;
   startPlayhead(sample.duration_secs, start);
   status.textContent = `▶ ${splitPath(sample.path).name}`;
   stopButton.disabled = false;
@@ -243,6 +247,7 @@ window.__TAURI__.event.listen("playback-position", (event) => {
 });
 
 function showStopped() {
+  playingPath = null;
   stopPlayhead();
   stopButton.disabled = true;
   status.textContent = `${samples.length} sample(s)`;
@@ -482,6 +487,10 @@ async function refresh() {
   if (selected >= 0) {
     tbody.children[selected].classList.add("selected");
   } else {
+    // The selected sample left the library (folder removed, file deleted or
+    // renamed): its sound stops with it. A sound that is merely outside the
+    // current search is not selected, and keeps playing.
+    if (selectedPath !== undefined && selectedPath === playingPath) stop();
     peaks = [];
     drawWaveform();
   }
