@@ -39,8 +39,11 @@
   </div>
   <main id="list" tabindex="-1">
     <table>
+      <colgroup>
+        <col class="col-star"><col data-col="name"><col data-col="folder"><col data-col="length"><col><col class="col-remove">
+      </colgroup>
       <thead>
-        <tr><th class="star" data-sort="favorite" title="Favorite (Ctrl+D). Click to sort">★</th><th data-sort="name">Name</th><th data-sort="folder">Folder</th><th class="number" data-sort="length">Length</th><th data-sort="tags">Tags</th><th class="remove" hidden></th></tr>
+        <tr><th class="star" data-sort="favorite" title="Favorite (Ctrl+D). Click to sort">★</th><th data-sort="name">Name<span class="resizer" data-col="name"></span></th><th data-sort="folder">Folder<span class="resizer" data-col="folder"></span></th><th class="number" data-sort="length">Length<span class="resizer" data-col="length"></span></th><th data-sort="tags">Tags</th><th class="remove" hidden></th></tr>
       </thead>
       <tbody id="samples"></tbody>
     </table>

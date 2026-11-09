@@ -87,10 +87,108 @@ function render() {
   tbody.replaceChildren(rows);
   paintSelection();
   removeHeader.hidden = currentCollection === null;
+  // The column of the × exists only in a collection. Its <col> is taken out
+  // rather than given no width: WebKit treats a zero-width <col> as an
+  // automatic one, which then shares the free width with Tags.
+  if (currentCollection === null) removeColumn.remove();
+  else columnGroup.append(removeColumn);
+  applyColumnWidths();
   status.textContent = `${samples.length} sample(s)`;
 }
 
 const removeHeader = document.querySelector("th.remove");
+const removeColumn = document.querySelector("col.col-remove");
+const columnGroup = removeColumn.parentElement;
+
+// Column widths, changed by dragging the handle on a header's right edge;
+// a double-click on it brings the default back. Remembered between
+// sessions, on this computer only. Tags takes the rest of the width.
+const defaultWidths = { name: 280, folder: 320, length: 90 };
+let columnWidths = { ...defaultWidths };
+try {
+  columnWidths = { ...defaultWidths, ...JSON.parse(localStorage.getItem("columnWidths") ?? "{}") };
+} catch {
+  // Storage unavailable or unreadable: the default widths.
+}
+
+// The table always fills the list's width, no more: the widths shown are
+// the chosen ones, shrunk together when they do not fit, with at least
+// `minTagsWidth` left for Tags. The chosen widths are kept, so a wider window
+// brings them back.
+const minTagsWidth = 80;
+const listBox = document.getElementById("list");
+
+// The width Name, Folder and Length may share.
+function availableWidth() {
+  const star = document.querySelector("th.star").offsetWidth;
+  const remove = removeHeader.hidden ? 0 : removeHeader.offsetWidth;
+  return listBox.clientWidth - star - remove - minTagsWidth;
+}
+
+function applyColumnWidths() {
+  const total = Object.values(columnWidths).reduce((sum, width) => sum + width, 0);
+  const available = availableWidth();
+  const scale = total > available && available > 0 ? available / total : 1;
+  for (const [name, width] of Object.entries(columnWidths)) {
+    document.querySelector(`col[data-col="${name}"]`).style.width =
+      `${Math.floor(width * scale)}px`;
+  }
+}
+
+window.addEventListener("resize", applyColumnWidths);
+
+function saveColumnWidths() {
+  try {
+    localStorage.setItem("columnWidths", JSON.stringify(columnWidths));
+  } catch {
+    // Storage unavailable: the widths are simply not remembered.
+  }
+}
+
+for (const handle of document.querySelectorAll(".resizer")) {
+  const name = handle.dataset.col;
+  handle.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    // Shrunk to fit a narrow window, the columns start from the widths shown,
+    // so that the one dragged does not jump.
+    for (const other of Object.keys(columnWidths)) {
+      columnWidths[other] = parseInt(document.querySelector(`col[data-col="${other}"]`).style.width);
+    }
+    const startX = event.clientX;
+    const startWidth = columnWidths[name];
+    // The pointer stays with the handle even when it leaves the header.
+    handle.setPointerCapture(event.pointerId);
+    handle.classList.add("dragging");
+    const resize = (move) => {
+      // No wider than the room the other columns leave.
+      const others = Object.entries(columnWidths)
+        .filter(([other]) => other !== name)
+        .reduce((sum, [, width]) => sum + width, 0);
+      const widest = Math.max(40, availableWidth() - others);
+      columnWidths[name] = Math.min(widest, Math.max(40, startWidth + move.clientX - startX));
+      applyColumnWidths();
+    };
+    handle.addEventListener("pointermove", resize);
+    handle.addEventListener(
+      "pointerup",
+      () => {
+        handle.removeEventListener("pointermove", resize);
+        handle.classList.remove("dragging");
+        saveColumnWidths();
+      },
+      { once: true },
+    );
+  });
+  handle.addEventListener("dblclick", () => {
+    columnWidths[name] = defaultWidths[name];
+    applyColumnWidths();
+    saveColumnWidths();
+  });
+  // Resizing must not also sort the column.
+  handle.addEventListener("click", (event) => event.stopPropagation());
+}
+
+applyColumnWidths();
 
 // Sorting by a column header: a first click sorts, a second one reverses.
 // Done in the page, without asking the database again; kept from one search
@@ -877,8 +975,9 @@ function setCollectionsFolded(folded) {
   collectionsColumn.classList.toggle("collapsed", folded);
   collectionsToggle.textContent = folded ? "›" : "‹";
   collectionsToggle.title = folded ? "Show the collections (Ctrl+B)" : "Hide the collections (Ctrl+B)";
-  // The waveform takes the width freed or taken.
+  // The waveform and the list take the width freed or taken.
   drawWaveform();
+  applyColumnWidths();
   try {
     localStorage.setItem("collectionsFolded", String(folded));
   } catch {
