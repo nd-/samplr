@@ -26,6 +26,8 @@ enum AudioRequest {
     Play {
         sound: Box<dyn Source + Send>,
         id: u32,
+        /// Where to start, in seconds from the beginning.
+        start: f64,
     },
     Stop,
     /// 0.0 is silence, 1.0 the file's own level.
@@ -123,11 +125,18 @@ fn file_id(db: &rusqlite::Connection, path: &Path) -> Result<i64, String> {
         .ok_or_else(|| format!("{} is not in the database", path.display()))
 }
 
-/// Starts playing a file, once or in a loop, cutting the one that was
-/// playing. When a sound played once reaches its end, the page receives a
-/// `playback-ended` event carrying `id`; a loop never ends by itself.
+/// Starts playing a file from `start` seconds, once or in a loop, cutting the
+/// one that was playing. When a sound played once reaches its end, the page
+/// receives a `playback-ended` event carrying `id`; a loop never ends by
+/// itself.
 #[tauri::command(async)]
-fn play(path: PathBuf, id: u32, looping: bool, audio: State<Audio>) -> Result<(), String> {
+fn play(
+    path: PathBuf,
+    id: u32,
+    looping: bool,
+    start: f64,
+    audio: State<Audio>,
+) -> Result<(), String> {
     // The file is opened here rather than in the audio thread, so that an
     // unreadable file is reported to the page.
     let error = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
@@ -146,7 +155,7 @@ fn play(path: PathBuf, id: u32, looping: bool, audio: State<Audio>) -> Result<()
     } else {
         Box::new(Decoder::try_from(file).map_err(|e| error(&e))?)
     };
-    send(&audio, AudioRequest::Play { sound, id })
+    send(&audio, AudioRequest::Play { sound, id, start })
 }
 
 #[tauri::command]
@@ -195,10 +204,14 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
         // Waits for a request, but no more than 100 ms, to report the
         // position of the sound playing and notice its end.
         match requests.recv_timeout(Duration::from_millis(100)) {
-            Ok(AudioRequest::Play { sound, id }) => {
+            Ok(AudioRequest::Play { sound, id, start }) => {
                 let player = rodio::Player::connect_new(sink.mixer());
                 player.set_volume(volume);
                 player.append(sound);
+                if start > 0.0 {
+                    // A format that cannot seek just plays from the start.
+                    let _ = player.try_seek(Duration::from_secs_f64(start));
+                }
                 current = Some(player);
                 playing_id = Some(id);
             }

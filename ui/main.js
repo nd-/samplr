@@ -169,6 +169,15 @@ function drawWaveform() {
 
 window.addEventListener("resize", drawWaveform);
 
+// A click on the waveform plays the sample from that point, whether it was
+// playing or not.
+canvas.addEventListener("click", (event) => {
+  const duration = samples[selected]?.duration_secs;
+  if (!(duration > 0)) return;
+  const fraction = event.offsetX / canvas.clientWidth;
+  play(Math.min(Math.max(fraction, 0), 1) * duration);
+});
+
 // Each sound played gets a new number: the end of a sound already replaced
 // by another one may still be reported, and must then be ignored.
 let playId = 0;
@@ -176,14 +185,15 @@ let playId = 0;
 // left only with "Play".
 let looping = false;
 
-function play() {
+// `start`: where to start, in seconds from the beginning of the sample.
+function play(start = 0) {
   const sample = samples[selected];
   if (!sample) return;
   playId += 1;
-  startPlayhead(sample.duration_secs);
+  startPlayhead(sample.duration_secs, start);
   status.textContent = `▶ ${splitPath(sample.path).name}`;
   stopButton.disabled = false;
-  invoke("play", { path: sample.path, id: playId, looping }).catch((error) => {
+  invoke("play", { path: sample.path, id: playId, looping, start }).catch((error) => {
     stopPlayhead();
     status.textContent = `Error: ${error}`;
   });
@@ -198,9 +208,9 @@ let lastPosition = null;
 // A single animation loop at a time, however many sounds are started.
 let animating = false;
 
-function startPlayhead(duration) {
+function startPlayhead(duration, start) {
   playheadDuration = duration;
-  lastPosition = { seconds: 0, at: performance.now() };
+  lastPosition = { seconds: start, at: performance.now() };
   // Unknown length (some MP3s): no line, its place could not be computed.
   playhead.hidden = !(duration > 0);
   if (!animating) {
