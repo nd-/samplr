@@ -91,6 +91,12 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
              PRAGMA user_version = 1;",
         )?;
     }
+    if version < 2 {
+        db.execute_batch(
+            "ALTER TABLE files ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;
+             PRAGMA user_version = 2;",
+        )?;
+    }
     db.execute_batch("COMMIT")?;
     Ok(())
 }
@@ -396,6 +402,15 @@ fn delete_orphan_tags(db: &Connection) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Marks a sample as a favorite, or no longer.
+pub fn set_favorite(db: &Connection, file_id: i64, favorite: bool) -> Result<(), Box<dyn Error>> {
+    db.execute(
+        "UPDATE files SET favorite = ?1 WHERE id = ?2",
+        params![favorite, file_id],
+    )?;
+    Ok(())
+}
+
 /// A sample's tags, in alphabetical order.
 pub fn tags_of(db: &Connection, file_id: i64) -> Result<Vec<String>, Box<dyn Error>> {
     let mut query = db.prepare(
@@ -436,12 +451,13 @@ pub fn list_tags(db: &Connection) -> Result<Vec<(String, u32)>, Box<dyn Error>> 
 /// and where each of the `words` is found in the path or in one of the tags
 /// (case-insensitive), sorted by path. With no tag, no word and an empty
 /// text, every sample shown. Hidden samples (see `remove_folder`) are left
-/// out.
+/// out. `favorites_only`: only the favorites.
 pub fn search(
     db: &Connection,
     tags: &[String],
     words: &[&str],
     text: &str,
+    favorites_only: bool,
 ) -> Result<Vec<SampleInfo>, Box<dyn Error>> {
     // `instr` looks for the text as is: with `LIKE`, a `_` in the text
     // (common in sample names) would act as a wildcard.
@@ -449,10 +465,14 @@ pub fn search(
         "SELECT f.path, f.duration_secs, f.sample_rate, f.channels, f.bits,
                 (SELECT group_concat(t.name, ' ' ORDER BY t.name)
                  FROM file_tags ft JOIN tags t ON t.id = ft.tag_id
-                 WHERE ft.file_id = f.id)
+                 WHERE ft.file_id = f.id),
+                f.favorite
          FROM files f
          WHERE f.hidden = 0 AND instr(lower(f.path), lower(?1)) > 0",
     );
+    if favorites_only {
+        sql.push_str(" AND f.favorite = 1");
+    }
     let mut values = vec![text.to_string()];
 
     // The number of tags varies: one condition, and one `?N`, per tag.
@@ -489,6 +509,7 @@ pub fn search(
             tags: tags
                 .map(|t| t.split(' ').map(String::from).collect())
                 .unwrap_or_default(),
+            favorite: row.get(6)?,
         })
     })?;
 

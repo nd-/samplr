@@ -178,6 +178,21 @@ td {
   user-select: none;
 }
 
+.star {
+  width: 1.5rem;
+  text-align: center;
+  color: var(--wave);
+}
+
+td.star {
+  cursor: pointer;
+}
+
+/* Filter on: the button stays lit. */
+#favorites-only[aria-pressed="true"] {
+  background: var(--selected);
+}
+
 .folder, .tags {
   color: var(--muted);
   overflow: hidden;

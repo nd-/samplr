@@ -34,6 +34,8 @@ pub struct SampleInfo {
     pub bits: Option<u32>,
     /// Empty until the sample is read back from the database.
     pub tags: Vec<String>,
+    /// `false` until the sample is read back from the database.
+    pub favorite: bool,
 }
 
 /// True for `._kick.wav`: metadata that macOS leaves next to `kick.wav` on a
@@ -196,6 +198,7 @@ pub fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
         channels: params.channels.map(|c| c.count() as u32),
         bits: params.bits_per_sample,
         tags: Vec::new(),
+        favorite: false,
     })
 }
 

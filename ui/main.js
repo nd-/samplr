@@ -40,7 +40,15 @@ function render() {
     const { folder, name } = splitPath(sample.path);
     const tr = document.createElement("tr");
     tr.title = sample.path;
+    const star = cell(sample.favorite ? "★" : "☆", "star");
+    star.title = "Favorite (Ctrl+D)";
+    // Only toggles the favorite: the row is not selected, nothing plays.
+    star.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleFavorite(index);
+    });
     tr.append(
+      star,
       cell(name),
       cell(folder, "folder"),
       cell(formatDuration(sample.duration_secs), "number"),
@@ -475,7 +483,7 @@ async function refresh() {
   const selectedPath = samples[selected]?.path;
   const statusText = status.textContent;
   try {
-    samples = await invoke("search", { query: searchBox.value });
+    samples = await invoke("search", { query: searchBox.value, favorites: favoritesOnly });
   } catch (error) {
     status.textContent = `Error: ${error}`;
     return;
@@ -499,9 +507,36 @@ async function refresh() {
 
 window.__TAURI__.event.listen("library-changed", refresh);
 
+// "★ Favorites" on: the list shows only the favorites.
+let favoritesOnly = false;
+const favoritesButton = document.getElementById("favorites-only");
+
+favoritesButton.addEventListener("click", () => {
+  favoritesOnly = !favoritesOnly;
+  favoritesButton.setAttribute("aria-pressed", String(favoritesOnly));
+  search();
+});
+
+// With the filter on, a sample no longer a favorite stays in the list until
+// the next search: the list does not jump, and its sound keeps playing.
+async function toggleFavorite(index) {
+  const sample = samples[index];
+  if (!sample) return;
+  const favorite = !sample.favorite;
+  try {
+    await invoke("set_favorite", { path: sample.path, favorite });
+  } catch (error) {
+    status.textContent = `Error: ${error}`;
+    return;
+  }
+  sample.favorite = favorite;
+  const star = tbody.children[index]?.querySelector(".star");
+  if (star) star.textContent = favorite ? "★" : "☆";
+}
+
 async function search() {
   try {
-    samples = await invoke("search", { query: searchBox.value });
+    samples = await invoke("search", { query: searchBox.value, favorites: favoritesOnly });
     selected = -1;
     peaks = [];
     drawWaveform();
@@ -545,6 +580,13 @@ document.addEventListener("keydown", (event) => {
       event.preventDefault();
       return;
     }
+  }
+  // Ctrl+D, or Cmd+D on Mac (the usual bookmark keys), to make the selected
+  // sample a favorite or no longer.
+  if ((event.ctrlKey || event.metaKey) && event.key === "d") {
+    toggleFavorite(selected);
+    event.preventDefault();
+    return;
   }
   // Ctrl+T, or Cmd+T on Mac, to tag the selected sample.
   if ((event.ctrlKey || event.metaKey) && event.key === "t") {

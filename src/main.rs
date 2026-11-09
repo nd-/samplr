@@ -55,6 +55,16 @@ enum Command {
         #[arg(required = true)]
         tags: Vec<String>,
     },
+    /// Marks samples as favorites (and adds them to the database if needed)
+    Fav {
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+    },
+    /// Removes samples from the favorites
+    Unfav {
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+    },
     /// Removes tags from a sample
     Untag {
         file: PathBuf,
@@ -78,6 +88,9 @@ enum Command {
         /// Only keep the samples whose path contains this text
         #[arg(long)]
         path: Option<String>,
+        /// Only keep the favorites
+        #[arg(long)]
+        fav: bool,
     },
 }
 
@@ -89,15 +102,17 @@ fn main() {
     // Each pattern "opens" the variant and names its fields.
     let result = match args.command {
         Command::Scan { folder } => scan(&folder),
-        Command::List => search(&[], None),
+        Command::List => search(&[], None, false),
         Command::Folders => list_folders(),
         Command::RemoveFolder { folder } => remove_folder(&folder),
         Command::Watch => watch(),
         Command::Play { file } => play(&file),
         Command::Tag { file, tags } => tag(&file, &tags),
+        Command::Fav { files } => set_favorite(&files, true),
+        Command::Unfav { files } => set_favorite(&files, false),
         Command::Untag { file, tags } => untag(&file, &tags),
         Command::Tags => list_tags(),
-        Command::Search { tags, path } => search(&tags, path.as_deref()),
+        Command::Search { tags, path, fav } => search(&tags, path.as_deref(), fav),
         Command::Wave { file, width } => wave(&file, width),
         Command::Waveforms => compute_waveforms(),
     };
@@ -222,9 +237,9 @@ fn remove_folder(folder: &Path) -> Result<(), Box<dyn Error>> {
 
 /// Shows the samples in the database carrying all the `tags` and whose path
 /// contains `path`; with no tag and no path, every sample.
-fn search(tags: &[String], path: Option<&str>) -> Result<(), Box<dyn Error>> {
+fn search(tags: &[String], path: Option<&str>, favorites_only: bool) -> Result<(), Box<dyn Error>> {
     let db = db::open()?;
-    let samples = db::search(&db, tags, &[], path.unwrap_or(""))?;
+    let samples = db::search(&db, tags, &[], path.unwrap_or(""), favorites_only)?;
 
     let mut out = io::stdout().lock();
     print_header(&mut out)?;
@@ -243,6 +258,30 @@ fn tag(file: &Path, tags: &[String]) -> Result<(), Box<dyn Error>> {
     let added = db::add_tags(&db, file_id, tags)?;
 
     println!("{added} tag(s) added to {}", file.display());
+    Ok(())
+}
+
+/// Marks samples as favorites, or no longer. Like `tag`, adds a file to the
+/// database if it was not there yet; `unfav` only needs it to be there.
+fn set_favorite(files: &[PathBuf], favorite: bool) -> Result<(), Box<dyn Error>> {
+    let db = db::open()?;
+    for file in files {
+        let (file, file_id) = if favorite {
+            ensure_saved(&db, file)?
+        } else {
+            let file = dunce::canonicalize(file)?;
+            let file_id = db::file_id(&db, &file)?
+                .ok_or_else(|| format!("{} is not in the database", file.display()))?;
+            (file, file_id)
+        };
+        db::set_favorite(&db, file_id, favorite)?;
+        let state = if favorite {
+            "★"
+        } else {
+            "no longer a favorite:"
+        };
+        println!("{state} {}", file.display());
+    }
     Ok(())
 }
 
@@ -344,9 +383,10 @@ fn print_row(out: &mut impl Write, info: &SampleInfo, path: &Path) -> io::Result
     } else {
         format!("  [{}]", info.tags.join(" "))
     };
+    let star = if info.favorite { "★ " } else { "" };
     writeln!(
         out,
-        "{:>8}  {:>7}  {:>4}  {:>5}  {}{tags}",
+        "{:>8}  {:>7}  {:>4}  {:>5}  {star}{}{tags}",
         format_duration(info.duration_secs),
         info.sample_rate
             .map(|r| format!("{r}"))

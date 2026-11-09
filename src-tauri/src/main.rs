@@ -46,13 +46,13 @@ struct Audio {
 /// Samples matching the search box. Each word must be found in the path or
 /// in one of the tags (`kick` finds `Kick_01.wav` and the samples tagged
 /// `kick` or `kicks`); a word starting with `#` is a tag the sample must
-/// carry exactly.
+/// carry exactly. `favorites`: only the favorites.
 /// `(async)` runs the command outside the main thread: the window stays
 /// responsive while the database answers.
 /// The error travels to the page as text: `Box<dyn Error>` cannot be turned
 /// into JSON, a `String` can.
 #[tauri::command(async)]
-fn search(query: String) -> Result<Vec<SampleInfo>, String> {
+fn search(query: String, favorites: bool) -> Result<Vec<SampleInfo>, String> {
     let mut tags = Vec::new();
     let mut words = Vec::new();
     for word in query.split_whitespace() {
@@ -64,7 +64,15 @@ fn search(query: String) -> Result<Vec<SampleInfo>, String> {
     }
 
     let db = db::open().map_err(|e| e.to_string())?;
-    db::search(&db, &tags, &words, "").map_err(|e| e.to_string())
+    db::search(&db, &tags, &words, "", favorites).map_err(|e| e.to_string())
+}
+
+/// Marks a sample as a favorite, or no longer.
+#[tauri::command(async)]
+fn set_favorite(path: PathBuf, favorite: bool) -> Result<(), String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    let file_id = file_id(&db, &path)?;
+    db::set_favorite(&db, file_id, favorite).map_err(|e| e.to_string())
 }
 
 /// The `playback-position` event: where the sound `id` is, in seconds from
@@ -345,6 +353,7 @@ fn main() {
             waveform,
             add_tags,
             remove_tag,
+            set_favorite,
             play,
             stop,
             set_volume,
