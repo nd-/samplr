@@ -231,6 +231,27 @@ function showTags(changed, allTags) {
   renderTags();
 }
 
+// A short light on what just changed, so that one sees the action took.
+function flash(elements) {
+  for (const element of elements) {
+    if (!element) continue;
+    element.classList.remove("flash");
+    // Reading the size makes the browser apply the removal now: the
+    // animation then starts again even if it was still running.
+    void element.offsetWidth;
+    element.classList.add("flash");
+    element.addEventListener("animationend", () => element.classList.remove("flash"), {
+      once: true,
+    });
+  }
+}
+
+// The list rows showing these paths (those out of the list are left out).
+function rowsOf(paths) {
+  const wanted = new Set(paths);
+  return samples.flatMap((sample, index) => (wanted.has(sample.path) ? [tbody.children[index]] : []));
+}
+
 async function addTags() {
   const chosen = selectedSamples();
   const tags = tagInput.value.split(/\s+/).filter((tag) => tag !== "");
@@ -239,6 +260,7 @@ async function addTags() {
     const paths = chosen.map((sample) => sample.path);
     showTags(chosen, await invoke("add_tags", { paths, tags }));
     tagInput.value = "";
+    flash([...rowsOf(paths), document.getElementById("tagbar")]);
   } catch (error) {
     status.textContent = `Error: ${error}`;
   }
@@ -821,6 +843,9 @@ async function addToCollection(collection, paths = chosenPaths()) {
   // Dropped into the open collection: the new samples show in the list.
   if (collection.id === currentCollection) await refresh({ stopIfGone: false });
   await loadCollections();
+  if (result.added > 0) {
+    flash([...rowsOf(paths), collectionList.querySelector(`li[data-id="${collection.id}"]`)]);
+  }
   const unknown = result.unknown > 0 ? ` (${result.unknown} not in the library, left out)` : "";
   status.textContent = `${result.added} sample(s) added to ${collection.name}${unknown}.`;
 }

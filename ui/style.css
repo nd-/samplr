@@ -470,3 +470,15 @@ footer {
   color: var(--muted);
   font-size: 0.9em;
 }
+
+/* A short light on what just changed (see `flash` in main.js). The end of
+   the animation is the element's own background. */
+@keyframes flash {
+  from {
+    background: color-mix(in srgb, var(--wave) 55%, transparent);
+  }
+}
+
+.flash {
+  animation: flash 0.8s ease-out;
+}
