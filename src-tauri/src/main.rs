@@ -99,8 +99,15 @@ fn search(
 fn tempo_range(value: &str) -> Option<std::ops::RangeInclusive<u32>> {
     let (low, high) = value.split_once('-').unwrap_or((value, value));
     let (low, high): (u32, u32) = (low.parse().ok()?, high.parse().ok()?);
-    (40..=300).contains(&low).then_some(low..=high.max(low))
+    // In either order: `bpm:150-120` is 120 to 150.
+    let (low, high) = (low.min(high), low.max(high));
+    // A number still being typed (`bpm:1` on the way to `bpm:120`) filters
+    // nothing rather than everything.
+    (TEMPOS.contains(&low) && TEMPOS.contains(&high)).then_some(low..=high)
 }
+
+/// The tempos a sample can be given by hand, hence searched for.
+const TEMPOS: std::ops::RangeInclusive<u32> = 20..=400;
 
 /// The palette, in its order.
 #[tauri::command(async)]
@@ -243,8 +250,11 @@ fn set_tempo(paths: Vec<PathBuf>, value: String) -> Result<(), String> {
         "" => None,
         "-" => Some(0),
         _ => match value.parse::<u32>() {
-            Ok(bpm) if (20..=400).contains(&bpm) => Some(bpm),
-            _ => return Err(format!("“{value}” is not a tempo between 20 and 400")),
+            Ok(bpm) if TEMPOS.contains(&bpm) => Some(bpm),
+            _ => {
+                let (low, high) = (TEMPOS.start(), TEMPOS.end());
+                return Err(format!("“{value}” is not a tempo between {low} and {high}"));
+            }
         },
     };
     let mut db = db::open().map_err(|e| e.to_string())?;
@@ -732,4 +742,23 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("could not start the interface");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tempo_filters() {
+        assert_eq!(tempo_range("120"), Some(120..=120));
+        assert_eq!(tempo_range("118-124"), Some(118..=124));
+        assert_eq!(tempo_range("150-120"), Some(120..=150));
+        // Tempos set by hand outside the old 40 to 300.
+        assert_eq!(tempo_range("30"), Some(30..=30));
+        assert_eq!(tempo_range("350"), Some(350..=350));
+        // Still being typed: no filter.
+        assert_eq!(tempo_range("1"), None);
+        assert_eq!(tempo_range("118-"), None);
+        assert_eq!(tempo_range("12-130"), None);
+    }
 }

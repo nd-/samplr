@@ -703,24 +703,30 @@ pub fn add_to_collection(
 
 /// The `id`s of the collections that already hold every one of `file_ids`.
 pub fn collections_holding(db: &Connection, file_ids: &[i64]) -> Result<Vec<i64>, Box<dyn Error>> {
-    if file_ids.is_empty() {
-        return Ok(Vec::new());
+    // One `?` per sample, and SQLite takes at most 32766 of them in a query:
+    // a big selection is asked by parts, and only the collections holding
+    // every part are kept.
+    let mut holding: Option<Vec<i64>> = None;
+    for part in file_ids.chunks(10_000) {
+        let marks = vec!["?"; part.len()].join(", ");
+        let mut query = db.prepare(&format!(
+            "SELECT collection_id FROM collection_files
+             WHERE file_id IN ({marks})
+             GROUP BY collection_id
+             HAVING COUNT(*) = {}",
+            part.len()
+        ))?;
+        let rows = query.query_map(params_from_iter(part), |row| row.get(0))?;
+        let mut ids = Vec::new();
+        for id in rows {
+            ids.push(id?);
+        }
+        holding = Some(match holding {
+            None => ids,
+            Some(before) => before.into_iter().filter(|id| ids.contains(id)).collect(),
+        });
     }
-    let marks = vec!["?"; file_ids.len()].join(", ");
-    let mut query = db.prepare(&format!(
-        "SELECT collection_id FROM collection_files
-         WHERE file_id IN ({marks})
-         GROUP BY collection_id
-         HAVING COUNT(*) = {}",
-        file_ids.len()
-    ))?;
-    let rows = query.query_map(params_from_iter(file_ids), |row| row.get(0))?;
-
-    let mut ids = Vec::new();
-    for id in rows {
-        ids.push(id?);
-    }
-    Ok(ids)
+    Ok(holding.unwrap_or_default())
 }
 
 /// Takes samples out of a collection (only the links: the samples stay in

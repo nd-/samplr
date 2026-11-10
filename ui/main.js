@@ -307,18 +307,25 @@ function tagsWidth() {
 }
 const table = document.querySelector("#list table");
 
-function applyColumnWidths() {
+// The width Tags needs, as last measured.
+let measuredTagsWidth = minTagsWidth;
+
+// `remeasure: false` reuses the last measure of the Tags column: dragging a
+// column handle or the window's edge changes no tag, and measuring every
+// sample's tags at each pointer move made the drag stutter on a big library.
+function applyColumnWidths({ remeasure = true } = {}) {
   for (const [name, width] of Object.entries(columnWidths)) {
     document.querySelector(`col[data-col="${name}"]`).style.width = `${width}px`;
   }
   const star = document.querySelector("th.star").offsetWidth;
   const remove = removeHeader.hidden ? 0 : removeHeader.offsetWidth;
   const total = Object.values(columnWidths).reduce((sum, width) => sum + width, 0);
-  const needed = star + remove + total + tagsWidth();
+  if (remeasure) measuredTagsWidth = tagsWidth();
+  const needed = star + remove + total + measuredTagsWidth;
   table.style.width = `${Math.max(listBox.clientWidth, needed)}px`;
 }
 
-window.addEventListener("resize", applyColumnWidths);
+window.addEventListener("resize", () => applyColumnWidths({ remeasure: false }));
 
 function saveColumnWidths() {
   try {
@@ -339,7 +346,7 @@ for (const handle of document.querySelectorAll("th .resizer")) {
     handle.classList.add("dragging");
     const resize = (move) => {
       columnWidths[name] = Math.max(40, startWidth + move.clientX - startX);
-      applyColumnWidths();
+      applyColumnWidths({ remeasure: false });
     };
     handle.addEventListener("pointermove", resize);
     handle.addEventListener(
@@ -517,7 +524,6 @@ function renderTags() {
 function showTags(changed, allTags) {
   changed.forEach((sample, i) => {
     sample.tags = allTags[i];
-    const row = rowElement(samples.indexOf(sample));
   });
   // A tag added may be coloured, or longer: the rows are drawn again (a
   // screenful) and the Tags column may need more room.
@@ -1263,7 +1269,7 @@ function setCollectionsWidth(width) {
   }
   // The waveform and the list take the width freed or taken.
   drawWaveform();
-  applyColumnWidths();
+  applyColumnWidths({ remeasure: false });
 }
 
 function saveCollectionsWidth(width) {
@@ -1386,8 +1392,14 @@ function updateContextMenu() {
 
 // The collections that already hold the samples are shown, marked and
 // greyed, but cannot be clicked.
+// Each opening gets a number, and closing the menu moves it on: an answer
+// of `collections_holding` coming after Esc, a click elsewhere or another
+// right-click must not show the menu again.
+let menuOpening = 0;
+
 async function openContextMenu(x, y) {
   menuPosition = { x, y };
+  const opening = ++menuOpening;
   let holding;
   try {
     holding = await invoke("collections_holding", { paths: chosenPaths() });
@@ -1395,6 +1407,7 @@ async function openContextMenu(x, y) {
     showError(error);
     return;
   }
+  if (opening !== menuOpening) return;
   const label = document.createElement("div");
   label.className = "label";
   label.textContent = "Add to collection";
@@ -1475,6 +1488,7 @@ async function openContextMenu(x, y) {
 
 function closeContextMenu() {
   contextMenu.hidden = true;
+  menuOpening += 1;
 }
 
 // "Rename file…": the button turns into a box holding the name without its
@@ -1667,8 +1681,10 @@ tbody.addEventListener("contextmenu", (event) => {
   openContextMenu(event.clientX, event.clientY);
 });
 
+// Also while a row's menu is still waiting for its answer (still hidden): a
+// press elsewhere means it is no longer wanted.
 document.addEventListener("mousedown", (event) => {
-  if (!contextMenu.hidden && !contextMenu.contains(event.target)) closeContextMenu();
+  if (!contextMenu.contains(event.target)) closeContextMenu();
 });
 window.addEventListener("blur", closeContextMenu);
 document.getElementById("list").addEventListener("scroll", closeContextMenu);
@@ -1797,6 +1813,8 @@ document.addEventListener("keydown", (event) => {
       break;
     case "Escape":
       stop();
+      // A right-click menu still waiting for its answer must not open.
+      closeContextMenu();
       break;
     default:
       return;
@@ -1975,6 +1993,9 @@ async function loadColors() {
 // The palette's colours to choose from, plus "No colour"; `current` is
 // marked. Used for a tag and for a collection.
 function openColorMenu(x, y, current, choose) {
+  // Shares the menu with the rows: a row's menu still waiting for its answer
+  // must not replace this one.
+  menuOpening += 1;
   const items = [];
   const none = menuButton(current === null ? "✓ No colour" : "No colour", () => choose(null));
   items.push(none);

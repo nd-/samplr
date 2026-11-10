@@ -333,21 +333,23 @@ Audio pitfalls met so far:
   values (unknown length, no tag) stay last whichever the direction; equal values fall back to
   the path.
 - Column widths: the table has a fixed layout (`table-layout: fixed`), its widths come from the
-  `<col>` elements. A handle on the right edge of the Name, Folder, Length and Collections
-  headers changes the width by dragging (pointer capture), a double-click brings the default
-  back; Tags takes the rest, ★ and × have fixed widths. The table fills the list's width, Tags
-  taking the rest; Tags is never narrower than what shows every sample's tags whole
-  (`tagsWidth`: the tags' text measured with a canvas in the cells' font, chips' padding
-  included, as the virtual list has no cells for rows off screen; at least 80 px); when the
-  chosen widths plus that do not fit, the table grows wider and the list scrolls sideways.
-  `applyColumnWidths` sets the table's `width` in pixels (the larger of the list's width and
-  what the columns need), recomputed on window resize, folding, tag and colour changes: WebKit
-  ignores `min-width` on a fixed-layout table. The virtual list's spacer rows span exactly the
-  columns shown (6, or 7 with the ×): one more made a phantom column that took a share of the
-  free width from Tags. Widths are never shrunk to fit. Widths kept in `localStorage`
-  (`columnWidths`). A click on a handle does not sort. Outside a collection the × column's
-  `<col>` is taken out of the table: a zero-width `<col>` is treated as automatic by WebKit and
-  would share the free width with Tags. Text too long for its cell ends with an ellipsis.
+  `<col>` elements. A handle on the right edge of the Name, Folder, Length and Collections headers
+  changes the width by dragging (pointer capture), a double-click brings the default back; Tags
+  takes the rest, ★ and × have fixed widths. The table fills the list's width, Tags taking the
+  rest; Tags is never narrower than what shows every sample's tags whole (`tagsWidth`: the tags'
+  text measured with a canvas in the cells' font, chips' padding included, as the virtual list has
+  no cells for rows off screen; at least 80 px); when the chosen widths plus that do not fit, the
+  table grows wider and the list scrolls sideways. `applyColumnWidths` sets the table's `width` in
+  pixels (the larger of the list's width and what the columns need), recomputed on window resize,
+  folding, tag and colour changes: WebKit ignores `min-width` on a fixed-layout table. The virtual
+  list's spacer rows span exactly the columns shown (6, or 7 with the ×): one more made a phantom
+  column that took a share of the free width from Tags. Widths are never shrunk to fit. Dragging a
+  handle, the collections column's edge or the window's edge reuses the last measure of Tags
+  (`applyColumnWidths({ remeasure: false })`): no tag changes then, and measuring every sample's
+  tags at each pointer move made the drag stutter. Widths kept in `localStorage` (`columnWidths`).
+  A click on a handle does not sort. Outside a collection the × column's `<col>` is taken out of
+  the table: a zero-width `<col>` is treated as automatic by WebKit and would share the free width
+  with Tags. Text too long for its cell ends with an ellipsis.
 - Visual feedback: after adding samples to a collection (menu or drop), their rows and the
   collection flash; after adding tags, the rows and the tag bar (`flash` in `main.js`, a CSS
   animation from the waveform colour back to the element's own background).
@@ -371,18 +373,21 @@ Audio pitfalls met so far:
   and opens a menu (`#context-menu`, built in the page): add to a collection (those already
   holding the sample are shown with ✓, greyed and not clickable, with a × next to them that takes
   the selection out: `collections_holding` command, which returns the collections holding **all**
-  the given samples), add to a new collection named in the menu (adding, × and a new collection
-  keep the menu open and redraw it with the new state; only a click elsewhere or Esc closes it),
-  and, in an open collection, remove from it. The menu also acts on the files themselves (an
-  explicit action, see the design decisions): "Rename file…" (one sample: the button turns into a
-  box holding the name without its extension, which is kept; `rename_sample`) and "Move file(s) to
-  the trash…" (the selection, always asked first, whatever the Settings checkbox says: these are
-  files, not links; `trash_samples` → `samplr::trash_sample`: the `trash` crate sends the file to
-  the system's trash, freedesktop `~/.local/share/Trash` on Linux, the Finder's on Mac, with its
-  original path to put it back; the row is forgotten, so tags, collections and favorite are lost
-  even if the file is put back) and "Move file(s) to folder…" (the selection, into a folder picked
-  with the system's chooser, which must be inside a scanned folder, otherwise the samples would
-  leave the library unfollowed; `move_samples`, stops at the first failure). Both go through
+  the given samples; a big selection is asked by parts of 10 000, SQLite taking at most 32 766
+  values per query), add to a new collection named in the menu (adding, × and a new collection
+  keep the menu open and redraw it with the new state; only a click elsewhere or Esc closes it;
+  the menu waits for `collections_holding` before showing, and Esc or a press elsewhere meanwhile
+  cancels it: each opening is numbered in `menuOpening`, which closing moves on), and, in an open
+  collection, remove from it. The menu also acts on the files themselves (an explicit action, see
+  the design decisions): "Rename file…" (one sample: the button turns into a box holding the name
+  without its extension, which is kept; `rename_sample`) and "Move file(s) to the trash…" (the
+  selection, always asked first, whatever the Settings checkbox says: these are files, not links;
+  `trash_samples` → `samplr::trash_sample`: the `trash` crate sends the file to the system's
+  trash, freedesktop `~/.local/share/Trash` on Linux, the Finder's on Mac, with its original path
+  to put it back; the row is forgotten, so tags, collections and favorite are lost even if the
+  file is put back) and "Move file(s) to folder…" (the selection, into a folder picked with the
+  system's chooser, which must be inside a scanned folder, otherwise the samples would leave the
+  library unfollowed; `move_samples`, stops at the first failure). Both go through
   `samplr::move_sample`: never overwrites, copies then removes between two disks
   (`ErrorKind::CrossesDevices`), and moves the database row with `db::rename`, keeping the `id`
   hence tags, collections, favorite and waveform; the folder watcher then finds the row already
@@ -461,35 +466,34 @@ Audio pitfalls met so far:
   spacing rather than a new value. The tag bar's chips and its input are siblings in `#tagbar`,
   so that one gap separates them all; only the chips are replaced when the selection changes
   (moving the input would take the focus from it).
-- Tempo and key (`src/analysis.rs`, unit-tested: `cargo test -p samplr --lib analysis`): from
-  the file name, in the two conventions of sample packs ("Djembe 100BPM D#m",
-  "YCE_120_Gm_Horns": a bare number right before a key), else the tempo from the length when a
-  loop's length gives a whole tempo (60 × beats ÷ seconds for 4 to 128 beats, between 70 and
-  180, nearest 120). A lone letter is a key only next to a tempo ("Kick_A" is not in A) or with
-  a quality ("Cmaj", "F#m"); the note's letter must be upper case. Keys in sharps ("A#m" for
-  "Bbm"). Worked out at each search (`db::search` fills `SampleInfo::bpm`, `bpm_source` "name",
-  "length" or "manual", `key`), not stored: a renamed file needs nothing. Set by hand: a
-  double-click on a BPM or Key cell edits it, for the whole selection when the row is in it
-  (Enter or leaving the box saves, Esc cancels; a value refused after Enter keeps the box open,
-  outlined in `--error` red, the reason in its tooltip and the status line; refused on leaving
-  the box, the old value comes back; empty goes back to automatic, `-` means none, to silence a
-  wrong guess). A click on these cells selects the row without playing it, and the second click
-  of the double-click does nothing (`event.detail`); elsewhere quick clicks on a row still
-  retrigger the sound, like a pad. Stored in `files.bpm` and `files.key` (migration 5): NULL
-  automatic, 0 and '' none; commands `set_tempo` (20 to 400) and `set_key` (any spelling, kept
-  in sharps). The edit box has no border nor vertical padding: a taller row would break the
-  virtual list's fixed height. Columns BPM ("≈ 100" muted for an estimate) and Key, sortable
-  and resizable; search filters `bpm:120`, `bpm:118-124`, `key:Am` (any spelling: `key:bbm`),
-  applied in the `search` command after the SQL query. On the 3287 samples of the Linux
-  library: tempo from the name for 51 %, from the length for 11 %, key for 30 %. **No analysis
-  of the sound itself** (a decision taken, measured): stratum-dsp 1.0 (pure Rust) found the
-  right tempo for 34 % of the 795 samples whose name gives it (35 % under 4 s, 31 % for 10 to
-  30 s), the right key for 13 % of 974 (mostly a fifth off), 158 ms and up to 600 MB per file
-  for two minutes of sound; the length method was right 87 % of the time when it answers. Its
-  announced 87.7 % is on full DJ tracks, which the library hardly has; worth measuring again on
-  long files only, with its confidence ≥ 0.5 (80 % right on the few labelled ones over 10 s).
-  Never decode a whole file into memory for an analysis: a 3-hour recording took the machine's
-  memory.
+- Tempo and key (`src/analysis.rs`, unit-tested: `cargo test -p samplr --lib analysis`): from the
+  file name, in the two conventions of sample packs ("Djembe 100BPM D#m", "YCE_120_Gm_Horns": a
+  bare number right before a key), else the tempo from the length when a loop's length gives a
+  whole tempo (60 × beats ÷ seconds for 4 to 128 beats, between 70 and 180, nearest 120). A lone
+  letter is a key only next to a tempo ("Kick_A" is not in A) or with a quality ("Cmaj", "F#m");
+  the note's letter must be upper case. Keys in sharps ("A#m" for "Bbm"). Worked out at each
+  search (`db::search` fills `SampleInfo::bpm`, `bpm_source` "name", "length" or "manual", `key`),
+  not stored: a renamed file needs nothing. Set by hand: a double-click on a BPM or Key cell edits
+  it, for the whole selection when the row is in it (Enter or leaving the box saves, Esc cancels;
+  a value refused after Enter keeps the box open, outlined in `--error` red, the reason in its
+  tooltip and the status line; refused on leaving the box, the old value comes back; empty goes
+  back to automatic, `-` means none, to silence a wrong guess). A click on these cells selects the
+  row without playing it, and the second click of the double-click does nothing (`event.detail`);
+  elsewhere quick clicks on a row still retrigger the sound, like a pad. Stored in `files.bpm` and
+  `files.key` (migration 5): NULL automatic, 0 and '' none; commands `set_tempo` (20 to 400) and
+  `set_key` (any spelling, kept in sharps). The edit box has no border nor vertical padding: a
+  taller row would break the virtual list's fixed height. Columns BPM ("≈ 100" muted for an
+  estimate) and Key, sortable and resizable; search filters `bpm:120`, `bpm:118-124` (either
+  order, 20 to 400 like a tempo set by hand: `TEMPOS`), `key:Am` (any spelling: `key:bbm`),
+  applied in the `search` command after the SQL query. On the 3287 samples of the Linux library:
+  tempo from the name for 51 %, from the length for 11 %, key for 30 %. **No analysis of the sound
+  itself** (a decision taken, measured): stratum-dsp 1.0 (pure Rust) found the right tempo for 34
+  % of the 795 samples whose name gives it (35 % under 4 s, 31 % for 10 to 30 s), the right key
+  for 13 % of 974 (mostly a fifth off), 158 ms and up to 600 MB per file for two minutes of sound;
+  the length method was right 87 % of the time when it answers. Its announced 87.7 % is on full DJ
+  tracks, which the library hardly has; worth measuring again on long files only, with its
+  confidence ≥ 0.5 (80 % right on the few labelled ones over 10 s). Never decode a whole file into
+  memory for an analysis: a 3-hour recording took the machine's memory.
 - Errors: `showError` in `main.js` shows them in a red box above the status line (`#error-box`,
   `--error` the same red in every theme, closed by its × or after 10 s) and in the status line;
   every failure reported to the user goes through it, never through the status line alone,
