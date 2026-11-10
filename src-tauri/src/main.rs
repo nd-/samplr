@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use rodio::{Decoder, Source};
 use samplr::waveform::Peak;
-use samplr::{SampleInfo, db};
+use samplr::{SampleInfo, analysis, db};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
@@ -60,7 +60,20 @@ fn search(
 ) -> Result<Vec<SampleInfo>, String> {
     let mut tags = Vec::new();
     let mut words = Vec::new();
+    let mut tempos = None;
+    let mut key = None;
     for word in query.split_whitespace() {
+        // `bpm:` and `key:` filters; one still being typed and not valid
+        // yet (`bpm:1`, `key:`) filters nothing.
+        let lower = word.to_lowercase();
+        if let Some(value) = lower.strip_prefix("bpm:") {
+            tempos = tempo_range(value).or(tempos);
+            continue;
+        }
+        if let Some(value) = word.get(4..).filter(|_| lower.starts_with("key:")) {
+            key = analysis::normalize_key(value).or(key);
+            continue;
+        }
         match word.strip_prefix('#') {
             Some("") => {} // a lone `#` while the user is still typing
             Some(tag) => tags.push(tag.to_string()),
@@ -69,7 +82,24 @@ fn search(
     }
 
     let db = db::open().map_err(|e| e.to_string())?;
-    db::search(&db, &tags, &words, "", favorites, collection).map_err(|e| e.to_string())
+    let mut samples =
+        db::search(&db, &tags, &words, "", favorites, collection).map_err(|e| e.to_string())?;
+    // Tempo and key are worked out from the name and the length, not stored:
+    // they are filtered here rather than in SQL.
+    if let Some(tempos) = tempos {
+        samples.retain(|sample| sample.bpm.is_some_and(|bpm| tempos.contains(&bpm)));
+    }
+    if let Some(key) = key {
+        samples.retain(|sample| sample.key.as_ref() == Some(&key));
+    }
+    Ok(samples)
+}
+
+/// `120` or `118-124`, within the tempos samples have.
+fn tempo_range(value: &str) -> Option<std::ops::RangeInclusive<u32>> {
+    let (low, high) = value.split_once('-').unwrap_or((value, value));
+    let (low, high): (u32, u32) = (low.parse().ok()?, high.parse().ok()?);
+    (40..=300).contains(&low).then_some(low..=high.max(low))
 }
 
 /// The palette, in its order.

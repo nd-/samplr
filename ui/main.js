@@ -74,9 +74,9 @@ function spacer(height) {
   const tr = document.createElement("tr");
   tr.className = "spacer";
   const td = document.createElement("td");
-  // Exactly the columns shown: one more would make a phantom column that
-  // takes a share of the free width from Tags.
-  td.colSpan = removeHeader.hidden ? 6 : 7;
+  // Exactly the columns shown, counted on the header: one more would make a
+  // phantom column that takes a share of the free width from Tags.
+  td.colSpan = document.querySelectorAll("thead th:not([hidden])").length;
   td.style.height = `${height}px`;
   tr.append(td);
   return tr;
@@ -98,6 +98,8 @@ function buildRow(index) {
     cell(name),
     cell(folder, "folder"),
     cell(formatDuration(sample.duration_secs), "number"),
+    bpmCell(sample),
+    cell(sample.key ?? "", "key"),
     collectionsCell(sample.collections),
     tagsCell(sample.tags),
   );
@@ -225,7 +227,7 @@ const columnGroup = removeColumn.parentElement;
 // Column widths, changed by dragging the handle on a header's right edge;
 // a double-click on it brings the default back. Remembered between
 // sessions, on this computer only. Tags takes the rest of the width.
-const defaultWidths = { name: 280, folder: 320, length: 90, collections: 160 };
+const defaultWidths = { name: 280, folder: 320, length: 90, bpm: 70, key: 60, collections: 160 };
 let columnWidths = { ...defaultWidths };
 try {
   columnWidths = { ...defaultWidths, ...JSON.parse(localStorage.getItem("columnWidths") ?? "{}") };
@@ -345,6 +347,8 @@ const sortValues = {
   name: (sample) => splitPath(sample.path).name,
   folder: (sample) => splitPath(sample.path).folder,
   length: (sample) => sample.duration_secs,
+  bpm: (sample) => sample.bpm,
+  key: (sample) => sample.key,
   tags: (sample) => sample.tags.join(" ") || null,
   collections: (sample) => collectionNames(sample.collections).join(" ") || null,
 };
@@ -1483,6 +1487,18 @@ function dot(hex) {
   span.className = "dot";
   span.style.background = hex;
   return span;
+}
+
+// The tempo of a row: as written in the name, or "≈ 100" when estimated from
+// the sample's length.
+function bpmCell(sample) {
+  if (sample.bpm === null) return cell("", "number");
+  if (sample.bpm_source === "length") {
+    const td = cell(`≈ ${sample.bpm}`, "number estimated");
+    td.title = "Estimated from the length (a whole number of bars)";
+    return td;
+  }
+  return cell(String(sample.bpm), "number");
 }
 
 // The names of collections, by `id`, in the order of the left column.

@@ -1,6 +1,7 @@
 // samplr's shared code: what the command line and the graphical interface
 // both need (database, waveforms, reading audio files).
 
+pub mod analysis;
 pub mod db;
 pub mod watch;
 pub mod waveform;
@@ -39,6 +40,13 @@ pub struct SampleInfo {
     /// The `id`s of the collections holding the sample; empty until it is
     /// read back from the database.
     pub collections: Vec<i64>,
+    /// Tempo, from the file name or estimated from the length (see
+    /// `analysis`), and where it comes from; `None` when unknown, and until
+    /// the sample is read back from the database.
+    pub bpm: Option<u32>,
+    pub bpm_source: Option<analysis::Source>,
+    /// Key from the file name, in sharps ("A#m"); `None` when unknown.
+    pub key: Option<String>,
 }
 
 /// True for `._kick.wav`: metadata that macOS leaves next to `kick.wav` on a
@@ -203,6 +211,9 @@ pub fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
         tags: Vec::new(),
         favorite: false,
         collections: Vec::new(),
+        bpm: None,
+        bpm_source: None,
+        key: None,
     })
 }
 

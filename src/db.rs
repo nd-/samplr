@@ -10,8 +10,8 @@ use std::time::UNIX_EPOCH;
 use rusqlite::{Connection, OptionalExtension, named_params, params, params_from_iter};
 use serde::Serialize;
 
-use crate::SampleInfo;
 use crate::waveform::{self, Peak};
+use crate::{SampleInfo, analysis};
 
 /// Location of the database file: the system's data folder
 /// (`~/.local/share/samplr` on Linux, `~/Library/Application Support/samplr`
@@ -777,11 +777,16 @@ pub fn search(
 
     let mut query = db.prepare(&sql)?;
     let rows = query.query_map(params_from_iter(&values), |row| {
-        let path: String = row.get(0)?;
+        let path = PathBuf::from(row.get::<_, String>(0)?);
         let tags: Option<String> = row.get(5)?;
+        let duration_secs: Option<f64> = row.get(1)?;
+        // Worked out from the name and the length at each search, rather
+        // than stored: a renamed file needs nothing more.
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let tempo = analysis::tempo(stem, duration_secs);
+        let key = analysis::key_from_name(stem);
         Ok(SampleInfo {
-            path: PathBuf::from(path),
-            duration_secs: row.get(1)?,
+            duration_secs,
             sample_rate: row.get(2)?,
             channels: row.get(3)?,
             bits: row.get(4)?,
@@ -793,6 +798,10 @@ pub fn search(
                 .get::<_, Option<String>>(7)?
                 .map(|ids| ids.split(',').filter_map(|id| id.parse().ok()).collect())
                 .unwrap_or_default(),
+            bpm: tempo.map(|(bpm, _)| bpm),
+            bpm_source: tempo.map(|(_, source)| source),
+            key,
+            path,
         })
     })?;
 

@@ -669,6 +669,11 @@ td.remove button:hover {
 	font-variant-numeric: tabular-nums;
 }
 
+/* A tempo estimated from the length, not written in the name. */
+.estimated {
+	color: var(--muted);
+}
+
 tbody tr:hover {
 	background: var(--hover);
 }
