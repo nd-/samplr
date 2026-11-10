@@ -47,8 +47,21 @@
     };
   });
   const byPath = new Map(samples.map((sample) => [sample.path, sample]));
-  // The type worked out from each path, what "Automatic" goes back to.
+  // What each sample's name gives, what "Automatic" goes back to.
   const automaticType = new Map(samples.map((sample) => [sample.path, sample.sound_type]));
+  const automaticLoop = new Map(samples.map((sample) => [sample.path, sample.looped]));
+  const automaticKey = new Map(samples.map((sample) => [sample.path, sample.key]));
+
+  // "bbm", "A#min" or "Bb minor": the key in sharps ("A#m"), as Rust's
+  // `normalize_key`; `null` when it is not one.
+  function normalizeKey(text) {
+    const found = /^([a-g])([#b]?)\s*(m|min|minor|maj|major)?$/i.exec(text);
+    if (!found) return null;
+    const notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const shift = { "#": 1, b: -1, "": 0 }[found[2]];
+    const note = notes[(notes.indexOf(found[1].toUpperCase()) + shift + 12) % 12];
+    return /^m(in(or)?)?$/i.test(found[3] ?? "") ? `${note}m` : note;
+  }
   const collections = [];
   const palette = [
     { id: 1, name: "Red", hex: "#e5484d" },
@@ -308,6 +321,28 @@
       for (const sample of chosen(paths)) {
         sample.bpm = text === "" || text === "-" ? null : text === "auto" ? sample.bpm : bpm;
         sample.bpm_source = sample.bpm === null ? null : "manual";
+      }
+      return null;
+    },
+    // `null` back to the value worked out, else set by hand.
+    set_loop: ({ paths, looped }) => {
+      for (const sample of chosen(paths)) {
+        sample.looped = looped ?? automaticLoop.get(sample.path);
+        sample.loop_source = looped === null ? "name" : "manual";
+      }
+      return null;
+    },
+    set_key: ({ paths, value }) => {
+      const text = value.trim();
+      let key;
+      if (text === "auto") key = undefined;
+      else if (text === "" || text === "-") key = null;
+      else {
+        key = normalizeKey(text);
+        if (key === null) throw `“${text}” is not a key (e.g. Am, F#, Bbm)`;
+      }
+      for (const sample of chosen(paths)) {
+        sample.key = key === undefined ? automaticKey.get(sample.path) : key;
       }
       return null;
     },
