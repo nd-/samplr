@@ -53,6 +53,12 @@ pub fn catch_up(
     root: &Path,
     report: &mut dyn FnMut(String),
 ) -> Result<(), Box<dyn Error>> {
+    // Unplugged disk: every sample would look vanished, and forgetting them
+    // would lose their tags.
+    if !root.is_dir() {
+        report(format!("{}: not found, nothing changed", root.display()));
+        return Ok(());
+    }
     // Which files vanished is found outside any transaction (one disk access
     // per sample); forgetting them is then quick. The folder is read again by
     // `index`, which saves in short transactions of its own.
