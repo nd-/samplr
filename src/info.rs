@@ -165,6 +165,7 @@ fn standard_label(key: StandardTagKey) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{TempDir, encode, write_wav};
     use std::io::Cursor;
 
     fn field(id: &[u8; 4], text: &[u8]) -> Vec<u8> {
@@ -223,5 +224,66 @@ mod tests {
     #[test]
     fn not_riff() {
         assert!(riff_info(&mut Cursor::new(b"FORM\0\0\0\0AIFF".to_vec())).is_empty());
+    }
+
+    /// The file's own tags, with ffmpeg writing title, artist and genre in
+    /// the format's own way; `None` when ffmpeg is not installed.
+    fn tags_of(name: &str, codec: &[&str]) -> Option<Vec<(String, String)>> {
+        let dir = TempDir::new();
+        let source = dir.path().join("source.wav");
+        write_wav(&source);
+        let target = dir.path().join(name);
+        let mut args = vec![
+            "-metadata",
+            "title=Kick 01",
+            "-metadata",
+            "artist=Hutch",
+            "-metadata",
+            "genre=Dub",
+        ];
+        args.extend(codec);
+        encode(&source, &target, &args).then(|| file_tags(&target))
+    }
+
+    fn has(tags: &[(String, String)], label: &str, value: &str) -> bool {
+        tags.iter().any(|(l, v)| l == label && v == value)
+    }
+
+    #[test]
+    fn tags_of_flac_mp3_and_ogg() {
+        for (name, codec) in [
+            ("a.flac", &["-c:a", "flac"][..]),
+            ("a.mp3", &["-c:a", "libmp3lame"]),
+            ("a.ogg", &["-c:a", "libvorbis"]),
+        ] {
+            let Some(tags) = tags_of(name, codec) else {
+                return;
+            };
+            // ID3 for the MP3, Vorbis comments for the others.
+            assert!(has(&tags, "Title", "Kick 01"), "{name}: {tags:?}");
+            assert!(has(&tags, "Artist", "Hutch"), "{name}: {tags:?}");
+            assert!(has(&tags, "Genre", "Dub"), "{name}: {tags:?}");
+        }
+    }
+
+    #[test]
+    fn tags_of_a_wav_written_by_ffmpeg() {
+        // ffmpeg writes them in a LIST/INFO chunk, read by samplr itself.
+        let Some(tags) = tags_of("a.wav", &["-c:a", "pcm_s16le"]) else {
+            return;
+        };
+        assert!(has(&tags, "Title", "Kick 01"), "{tags:?}");
+        assert!(has(&tags, "Artist", "Hutch"), "{tags:?}");
+    }
+
+    #[test]
+    fn no_tags_read_from_an_aiff() {
+        // ffmpeg writes the title in both an `ID3 ` and a `NAME` chunk;
+        // symphonia 0.5 reads neither (see CLAUDE.md). When it does, this
+        // test says so.
+        let Some(tags) = tags_of("a.aiff", &["-c:a", "pcm_s16be", "-write_id3v2", "1"]) else {
+            return;
+        };
+        assert!(tags.is_empty(), "{tags:?}");
     }
 }

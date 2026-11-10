@@ -559,7 +559,7 @@ pub fn peaks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{TempDir, memory_db, write_sound, write_wav};
+    use crate::test_support::{TempDir, encode, memory_db, write_sound, write_wav};
     use std::fs;
 
     #[test]
@@ -789,5 +789,65 @@ mod tests {
         // Another size: the cache is stale, the file decoded again.
         write_sound(&path, 1, &[0; 20]);
         assert_eq!(peaks(&db, id, &path).unwrap(), vec![(0.0, 0.0); 20]);
+    }
+
+    /// One second of stereo at 44.1 kHz, then encoded with ffmpeg as
+    /// `name`; `None` when ffmpeg is not installed.
+    fn encoded(dir: &TempDir, name: &str, args: &[&str]) -> Option<SampleInfo> {
+        let source = dir.path().join("source.wav");
+        let samples: Vec<i16> = (0..88_200).map(|i| ((i % 200) * 100) as i16).collect();
+        write_sound(&source, 2, &samples);
+        let target = dir.path().join(name);
+        encode(&source, &target, args).then(|| read_info(&target).unwrap())
+    }
+
+    #[test]
+    fn every_format_read_without_decoding() {
+        let dir = TempDir::new();
+        let formats: [(&str, &[&str], &str, Option<u32>); 4] = [
+            ("a.aiff", &["-c:a", "pcm_s24be"], "pcm_s24be", Some(24)),
+            (
+                "a.flac",
+                &[
+                    "-c:a",
+                    "flac",
+                    "-sample_fmt",
+                    "s32",
+                    "-bits_per_raw_sample",
+                    "24",
+                ],
+                "flac",
+                Some(24),
+            ),
+            // Lossy: no bit depth.
+            (
+                "a.mp3",
+                &["-c:a", "libmp3lame", "-b:a", "192k"],
+                "mp3",
+                None,
+            ),
+            ("a.ogg", &["-c:a", "libvorbis", "-q:a", "5"], "vorbis", None),
+        ];
+        for (name, args, codec, bits) in formats {
+            let Some(info) = encoded(&dir, name, args) else {
+                return;
+            };
+            assert_eq!(info.codec.as_deref(), Some(codec), "{name}");
+            assert_eq!(info.bits, bits, "{name}");
+            assert_eq!(
+                (info.channels, info.sample_rate),
+                (Some(2), Some(44_100)),
+                "{name}"
+            );
+            let seconds = info.duration_secs.unwrap();
+            // A lossy file is read with its encoder's delay and padding, a
+            // few tens of milliseconds (symphonia's gapless reading is off);
+            // symphonia counts one frame too many in an AIFF.
+            let slack = if bits.is_some() { 0.001 } else { 0.06 };
+            assert!(
+                (1.0..=1.0 + slack).contains(&seconds),
+                "{name}: {seconds} s"
+            );
+        }
     }
 }

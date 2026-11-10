@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use rusqlite::Connection;
@@ -99,4 +100,26 @@ pub fn write_sound(path: &Path, channels: u16, samples: &[i16]) {
     }
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, bytes).unwrap();
+}
+
+/// Encodes `source` into `target` with ffmpeg and the given arguments;
+/// `false` when ffmpeg is not installed, the caller then skipping its test.
+pub fn encode(source: &Path, target: &Path, args: &[&str]) -> bool {
+    let Some(ffmpeg) = crate::convert::ffmpeg() else {
+        eprintln!("ffmpeg not found: {} not tested", target.display());
+        return false;
+    };
+    let status = Command::new(ffmpeg)
+        .args(["-nostdin", "-loglevel", "error", "-y", "-i"])
+        .arg(source)
+        .args(args)
+        .arg(target)
+        .status()
+        .unwrap();
+    assert!(
+        status.success(),
+        "ffmpeg could not write {}",
+        target.display()
+    );
+    true
 }
