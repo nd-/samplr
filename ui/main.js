@@ -712,8 +712,24 @@ const tempoOrigins = {
   name: "from the name",
   file: "from the file",
   length: "estimated from the length",
+  sound: "detected from the sound",
   manual: "set by hand",
 };
+
+// A tempo worked out rather than read: shown "≈ 100", greyed.
+function tempoEstimated(sample) {
+  return sample.bpm_source === "length" || sample.bpm_source === "sound";
+}
+
+// Where a sample's tempo comes from, with how it was found when estimated:
+// "detected from the sound: 8 beats in 4.00 s".
+function tempoOrigin(sample) {
+  let origin = tempoOrigins[sample.bpm_source];
+  if (sample.bpm_fixed) origin += ", chosen with Detect BPM";
+  if (!tempoEstimated(sample) || !(sample.duration_secs > 0)) return origin;
+  const beats = Math.round((sample.bpm * sample.duration_secs) / 60);
+  return `${origin}: ${beats} beats in ${sample.duration_secs.toFixed(2)} s`;
+}
 
 async function renderInfo() {
   const sample = samples[selected];
@@ -775,7 +791,7 @@ function drawInfo(sample) {
       add("Modified", new Date(infoOfFile.modified * 1000).toLocaleString());
     }
   }
-  add("Tempo", sample.bpm === null ? null : `${sample.bpm} BPM`, tempoOrigins[sample.bpm_source]);
+  add("Tempo", sample.bpm === null ? null : `${sample.bpm} BPM`, tempoOrigin(sample));
   add("Key", sample.key);
   add("Loudness", loudnessText(sample) || null);
   add(
@@ -814,7 +830,7 @@ function renderPlayer(sample) {
   // file's own between brackets.
   const shape = shapeFor(sample);
   if (sample.bpm !== null) {
-    const estimated = sample.bpm_source === "length" ? "≈ " : "";
+    const estimated = tempoEstimated(sample) ? "≈ " : "";
     const bpm = Math.round(sample.bpm * shape.speed * shape.tempo * 10) / 10;
     details.push(estimated + (bpm === sample.bpm ? `${bpm} BPM` : `${bpm} BPM (${sample.bpm})`));
   }
@@ -1510,6 +1526,7 @@ document.getElementById("show-folders").addEventListener("click", showFolders);
 // `stopIfGone: false` when the selected sample only left the open collection:
 // it is still in the library, its sound keeps playing.
 async function refresh({ stopIfGone = true } = {}) {
+  refreshWaiting = false;
   const selectedPath = samples[selected]?.path;
   const statusText = status.textContent;
   try {
@@ -1542,7 +1559,24 @@ async function refresh({ stopIfGone = true } = {}) {
   loadTagList();
 }
 
-window.__TAURI__.event.listen("library-changed", () => refresh());
+// A change on disk, or the background pass telling its progress (every 5 s
+// while it measures), draws the rows again: a tempo or key being edited in
+// its cell, or a type being chosen, would be lost. The refresh then waits
+// for the edit to end.
+let refreshWaiting = false;
+
+function editing() {
+  return tbody.querySelector("input") !== null || picker !== null;
+}
+
+function refreshIfWaiting() {
+  if (refreshWaiting && !editing()) refresh();
+}
+
+window.__TAURI__.event.listen("library-changed", () => {
+  if (editing()) refreshWaiting = true;
+  else refresh();
+});
 
 // Following the folders goes on when one of them fails (cannot be watched,
 // a change not applied): the problems are kept on the Rust side and shown
@@ -2158,6 +2192,11 @@ async function openContextMenu(x, y) {
     items.push(document.createElement("hr"));
     items.push(menuButton("Remove from this collection (Del)", removeFromCollection));
   }
+  items.push(document.createElement("hr"));
+  items.push(detectButton());
+  const automaticKey = menuButton("Automatic key", () => setChosen("set_key", "auto"));
+  automaticKey.title = "Back to the key read in the name or the file";
+  items.push(automaticKey);
   // The files themselves: a DAW project pointing to the old path will no
   // longer find them, hence the explicit wording.
   items.push(document.createElement("hr"));
@@ -2177,6 +2216,89 @@ async function openContextMenu(x, y) {
   const { width, height } = contextMenu.getBoundingClientRect();
   contextMenu.style.left = `${Math.min(x, window.innerWidth - width - 4)}px`;
   contextMenu.style.top = `${Math.min(y, window.innerHeight - height - 4)}px`;
+}
+
+// "Detect BPM…": the button opens the methods in the menu; with a single
+// sample, each shows what it would give, greyed when it gives nothing (the
+// sound is only known once decoded).
+const tempoMethods = [
+  ["name", "From the name"],
+  ["file", "From the file (ACID chunk)"],
+  ["length", "From the length"],
+  ["sound", "From the sound"],
+];
+
+function detectButton() {
+  const button = document.createElement("button");
+  button.textContent = "Detect BPM…";
+  button.title = "Work out the tempo by a method of your choice, over any other, even one set by hand";
+  button.addEventListener("click", async () => {
+    const paths = chosenPaths();
+    let values = null;
+    if (paths.length === 1) {
+      try {
+        values = await invoke("tempo_methods", { path: paths[0] });
+      } catch (error) {
+        showError(error);
+      }
+    }
+    const choices = tempoMethods.map(([method, label]) => {
+      const value = values?.[method];
+      const shown = values && method !== "sound" ? `${label}: ${value ?? "none"}` : label;
+      const choice = menuButton(shown, () => detectChosen(method));
+      choice.classList.add("method");
+      if (values && method !== "sound" && value === null) choice.disabled = true;
+      if (method === "sound") choice.title = "Decodes the file again";
+      return choice;
+    });
+    const label = document.createElement("div");
+    label.className = "label";
+    label.textContent = "Detect BPM";
+    const automatic = menuButton("Automatic", () => setChosen("set_tempo", "auto"));
+    automatic.classList.add("method");
+    automatic.title = "Back to the tempo worked out: name, file, then the sound for a loop";
+    button.replaceWith(label, automatic, ...choices);
+  });
+  return button;
+}
+
+// Back to automatic for the selection: `command` is `set_tempo` or `set_key`.
+async function setChosen(command, value) {
+  const paths = chosenPaths();
+  try {
+    await invoke(command, { paths, value });
+  } catch (error) {
+    showError(error);
+    return;
+  }
+  await refresh({ stopIfGone: false });
+  flash(rowsOf(paths));
+}
+
+// The tempo found by `method` replaces any other, even one typed by hand.
+// The sound is decoded again for each file, hence the status line.
+async function detectChosen(method) {
+  const paths = chosenPaths();
+  status.textContent = `Detecting the tempo of ${paths.length} sample(s)…`;
+  let result;
+  try {
+    result = await invoke("detect_tempo", { paths, method });
+  } catch (error) {
+    showError(error);
+    return;
+  }
+  await refresh({ stopIfGone: false });
+  flash(rowsOf(paths));
+  status.textContent = `Tempo detected for ${result.detected} sample(s)`;
+  if (result.failed > 0) {
+    const why = {
+      name: "no tempo in their name",
+      file: "no ACID chunk",
+      length: "their length gives no whole tempo",
+      sound: "too short, longer than 64 s, or unreadable",
+    }[method];
+    showError(`No tempo found for ${result.failed} sample(s): ${why}`);
+  }
 }
 
 function closeContextMenu() {
@@ -2599,12 +2721,12 @@ function dot(hex) {
 }
 
 // The tempo of a row: as written in the name or in the file's ACID chunk,
-// or "≈ 100" when estimated from the sample's length.
+// or "≈ 100" when estimated from the sample's length or its sound.
 function bpmCell(sample) {
   if (sample.bpm === null) return cell("", "number bpm");
-  if (sample.bpm_source === "length") {
+  if (tempoEstimated(sample)) {
     const td = cell(`≈ ${sample.bpm}`, "number bpm estimated");
-    td.title = "Estimated from the length (a whole number of bars)";
+    td.title = `${tempoOrigin(sample)[0].toUpperCase()}${tempoOrigin(sample).slice(1)}. Double-click to set it`;
     return td;
   }
   const td = cell(String(sample.bpm), "number bpm");
@@ -2690,9 +2812,10 @@ function editCell(index, td, command) {
   const input = document.createElement("input");
   input.type = "text";
   input.value = initial;
-  input.placeholder = "auto";
+  input.placeholder = "none";
   input.spellcheck = false;
-  input.title = "Enter to save, Esc to cancel. Empty: automatic; -: none";
+  input.title =
+    "Enter to save, Esc to cancel. Empty: none. Back to automatic: right-click, Detect BPM… or Automatic key";
   td.replaceChildren(input);
   input.focus();
   input.select();
@@ -2707,6 +2830,7 @@ function editCell(index, td, command) {
     if (!save || value === initial) {
       // The row may have been drawn again meanwhile (scrolling).
       if (td.isConnected) td.replaceWith(command === "set_tempo" ? bpmCell(sample) : keyCell(sample));
+      refreshIfWaiting();
       return;
     }
     const paths = selectedPaths.has(sample.path)
@@ -2719,6 +2843,7 @@ function editCell(index, td, command) {
       if (!td.isConnected) return;
       if (leaving) {
         td.replaceWith(command === "set_tempo" ? bpmCell(sample) : keyCell(sample));
+        refreshIfWaiting();
         return;
       }
       done = false;
@@ -2832,6 +2957,7 @@ function openTypePicker(x, y, { current, extra, choose }) {
 function closeTypePicker() {
   typePicker.hidden = true;
   picker = null;
+  refreshIfWaiting();
 }
 
 function pickType(value) {
@@ -3149,7 +3275,7 @@ const shortcutList = [
   ["Ctrl+I", "Show or hide the Info panel"],
   ["Del", "Take the selection out of the open collection"],
   ["Double-click", "Edit the tempo, the key or the type of a sample, or switch loop / one-shot"],
-  ["Right-click", "Collections, rename, move, convert or trash the selection"],
+  ["Right-click", "Collections, detect the tempo, rename, move, convert or trash the selection"],
   ["Right-click the header", "Show or hide columns"],
   ["Drag a row", "Drop the selection into your DAW, or onto a collection"],
 ];

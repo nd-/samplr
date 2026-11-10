@@ -307,14 +307,16 @@ fn set_favorite(paths: Vec<PathBuf>, favorite: bool) -> Result<(), String> {
     transaction.commit().map_err(|e| e.to_string())
 }
 
-/// Sets the samples' tempo by hand. `value`: a tempo, `"-"` for none, empty
-/// to go back to the one worked out from the name or the length.
+/// Sets the samples' tempo by hand. `value`: a tempo, empty or `"-"` for
+/// none, `"auto"` to go back to the one worked out (name, file, sound…).
+/// Emptying the box means none: going back to automatic gave a detected
+/// tempo, which looked like the box refusing to be emptied.
 #[tauri::command(async)]
 fn set_tempo(paths: Vec<PathBuf>, value: String) -> Result<(), String> {
     let value = value.trim();
     let bpm = match value {
-        "" => None,
-        "-" => Some(0),
+        "auto" => None,
+        "" | "-" => Some(0),
         _ => match value.parse::<u32>() {
             Ok(bpm) if TEMPOS.contains(&bpm) => Some(bpm),
             _ => {
@@ -329,6 +331,43 @@ fn set_tempo(paths: Vec<PathBuf>, value: String) -> Result<(), String> {
         db::set_tempo(&transaction, file_id, bpm).map_err(|e| e.to_string())?;
     }
     transaction.commit().map_err(|e| e.to_string())
+}
+
+/// What `detect_tempo` did: how many samples got a tempo, and how many gave
+/// none (too short, too long, unreadable).
+#[derive(Serialize)]
+struct Detected {
+    detected: u32,
+    failed: u32,
+}
+
+/// "Detect BPM": works out the samples' tempo by the method chosen
+/// ("name", "file", "length" or "sound") and keeps it over any other, even
+/// one typed by hand. "sound" decodes each file whole: a few tenths of a
+/// second per loop.
+#[tauri::command(async)]
+fn detect_tempo(paths: Vec<PathBuf>, method: String) -> Result<Detected, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    let mut result = Detected {
+        detected: 0,
+        failed: 0,
+    };
+    for (path, file_id) in paths.iter().zip(file_ids(&db, &paths)?) {
+        match samplr::detect_tempo(&db, file_id, path, &method) {
+            Ok(Some(bpm)) => {
+                db::set_detected_tempo(&db, file_id, bpm, &method).map_err(|e| e.to_string())?;
+                result.detected += 1;
+            }
+            _ => result.failed += 1,
+        }
+    }
+    Ok(result)
+}
+
+/// What each method of "Detect BPM" but the sound gives for a sample.
+#[tauri::command(async)]
+fn tempo_methods(path: PathBuf) -> Result<samplr::TempoMethods, String> {
+    samplr::tempo_methods(&path).map_err(|e| e.to_string())
 }
 
 /// Sets samples as loops (`true`) or one-shots by hand; `None` goes back to
@@ -399,13 +438,14 @@ fn sound_types() -> Vec<SoundFamily> {
 }
 
 /// Sets the samples' key by hand, in any spelling ("Bbm", "a#min"). `value`:
-/// `"-"` for none, empty to go back to the one read in the name.
+/// empty or `"-"` for none, `"auto"` to go back to the one read in the name
+/// or the file, as for the tempo.
 #[tauri::command(async)]
 fn set_key(paths: Vec<PathBuf>, value: String) -> Result<(), String> {
     let value = value.trim();
     let key = match value {
-        "" => None,
-        "-" => Some(String::new()),
+        "auto" => None,
+        "" | "-" => Some(String::new()),
         _ => match analysis::normalize_key(value) {
             Some(key) => Some(key),
             None => return Err(format!("“{value}” is not a key (e.g. Am, F#, Bbm)")),
@@ -891,7 +931,6 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
     // The id of the sound playing, until its end has been reported.
     let mut playing_id: Option<u32> = None;
     let mut volume = 1.0;
-    let mut speed = 1.0;
     let shape = stretch::Shape::new();
     // Where the sound playing is in its file. `Player::get_pos` counts the
     // time played, which no longer matches the file once the speed changes
@@ -907,11 +946,10 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
                 start,
                 shape: playback,
             }) => {
-                speed = playback.speed;
                 shape.set(playback.tempo, playback.semitones);
                 let player = rodio::Player::connect_new(sink.mixer());
                 player.set_volume(volume);
-                player.set_speed(speed);
+                player.set_speed(playback.speed);
                 position = Arc::new(Mutex::new(Duration::ZERO));
                 let shared = Arc::clone(&position);
                 let tracked = sound
@@ -927,7 +965,8 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
                     // The player's seek is in time played: at twice the
                     // speed, a second played is two of the file. A format
                     // that cannot seek just plays from the start.
-                    let _ = player.try_seek(Duration::from_secs_f64(start / f64::from(speed)));
+                    let _ =
+                        player.try_seek(Duration::from_secs_f64(start / f64::from(playback.speed)));
                 }
                 current = Some(player);
                 playing_id = Some(id);
@@ -952,10 +991,9 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
                 }
             }
             Ok(AudioRequest::Shape(playback)) => {
-                speed = playback.speed;
                 shape.set(playback.tempo, playback.semitones);
                 if let Some(player) = &current {
-                    player.set_speed(speed);
+                    player.set_speed(playback.speed);
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}
@@ -1020,6 +1058,8 @@ fn main() {
             set_tempo,
             set_key,
             set_loop,
+            detect_tempo,
+            tempo_methods,
             set_sound_type,
             sound_types,
             rename_sample,

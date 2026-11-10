@@ -785,6 +785,11 @@ header button:disabled,
 	border-top: 1px solid var(--border);
 }
 
+/* The methods of "Detect BPM…", under where the button was. */
+#context-menu button.method {
+	padding-left: var(--space-12);
+}
+
 #context-menu hr {
 	border: none;
 	border-top: 1px solid var(--border);

@@ -86,7 +86,12 @@ pub fn open() -> Result<Connection, Box<dyn Error>> {
 }
 
 /// The schema version `migrate` brings a database to: the last step's.
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 12;
+
+/// What a waveform's row holds, in `waveforms.measured`: 1 the loudness, 2
+/// the tempo detected too. A row of an older version is stale: computed
+/// again, once, in the background, its loudness shown meanwhile.
+const MEASURED: i64 = 2;
 
 /// Brings a database created by an older samplr up to date. Its version is
 /// kept by SQLite (`user_version`, 0 for a new database); each step runs once.
@@ -211,6 +216,23 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
         db.execute_batch(
             "ALTER TABLE files ADD COLUMN sound_type TEXT;
              PRAGMA user_version = 10;",
+        )?;
+    }
+    if version < 11 {
+        // The tempo detected from the sound (see `pulse`), filled as the
+        // waveforms are computed again (`MEASURED`).
+        db.execute_batch(
+            "ALTER TABLE waveforms ADD COLUMN detected_bpm INTEGER;
+             PRAGMA user_version = 11;",
+        )?;
+    }
+    if version < 12 {
+        // How a tempo stored in `files.bpm` was found: NULL typed by hand,
+        // else the method chosen in "Detect BPM": 'name', 'file', 'length'
+        // or 'sound'.
+        db.execute_batch(
+            "ALTER TABLE files ADD COLUMN bpm_origin TEXT;
+             PRAGMA user_version = 12;",
         )?;
     }
     db.execute_batch("COMMIT")?;
@@ -429,8 +451,8 @@ pub fn waveform(
     let bytes: Option<Vec<u8>> = db
         .query_row(
             "SELECT peaks FROM waveforms
-             WHERE file_id = ?1 AND size = ?2 AND modified = ?3 AND measured = 1",
-            params![file_id, stamp.size, stamp.modified],
+             WHERE file_id = ?1 AND size = ?2 AND modified = ?3 AND measured = ?4",
+            params![file_id, stamp.size, stamp.modified, MEASURED],
             |row| row.get(0),
         )
         .optional()?;
@@ -443,18 +465,21 @@ pub fn save_waveform(
     file_id: i64,
     stamp: FileStamp,
     peaks: &[Peak],
-    loudness: waveform::Loudness,
+    measures: waveform::Measures,
 ) -> Result<(), Box<dyn Error>> {
     db.execute(
-        "INSERT OR REPLACE INTO waveforms (file_id, size, modified, peaks, lufs, peak_db, measured)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1)",
+        "INSERT OR REPLACE INTO waveforms
+             (file_id, size, modified, peaks, lufs, peak_db, detected_bpm, measured)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             file_id,
             stamp.size,
             stamp.modified,
             waveform::to_bytes(peaks),
-            loudness.lufs,
-            loudness.peak_db,
+            measures.lufs,
+            measures.peak_db,
+            measures.tempo,
+            MEASURED,
         ],
     )?;
     Ok(())
@@ -669,8 +694,24 @@ pub fn set_favorite(db: &Connection, file_id: i64, favorite: bool) -> Result<(),
 /// the one worked out from the name or the length.
 pub fn set_tempo(db: &Connection, file_id: i64, bpm: Option<u32>) -> Result<(), Box<dyn Error>> {
     db.execute(
-        "UPDATE files SET bpm = ?1 WHERE id = ?2",
+        "UPDATE files SET bpm = ?1, bpm_origin = NULL WHERE id = ?2",
         params![bpm, file_id],
+    )?;
+    Ok(())
+}
+
+/// Sets a sample's tempo to the one a method found on request ("Detect
+/// BPM"), over any other, even one typed by hand. `origin`: the method,
+/// "name", "file", "length" or "sound".
+pub fn set_detected_tempo(
+    db: &Connection,
+    file_id: i64,
+    bpm: u32,
+    origin: &str,
+) -> Result<(), Box<dyn Error>> {
+    db.execute(
+        "UPDATE files SET bpm = ?1, bpm_origin = ?2 WHERE id = ?3",
+        params![bpm, origin, file_id],
     )?;
     Ok(())
 }
@@ -893,9 +934,9 @@ pub fn search(
                 (SELECT group_concat(cf.collection_id) FROM collection_files cf
                  WHERE cf.file_id = f.id),
                 f.bpm, f.key, f.acid_beats, f.acid_root, f.acid_loop, f.looped,
-                w.lufs, w.peak_db, f.codec, f.sound_type
+                w.lufs, w.peak_db, f.codec, f.sound_type, w.detected_bpm, f.bpm_origin
          FROM files f
-         LEFT JOIN waveforms w ON w.file_id = f.id AND w.measured = 1
+         LEFT JOIN waveforms w ON w.file_id = f.id AND w.measured >= 1
          WHERE f.hidden = 0 AND instr(unicode_lower(f.path), unicode_lower(?1)) > 0",
     );
     if favorites_only {
@@ -946,9 +987,17 @@ pub fn search(
         let acid_beats: Option<u32> = row.get(10)?;
         let acid_root: Option<String> = row.get(11)?;
         let acid_loop: Option<bool> = row.get(12)?;
-        let tempo = match row.get::<_, Option<u32>>(8)? {
+        let stored_source = match row.get::<_, Option<String>>(19)?.as_deref() {
+            Some("name") => analysis::Source::Name,
+            Some("file") => analysis::Source::File,
+            Some("length") => analysis::Source::Length,
+            Some("sound") => analysis::Source::Sound,
+            _ => analysis::Source::Manual,
+        };
+        let stored_tempo: Option<u32> = row.get(8)?;
+        let tempo = match stored_tempo {
             Some(0) => None,
-            Some(bpm) => Some((bpm, analysis::Source::Manual)),
+            Some(bpm) => Some((bpm, stored_source)),
             None => analysis::tempo(stem, duration_secs, acid_beats),
         };
         let key = match row.get::<_, Option<String>>(9)? {
@@ -959,6 +1008,18 @@ pub fn search(
         let (looped, loop_source) = match row.get::<_, Option<bool>>(13)? {
             Some(looped) => (looped, analysis::Source::Manual),
             None => analysis::looped(&path, acid_loop, tempo.is_some()),
+        };
+        // Last resort, for a loop only: the tempo detected from the sound,
+        // better than the one from the length alone (see `pulse`). A one-shot
+        // keeps none, and the detection does not make it a loop.
+        let detected: Option<u32> = row.get(18)?;
+        let tempo = match (tempo, detected) {
+            (None | Some((_, analysis::Source::Length)), Some(bpm))
+                if looped && stored_tempo.is_none() =>
+            {
+                Some((bpm, analysis::Source::Sound))
+            }
+            (tempo, _) => tempo,
         };
         // A value no longer in the list counts as not set.
         let chosen = row
@@ -987,6 +1048,8 @@ pub fn search(
                 .unwrap_or_default(),
             bpm: tempo.map(|(bpm, _)| bpm),
             bpm_source: tempo.map(|(_, source)| source),
+            bpm_fixed: stored_tempo.is_some_and(|bpm| bpm > 0)
+                && stored_source != analysis::Source::Manual,
             key,
             looped,
             loop_source: Some(loop_source),

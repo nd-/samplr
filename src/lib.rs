@@ -6,6 +6,7 @@ pub mod analysis;
 pub mod convert;
 pub mod db;
 pub mod info;
+pub mod pulse;
 pub mod sound_type;
 pub mod watch;
 pub mod waveform;
@@ -49,6 +50,9 @@ pub struct SampleInfo {
     /// the sample is read back from the database.
     pub bpm: Option<u32>,
     pub bpm_source: Option<analysis::Source>,
+    /// The tempo was chosen with "Detect BPM": stored, it no longer follows
+    /// the name or the file.
+    pub bpm_fixed: bool,
     /// Key from the file name, in sharps ("A#m"); `None` when unknown.
     pub key: Option<String>,
     /// A loop (`true`) or a one-shot, and where that comes from (see
@@ -367,6 +371,7 @@ pub fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
         collections: Vec::new(),
         bpm: None,
         bpm_source: None,
+        bpm_fixed: false,
         key: None,
         looped: false,
         loop_source: None,
@@ -406,12 +411,63 @@ pub fn update_waveform(
         return Ok(WaveformUpdate::UpToDate);
     }
     match waveform::compute(path) {
-        Ok((peaks, loudness)) => {
-            db::save_waveform(db, file_id, stamp, &peaks, loudness)?;
+        Ok((peaks, measures)) => {
+            db::save_waveform(db, file_id, stamp, &peaks, measures)?;
             Ok(WaveformUpdate::Computed)
         }
         Err(error) => Ok(WaveformUpdate::Unreadable(error.to_string())),
     }
+}
+
+/// The tempos a sample's name, ACID chunk and length give (see
+/// `analysis`), whatever is used for it: what "Detect BPM" offers.
+#[derive(Serialize)]
+pub struct TempoMethods {
+    pub name: Option<u32>,
+    pub file: Option<u32>,
+    pub length: Option<u32>,
+}
+
+/// Reads the file's headers only, never the sound.
+pub fn tempo_methods(path: &Path) -> Result<TempoMethods, Box<dyn Error>> {
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let info = read_info(path)?;
+    let seconds = info.duration_secs;
+    Ok(TempoMethods {
+        name: analysis::tempo_from_name(stem),
+        file: info
+            .acid
+            .as_ref()
+            .zip(seconds)
+            .and_then(|(acid, seconds)| acid::tempo(acid.beats, seconds)),
+        length: seconds.and_then(analysis::tempo_from_length),
+    })
+}
+
+/// A sample's tempo by the method asked ("name", "file", "length" or
+/// "sound"), whatever the others say. "sound" decodes the file again (see
+/// `pulse`) and caches its waveform on the way. `None` when the method gives
+/// none: no tempo in the name, no ACID chunk, a length of no whole tempo, a
+/// sound too short or longer than a loop can be.
+pub fn detect_tempo(
+    db: &Connection,
+    file_id: i64,
+    path: &Path,
+    method: &str,
+) -> Result<Option<u32>, Box<dyn Error>> {
+    if method != "sound" {
+        let methods = tempo_methods(path)?;
+        return match method {
+            "name" => Ok(methods.name),
+            "file" => Ok(methods.file),
+            "length" => Ok(methods.length),
+            _ => Err(format!("unknown method “{method}”").into()),
+        };
+    }
+    let stamp = db::FileStamp::read(path)?;
+    let (peaks, measures) = waveform::compute(path)?;
+    db::save_waveform(db, file_id, stamp, &peaks, measures)?;
+    Ok(measures.tempo)
 }
 
 /// The waveform of a sample of the database: the cached one if the file has
@@ -425,7 +481,7 @@ pub fn peaks(
     if let Some(peaks) = db::waveform(db, file_id, stamp)? {
         return Ok(peaks);
     }
-    let (peaks, loudness) = waveform::compute(path)?;
-    db::save_waveform(db, file_id, stamp, &peaks, loudness)?;
+    let (peaks, measures) = waveform::compute(path)?;
+    db::save_waveform(db, file_id, stamp, &peaks, measures)?;
     Ok(peaks)
 }

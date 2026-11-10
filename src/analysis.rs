@@ -21,6 +21,8 @@ pub enum Source {
     Manual,
     /// From the file's ACID chunk: its length in beats (see `acid`).
     File,
+    /// Detected from the sound (see `pulse`): an estimate.
+    Sound,
 }
 
 /// The tempos a name may give: sample packs stay within this range.

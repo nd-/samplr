@@ -130,7 +130,7 @@ database leaves its collections, a hidden one stays in them and comes back with 
 version 4). `tags` and `collections` have a `color_id` (`ON DELETE SET NULL`: deleting a colour
 leaves them without colour). A tag deleted because no sample carries it any more loses its
 colour. Schema changes go through `db::migrate`: SQLite keeps the schema version (`PRAGMA
-user_version`, 10 so far), each step runs once, under `BEGIN IMMEDIATE` so that the app and a command opening the database
+user_version`, 12 so far), each step runs once, under `BEGIN IMMEDIATE` so that the app and a command opening the database
 together do not both run it. A new database goes through every step too (the `CREATE TABLE`s are
 version 0): add a column with a migration step, not in the `CREATE TABLE`, and raise
 `SCHEMA_VERSION` with it: an up-to-date database is opened without taking the write lock,
@@ -140,13 +140,16 @@ reads the files outside any transaction and saves them by batches of 200, each i
 transaction: the lock is never held for the whole walk, which can take minutes on a slow disk or a
 network share. A waveform is 1024 (min, max) peaks over all channels, stored as signed bytes (2
 KB), with the file's size and modification date: if either has changed, the waveform is stale and
-computed again. The waveform's row also holds the sample's loudness (`lufs`, `peak_db`, with
-`measured` = 1), measured from the sound itself during the same decoding (`waveform::compute`,
+computed again. The waveform's row also holds the sample's loudness (`lufs`, `peak_db`) and the tempo
+detected from its sound (`detected_bpm`, see `pulse` below), with `measured` = 2 (`MEASURED` in
+`db.rs`), measured from the sound itself during the same decoding (`waveform::compute`,
 `ebur128` crate: integrated loudness per EBU R128, the broadcast standard, and the sample peak;
 checked against ffmpeg's `ebur128` filter: same values). No LUFS under 0.4 s, the standard's block
-(2865 of the 3303 samples of the Linux library have one, all a peak). Waveforms saved before
-(`measured` = 0) are stale: the background thread measured the whole library again once (276 s in
-a debug build, 15 MB at most), telling the page every 5 s so that the LUFS column fills in. Peaks
+(2865 of the 3303 samples of the Linux library have one, all a peak). Waveforms saved by an
+older version (`measured` below `MEASURED`) are stale: the background thread measures the whole
+library again once (276 s in a debug build for the loudness, 372 s with the tempo too, 15 MB at
+most), telling the page every 5 s so that the columns fill in; the loudness of an older row is
+shown meanwhile. Peaks
 are built on the fly by merging buckets two by two, so memory use does not depend on the file
 length, which is not always known in advance (some MP3s). Tags are stored lowercase, without
 spaces; a tag no longer used by any sample is deleted. **Unplugged disk**: if the scanned folder
@@ -586,8 +589,8 @@ Audio pitfalls met so far:
   gives a whole tempo (60 × beats ÷ seconds for 4 to 128 beats, between 70 and 180, nearest 120).
   A lone letter is a key only next to a tempo ("Kick_A" is not in A) or with a quality ("Cmaj",
   "F#m"); the note's letter must be upper case. Keys in sharps ("A#m" for "Bbm"). Worked out at
-  each search (`db::search` fills `SampleInfo::bpm`, `bpm_source` "name", "file", "length" or
-  "manual", `key`), not stored: a renamed file needs nothing; the ACID chunk is read with the file
+  each search (`db::search` fills `SampleInfo::bpm`, `bpm_source` "name", "file", "length",
+  "sound" or "manual", `key`), not stored: a renamed file needs nothing; the ACID chunk is read with the file
   (`read_info`, chunk headers only, never the sound) and kept in `files`. The chunk's own tempo
   field is not used: 120 in 461 of the 466 files of the Linux library having one, whatever the
   sample, while beats ÷ length gave the tempo of the name 348 times out of 348, and the root note
@@ -597,8 +600,10 @@ Audio pitfalls met so far:
   (music MP3 and FLAC, no WAV) have any. Set by hand: a double-click on a BPM or Key cell edits
   it, for the whole selection when the row is in it (Enter or leaving the box saves, Esc cancels;
   a value refused after Enter keeps the box open, outlined in `--error` red, the reason in its
-  tooltip and the status line; refused on leaving the box, the old value comes back; empty goes
-  back to automatic, `-` means none, to silence a wrong guess). A click on these cells (and on Loop
+  tooltip and the status line; refused on leaving the box, the old value comes back; empty or `-`
+  means none, to silence a wrong guess; back to automatic through the row menu, "Automatic" at the
+  top of Detect BPM… and "Automatic key", `"auto"` for `set_tempo` and `set_key`: emptying the box
+  used to mean automatic, which with the detection gave a tempo back at once). A click on these cells (and on Loop
   and Type) selects the row and, with Autoplay, plays it only after `doubleClickDelay` (400 ms,
   GTK's double-click time) if no second click came: editing stays silent, and these cells no
   longer silence a third of the row (Autoplay seemed broken once the Type column was added). The
@@ -606,18 +611,44 @@ Audio pitfalls met so far:
   still retrigger the sound, like a pad. Stored in `files.bpm` and
   `files.key` (migration 5): NULL automatic, 0 and '' none; commands `set_tempo` (20 to 400) and
   `set_key` (any spelling, kept in sharps). The edit box has no border nor vertical padding: a
-  taller row would break the virtual list's fixed height. Columns BPM ("≈ 100" muted for an
+  taller row would break the virtual list's fixed height. A `library-changed` event while a cell
+  is edited or the type picker is open waits for the edit to end (`refreshWaiting`,
+  `refreshIfWaiting`): drawing the rows again closed the box at once while the background pass
+  told its progress every 5 s. Columns BPM ("≈ 100" muted for an
   estimate) and Key, sortable and resizable; search filters `bpm:120`, `bpm:118-124` (either
   order, 20 to 400 like a tempo set by hand: `TEMPOS`), `key:Am` (any spelling: `key:bbm`),
   applied in the `search` command after the SQL query. On the 3287 samples of the Linux library:
-  tempo from the name for 51 %, from the length for 11 %, key for 30 %. **No analysis of the sound
-  itself** (a decision taken, measured): stratum-dsp 1.0 (pure Rust) found the right tempo for 34
-  % of the 795 samples whose name gives it (35 % under 4 s, 31 % for 10 to 30 s), the right key
-  for 13 % of 974 (mostly a fifth off), 158 ms and up to 600 MB per file for two minutes of sound;
-  the length method was right 87 % of the time when it answers. Its announced 87.7 % is on full DJ
-  tracks, which the library hardly has; worth measuring again on long files only, with its
-  confidence ≥ 0.5 (80 % right on the few labelled ones over 10 s). Never decode a whole file into
-  memory for an analysis: a 3-hour recording took the machine's memory.
+  tempo from the name for 51 %, from the length for 11 %, key for 30 %.
+- Tempo detected from the sound (`src/pulse.rs`, unit-tested), the last resort, for a loop only
+  (manual, name, ACID chunk first; it replaces the estimate from the length, and a one-shot keeps
+  no tempo, nor becomes a loop through it): a loop lasts a whole number of beats, so its length
+  gives a short list of tempos (1 to 64 beats, 60 to 200 BPM), and the one whose pulse best
+  matches the attacks wins (attack envelope: rises of energy in three bands, below 200 Hz, to 2
+  kHz, above, by steps of 256 samples; score: circular autocorrelation at the beat and the half
+  beat, plus the strength on the beat grid, times a likelihood: tempos around 110 within about
+  half an octave, beats in whole bars of four, better a power of two). Fed during the waveform's
+  decoding (`Onsets`), stored in `waveforms.detected_bpm`; nothing over 64 s, and the envelope
+  stops growing there. Measured on the 1670 loops of the Linux library whose name gives the tempo
+  (the experiment is not kept in the repository): right 62.9 % of the time, half or double 15.1
+  %, 63.7 % under 4 s; the tempo is among the candidates for 92.1 % of them. The tempo from the
+  length alone was right 44.1 % of the times it answered (64 % of them), not the 87 % measured
+  earlier on another set. The octave is the hard part: the likelihood decides it (moving its
+  centre took the "half" errors from 288 to 1 and the "double" ones up to 458), a dub groove
+  labelled 140 being as much a 70. On that library: 623 loops get a detected tempo, 376 of them
+  had none. Shown "≈ 100" like any estimate; the Info panel and the cell's tooltip say how it was
+  found ("detected from the sound: 8 beats in 4.00 s", `tempoOrigin`). "Detect BPM…" in the row
+  menu opens its methods there (`detectButton`), after "Automatic": from the name, from the file (ACID chunk), from
+  the length, from the sound; with a single sample each shows what it gives (`tempo_methods`, the
+  file's headers only), greyed when nothing, the sound being known only once decoded. The tempo
+  the method gives (`detect_tempo`, the selection; "sound" decodes each file again) is kept over
+  any other, even one typed by hand: stored in `files.bpm` with the method in `files.bpm_origin`
+  (migration 12; NULL typed by hand, which `set_tempo` writes back), shown as coming from that
+  method plus ", chosen with Detect BPM" (`SampleInfo::bpm_fixed`: stored, it no longer follows
+  a rename). The detection from the sound never overrides a stored tempo. stratum-dsp 1.0 (pure Rust),
+  measured before, found the right tempo for 34 % of the 795 samples whose name gives it (35 %
+  under 4 s), the right key for 13 % of 974 (mostly a fifth off), 158 ms and up to 600 MB per file
+  for two minutes of sound: not used. Never decode a whole file into memory for an analysis: a
+  3-hour recording took the machine's memory.
 - Loop or one-shot (`analysis::looped`, unit-tested): set by hand first (`files.looped`), else the
   ACID chunk's flag, else the words of the file name then of its folders from the deepest up, the
   first that says it winning (`loop_from_words`: "loop", "loops"; "one shot", "oneshot", "hit",

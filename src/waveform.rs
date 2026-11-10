@@ -15,21 +15,25 @@ pub const POINTS: usize = 1024;
 /// The lowest and highest sample value (between -1 and 1) over a stretch of sound.
 pub type Peak = (f32, f32);
 
-/// How loud a sample is, measured with its waveform.
+/// What is measured on the sound with its waveform.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct Loudness {
+pub struct Measures {
     /// Integrated loudness (EBU R128), in LUFS; `None` for a sound too short
     /// (under 0.4 s) or too quiet to be measured.
     pub lufs: Option<f64>,
     /// Highest sample, in dBFS (0 is full scale); `None` for silence.
     pub peak_db: Option<f64>,
+    /// The tempo it would have as a loop (see `pulse`); whether it is one is
+    /// decided elsewhere.
+    pub tempo: Option<u32>,
 }
 
 /// Decodes the whole file and summarises it into at most `POINTS` peaks,
-/// measuring its loudness on the way (the same decoding serves both).
+/// measuring its loudness and its pulse on the way (the same decoding serves
+/// all three).
 /// Every channel goes into the same peaks: the drawing shows the loudest
 /// channel at each moment.
-pub fn compute(path: &Path) -> Result<(Vec<Peak>, Loudness), Box<dyn Error>> {
+pub fn compute(path: &Path) -> Result<(Vec<Peak>, Measures), Box<dyn Error>> {
     let decoder = rodio::Decoder::try_from(File::open(path)?)?;
     // `get()` turns the `NonZero<u16>` returned by rodio into a plain number.
     let channels = decoder.channels().get() as usize;
@@ -40,6 +44,8 @@ pub fn compute(path: &Path) -> Result<(Vec<Peak>, Loudness), Box<dyn Error>> {
     )?;
     // Fed by blocks of frames rather than sample by sample.
     let mut block: Vec<f32> = Vec::with_capacity(4096 * channels);
+    let mut onsets = crate::pulse::Onsets::new(decoder.sample_rate().get());
+    let mut frame_sum = 0.0;
 
     // The file length is not always known in advance (some MP3s), so the
     // peaks are built on the fly: each bucket starts by covering a single
@@ -68,8 +74,11 @@ pub fn compute(path: &Path) -> Result<(Vec<Peak>, Loudness), Box<dyn Error>> {
             *high = high.max(sample);
         }
 
+        frame_sum += sample;
         // End of a frame: count it, and close the bucket once it is full.
         if index % channels == channels - 1 {
+            onsets.push(frame_sum / channels as f32);
+            frame_sum = 0.0;
             frames_in_current += 1;
             if frames_in_current == frames_per_bucket {
                 frames_in_current = 0;
@@ -87,10 +96,17 @@ pub fn compute(path: &Path) -> Result<(Vec<Peak>, Loudness), Box<dyn Error>> {
     // A last, incomplete frame (one sample per channel) is left out.
     block.truncate(block.len() - block.len() % channels);
     meter.add_frames_f32(&block)?;
-    Ok((resample(&buckets, POINTS), loudness(&meter, channels)))
+    let (lufs, peak_db) = loudness(&meter, channels);
+    let measures = Measures {
+        lufs,
+        peak_db,
+        tempo: onsets.tempo(),
+    };
+    Ok((resample(&buckets, POINTS), measures))
 }
 
-fn loudness(meter: &ebur128::EbuR128, channels: usize) -> Loudness {
+/// Integrated loudness in LUFS and sample peak in dBFS.
+fn loudness(meter: &ebur128::EbuR128, channels: usize) -> (Option<f64>, Option<f64>) {
     // Too short or too quiet, the measure is -inf: no value rather than a
     // number that means nothing.
     let lufs = meter.loudness_global().ok().filter(|lufs| lufs.is_finite());
@@ -98,7 +114,7 @@ fn loudness(meter: &ebur128::EbuR128, channels: usize) -> Loudness {
         .filter_map(|channel| meter.sample_peak(channel).ok())
         .fold(0.0, f64::max);
     let peak_db = (peak > 0.0).then(|| 20.0 * peak.log10());
-    Loudness { lufs, peak_db }
+    (lufs, peak_db)
 }
 
 /// Merges neighbouring peaks two by two: half as many, each covering twice as long.
