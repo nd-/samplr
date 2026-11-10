@@ -6,6 +6,10 @@
 // For the tests: `window.__calls` records every command with its arguments,
 // `window.__emit(name, payload)` sends an event as Rust would, and
 // `window.__answer` is what `dialog.ask` answers (true by default).
+// `window.__library` changes the library as the folder watcher would (the
+// test then emits `library-changed`), `window.__delay(command, args)` gives
+// an answer's delay in milliseconds, and `window.__problems` holds what
+// `library_problems` reports.
 
 (() => {
   const names = [];
@@ -102,7 +106,7 @@
     tag_colors: () => [],
     tags: () => tagCounts(),
     splice_folders: () => [],
-    library_problems: () => [],
+    library_problems: () => window.__problems.splice(0),
     ffmpeg_available: () => true,
     folders: () => [{ path: "/lib", samples: samples.length, found: true }],
     file_info: () => ({ size: 1000, modified: 0, tags: [] }),
@@ -186,6 +190,24 @@
     },
   };
 
+  window.__library = {
+    add(path) {
+      const sample = structuredClone(samples[0]);
+      Object.assign(sample, { path, tags: [], favorite: false, collections: [] });
+      samples.push(sample);
+      byPath.set(path, sample);
+    },
+    remove(path) {
+      samples.splice(samples.indexOf(byPath.get(path)), 1);
+      byPath.delete(path);
+    },
+    tag(path, tag) {
+      byPath.get(path).tags.push(tag);
+    },
+  };
+  window.__problems = [];
+  window.__delay = () => 0;
+
   const listeners = new Map();
   window.__calls = [];
   window.__answer = true;
@@ -199,7 +221,10 @@
         window.__calls.push({ command, args: structuredClone(args) });
         const run = commands[command];
         if (!run) throw `the fake Tauri API has no command “${command}”`;
-        return structuredClone(run(args));
+        const answer = structuredClone(run(args));
+        const delay = window.__delay(command, args);
+        if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+        return answer;
       },
     },
     event: {
