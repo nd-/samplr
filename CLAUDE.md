@@ -229,7 +229,10 @@ Audio pitfalls met so far:
   stop, a click plays. An audio thread opens the output once for the whole session and gets the
   sounds to play through a channel; each sound gets a new `rodio::Player`, dropping the
   previous one cuts it. The file is opened by the `play` command, so an unreadable file is
-  reported to the page.
+  reported to the page. Every query of the list goes through `fetchSamples` (`search` for a new
+  search, `refresh` after a change): each request is numbered and an answer overtaken by a newer
+  request is dropped, otherwise a slow answer coming last replaced the list with results for
+  text no longer in the box.
 - 7c: the selected sample's waveform is drawn on a `<canvas>` above the list, at the screen's
   real resolution. `samplr::peaks` (in `src/lib.rs`, shared with `samplr wave`) returns the
   cached peaks or computes and caches them. A late answer for a sample no longer selected is

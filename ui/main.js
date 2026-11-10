@@ -968,11 +968,9 @@ async function refresh({ stopIfGone = true } = {}) {
   const selectedPath = samples[selected]?.path;
   const statusText = status.textContent;
   try {
-    samples = await invoke("search", {
-      query: searchBox.value,
-      favorites: favoritesOnly,
-      collection: currentCollection,
-    });
+    const found = await fetchSamples();
+    if (found === null) return;
+    samples = found;
     sortSamples();
   } catch (error) {
     showError(error);
@@ -1671,13 +1669,27 @@ document.addEventListener("mousedown", (event) => {
 window.addEventListener("blur", closeContextMenu);
 document.getElementById("list").addEventListener("scroll", closeContextMenu);
 
+// The samples for the search box, the Favorites filter and the open
+// collection as they are now; `null` when a newer request was made while
+// this one ran (typing on, a change on disk): its answer is out of date and
+// must not replace the list, whichever answer comes last.
+let searchRequest = 0;
+
+async function fetchSamples() {
+  const request = ++searchRequest;
+  const found = await invoke("search", {
+    query: searchBox.value,
+    favorites: favoritesOnly,
+    collection: currentCollection,
+  });
+  return request === searchRequest ? found : null;
+}
+
 async function search() {
   try {
-    samples = await invoke("search", {
-      query: searchBox.value,
-      favorites: favoritesOnly,
-      collection: currentCollection,
-    });
+    const found = await fetchSamples();
+    if (found === null) return;
+    samples = found;
     sortSamples();
     selected = -1;
     selectedPaths = new Set();
