@@ -8,7 +8,7 @@
 // `window.__answer` is what `dialog.ask` answers (true by default), each
 // question kept in `window.__asked`; `window.__chosenFolder` is what the
 // folder chooser gives (`null`: cancelled), `window.__splice` the Splice
-// folders found.
+// folders found, `window.__ffmpeg` whether ffmpeg is installed.
 // `window.__pending` counts the commands not answered yet.
 // `window.__library` changes the library as the folder watcher would (the
 // test then emits `library-changed`), `window.__delay(command, args)` gives
@@ -84,6 +84,13 @@
       if (!sample) throw `${path} is not in the database`;
       return sample;
     });
+  }
+
+  function move(from, to) {
+    const sample = byPath.get(from);
+    byPath.delete(from);
+    sample.path = to;
+    byPath.set(to, sample);
   }
 
   function tagCounts() {
@@ -181,7 +188,65 @@
     tags: () => tagCounts(),
     splice_folders: () => window.__splice,
     library_problems: () => window.__problems.splice(0),
-    ffmpeg_available: () => true,
+    ffmpeg_available: () => window.__ffmpeg,
+    reveal: () => null,
+    // The rules of the Rust commands: the extension kept, a name with a
+    // separator refused, a folder outside the library refused.
+    rename_sample: ({ path, name }) => {
+      const trimmed = name.trim();
+      if (!trimmed || /[/\\]/.test(trimmed)) throw `“${trimmed}” is not a file name`;
+      const dot = path.lastIndexOf(".");
+      const renamed = `${path.slice(0, path.lastIndexOf("/") + 1)}${trimmed}${path.slice(dot)}`;
+      move(path, renamed);
+      return renamed;
+    },
+    move_samples: ({ paths, folder }) => {
+      if (!folders.some((f) => folder === f.path || folder.startsWith(`${f.path}/`))) {
+        throw `${folder} is not in a scanned folder: add it with + Folder first`;
+      }
+      return chosen(paths).map((sample) => {
+        const moved = `${folder}/${sample.path.slice(sample.path.lastIndexOf("/") + 1)}`;
+        move(sample.path, moved);
+        return moved;
+      });
+    },
+    trash_samples: ({ paths }) => {
+      for (const sample of chosen(paths)) window.__library.remove(sample.path);
+      return paths.length;
+    },
+    // A copy next to each original, with its tags and collections.
+    convert_samples: ({ paths, options }) =>
+      chosen(paths).map((sample) => {
+        const mono = options.mono && sample.channels !== 1 ? " mono" : "";
+        const copy = `${sample.path.slice(0, sample.path.lastIndexOf("."))}${mono}.${options.format}`;
+        window.__library.add(copy);
+        Object.assign(byPath.get(copy), {
+          tags: [...sample.tags],
+          collections: [...sample.collections],
+        });
+        return copy;
+      }),
+    // What each method gives: the tempo in the name, no ACID chunk, and the
+    // length's for the loops only.
+    tempo_methods: ({ path }) => {
+      const sample = chosen([path])[0];
+      const named = /(\d+)BPM/.exec(path);
+      return {
+        name: named ? Number(named[1]) : null,
+        file: null,
+        length: sample.looped ? 120 : null,
+      };
+    },
+    detect_tempo: ({ paths, method }) => {
+      let detected = 0;
+      for (const sample of chosen(paths)) {
+        const bpm = commands.tempo_methods({ path: sample.path })[method] ?? null;
+        if (bpm === null) continue;
+        Object.assign(sample, { bpm, bpm_source: method, bpm_fixed: true });
+        detected += 1;
+      }
+      return { detected, failed: paths.length - detected };
+    },
     folders: () =>
       folders.map((folder) => ({
         ...folder,
@@ -320,6 +385,7 @@
   window.__answer = true;
   window.__asked = [];
   window.__chosenFolder = null;
+  window.__ffmpeg = true;
   window.__splice = [];
   window.__emit = (name, payload) => {
     for (const handler of listeners.get(name) ?? []) handler({ event: name, payload });
