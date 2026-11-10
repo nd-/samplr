@@ -293,7 +293,8 @@ Audio pitfalls met so far:
   sample played with Loop on, pauses and resumes where it was, `pause` command →
   `AudioRequest::Pause`, `Player::pause` / `play`, the playhead frozen meanwhile; a one-shot
   played once plays again from the start, like a pad; nothing playing, the selected sample
-  plays), L (switches the Play loop box, as a click on it would), the Loop and
+  plays; it works wherever the focus is but in a text box, `isTextEntry`: with the focus left on
+  a slider, a checkbox or a button just used, it ticked the box or pressed the button again), L (switches the Play loop box, as a click on it would), the Loop and
   Autoplay checkboxes and the volume slider, the two checkboxes on one line and the slider under
   them (`#player-options`) in the header. Autoplay off: a click on a row selects it without
   playing (to tag or drag it in silence), and stops the sound playing if it was another sample's;

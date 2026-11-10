@@ -2438,6 +2438,16 @@ searchBox.addEventListener("input", () => {
   searchTimer = setTimeout(search, 150);
 });
 
+// A box where keys type text: search, tags, a tempo… not a slider or a
+// checkbox.
+function isTextEntry(element) {
+  return (
+    element instanceof HTMLTextAreaElement ||
+    (element instanceof HTMLInputElement &&
+      ["text", "search", "number"].includes(element.type))
+  );
+}
+
 // The keys work wherever the focus is, search box included, so that one
 // can type a search and browse the results without touching the mouse.
 document.addEventListener("keydown", (event) => {
@@ -2530,15 +2540,15 @@ document.addEventListener("keydown", (event) => {
       play();
       break;
     case " ":
-      // In a text box or on a button, Space types or presses as usual.
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLButtonElement) {
-        return;
-      }
+      // In a text box Space types. Elsewhere it plays or pauses, even with
+      // the focus left on a slider, a checkbox or a button just used, which
+      // would otherwise take it (ticking the box, pressing the button again).
+      if (isTextEntry(event.target)) return;
       playOrPause();
       break;
     case "l":
     case "L":
-      if (event.target instanceof HTMLInputElement || event.ctrlKey || event.metaKey || event.altKey) {
+      if (isTextEntry(event.target) || event.ctrlKey || event.metaKey || event.altKey) {
         return;
       }
       // Through the checkbox itself: its change handler restarts the sound
