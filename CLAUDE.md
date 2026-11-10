@@ -401,6 +401,12 @@ Audio pitfalls met so far:
   sample's place in the list rather than `nth-child`: the virtual list's rows alternate
   differently as it scrolls. Every row has a background of its own (`--bg` otherwise): WebKitGTK
   smooths the text of a row without one differently, and it looked bold next to a striped one.
+- Hiding columns: a right-click on the list's header opens a menu of the columns, each with a ✓
+  when shown (`openColumnMenu`, it stays open to switch several), and "Show all columns". Name is
+  always shown; with Folder hidden, Name takes the rest (at least its own width, its handle
+  hidden). Kept in `localStorage` (`hiddenColumns`). A hidden column's `<col>` is taken out of
+  both tables like the × one (`applyColumns`), and `buildRow` makes no cell for it. The last
+  header shown gets the class `last` (no line after it): `:last-child` is the hidden × header.
 - Visual feedback: after adding samples to a collection (menu or drop), their rows and the
   collection flash; after adding tags, the rows and the tag bar (`flash` in `main.js`, a CSS
   animation from the waveform colour back to the element's own background).

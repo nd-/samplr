@@ -140,27 +140,33 @@ function buildRow(index) {
   tr.title = sample.path;
   if (selectedPaths.has(sample.path)) tr.classList.add("selected");
   if (index === selected && selectedPaths.size > 1) tr.classList.add("current");
-  const star = cell(sample.favorite ? "★" : "☆", "star");
-  star.classList.toggle("off", !sample.favorite);
-  star.title = shortcut("Favorite (Ctrl+D)");
   // One row in two slightly darker, after the sample's place in the list:
   // the table's own children alternate differently as the virtual list
   // scrolls (the spacer row comes first).
   if (index % 2 === 1) tr.classList.add("striped");
-  tr.append(
-    star,
-    cell(name),
-    cell(formatDuration(sample.duration_secs), "number"),
-    bpmCell(sample),
-    keyCell(sample),
-    loopCell(sample),
-    loudnessCell(sample),
-    cell(sample.channels === null ? "" : String(sample.channels), "number"),
-    cell(sample.codec ?? "", "codec"),
-    collectionsCell(sample.collections),
-    tagsCell(sample.tags),
-    cell(folder, "folder"),
-  );
+  // In the header's order; a hidden column gets no cell.
+  const cells = {
+    favorite: () => {
+      const star = cell(sample.favorite ? "★" : "☆", "star");
+      star.classList.toggle("off", !sample.favorite);
+      star.title = shortcut("Favorite (Ctrl+D)");
+      return star;
+    },
+    name: () => cell(name),
+    length: () => cell(formatDuration(sample.duration_secs), "number"),
+    bpm: () => bpmCell(sample),
+    key: () => keyCell(sample),
+    loop: () => loopCell(sample),
+    lufs: () => loudnessCell(sample),
+    channels: () => cell(sample.channels === null ? "" : String(sample.channels), "number"),
+    codec: () => cell(sample.codec ?? "", "codec"),
+    collections: () => collectionsCell(sample.collections),
+    tags: () => tagsCell(sample.tags),
+    folder: () => cell(folder, "folder"),
+  };
+  for (const [key, make] of Object.entries(cells)) {
+    if (!hiddenColumns.has(key)) tr.append(make());
+  }
   // In an open collection, a button at the end of the row takes that
   // sample out of it, whether it is selected or not.
   if (currentCollection !== null) {
@@ -238,14 +244,7 @@ function ensureVisible(index) {
 }
 
 function render() {
-  removeHeader.hidden = currentCollection === null;
-  // The column of the × exists only in a collection. Its <col> is taken out
-  // rather than given no width: WebKit treats a zero-width <col> as an
-  // automatic one, which then shares the free width with Tags.
-  for (const [column, group] of removeColumns) {
-    if (currentCollection === null) column.remove();
-    else group.append(column);
-  }
+  applyColumns();
   drawRows();
   applyColumnWidths();
   status.textContent = `${samples.length} sample(s)`;
@@ -295,11 +294,132 @@ tbody.addEventListener("mousedown", (event) => {
 });
 
 const removeHeader = document.querySelector("th.remove");
-// The × column's <col> in each table, with the group to put it back in.
-const removeColumns = [...document.querySelectorAll("col.col-remove")].map((column) => [
-  column,
-  column.parentElement,
-]);
+const sortHeaders = [...document.querySelectorAll("th[data-sort]")];
+// Each table's <colgroup> with all its <col>s, to put back those shown.
+const columnGroups = tables.map((table) => {
+  const group = table.querySelector("colgroup");
+  return [group, [...group.children]];
+});
+
+// Columns hidden through the header's right-click menu, remembered on this
+// computer. Name is always shown.
+const columnLabels = {
+  favorite: "★ Favorite",
+  name: "Name",
+  length: "Length",
+  bpm: "BPM",
+  key: "Key",
+  loop: "Loop",
+  lufs: "LUFS",
+  channels: "Ch (channels)",
+  codec: "Codec",
+  collections: "Collections",
+  tags: "Tags",
+  folder: "Folder",
+};
+let hiddenColumns = new Set();
+try {
+  hiddenColumns = new Set(JSON.parse(localStorage.getItem("hiddenColumns") ?? "[]"));
+} catch {
+  // Storage unavailable or unreadable: every column.
+}
+hiddenColumns.delete("name");
+
+// The column taking the width left: Folder, or Name when Folder is hidden.
+function restColumn() {
+  return hiddenColumns.has("folder") ? "name" : "folder";
+}
+
+// Shows the columns not hidden, and the × one in a collection only. A
+// hidden column's <col> is taken out rather than given no width: WebKit
+// treats a zero-width <col> as an automatic one, which then shares the free
+// width.
+function applyColumns() {
+  removeHeader.hidden = currentCollection === null;
+  for (const header of sortHeaders) header.hidden = hiddenColumns.has(header.dataset.sort);
+  for (const [group, columns] of columnGroups) {
+    group.replaceChildren(
+      ...columns.filter((column) =>
+        column.classList.contains("col-remove")
+          ? currentCollection !== null
+          : !hiddenColumns.has(column.dataset.col),
+      ),
+    );
+  }
+  // No line after the last column shown (`:last-child` would be the hidden
+  // × header).
+  const shown = [...removeHeader.parentElement.children].filter((header) => !header.hidden);
+  for (const header of shown) header.classList.toggle("last", header === shown.at(-1));
+  // Name's handle has nothing to set while it takes the rest.
+  document.querySelector('.resizer[data-col="name"]').hidden = restColumn() === "name";
+}
+
+function toggleColumn(key) {
+  if (hiddenColumns.has(key)) hiddenColumns.delete(key);
+  else hiddenColumns.add(key);
+  hiddenColumnsChanged();
+}
+
+function hiddenColumnsChanged() {
+  try {
+    localStorage.setItem("hiddenColumns", JSON.stringify([...hiddenColumns]));
+  } catch {
+    // Storage unavailable: the choice lasts until the app closes.
+  }
+  render();
+}
+
+// The header's right-click menu: every column with a ✓ when shown. Stays
+// open, so that several columns can be switched in a row.
+function openColumnMenu(x, y) {
+  // Shares the menu with the rows: a row's menu still waiting for its
+  // answer must not replace this one.
+  menuOpening += 1;
+  const label = document.createElement("div");
+  label.className = "label";
+  label.textContent = "Columns";
+  const items = [label];
+  const choose = (action) => () => {
+    action();
+    openColumnMenu(x, y);
+  };
+  for (const [key, text] of Object.entries(columnLabels)) {
+    const button = document.createElement("button");
+    const check = document.createElement("span");
+    check.className = "tick";
+    check.textContent = hiddenColumns.has(key) ? "" : "✓";
+    button.append(check, text);
+    if (key === "name") {
+      button.disabled = true;
+      button.title = "Always shown";
+    } else {
+      button.addEventListener("click", choose(() => toggleColumn(key)));
+    }
+    items.push(button);
+  }
+  items.push(document.createElement("hr"));
+  const all = document.createElement("button");
+  all.textContent = "Show all columns";
+  all.disabled = hiddenColumns.size === 0;
+  all.addEventListener(
+    "click",
+    choose(() => {
+      hiddenColumns.clear();
+      hiddenColumnsChanged();
+    }),
+  );
+  items.push(all);
+  contextMenu.replaceChildren(...items);
+  contextMenu.hidden = false;
+  const { width, height } = contextMenu.getBoundingClientRect();
+  contextMenu.style.left = `${Math.min(x, window.innerWidth - width - 4)}px`;
+  contextMenu.style.top = `${Math.min(y, window.innerHeight - height - 4)}px`;
+}
+
+listHead.addEventListener("contextmenu", (event) => {
+  event.preventDefault();
+  openColumnMenu(event.clientX, event.clientY);
+});
 
 // Column widths, changed by dragging the handle on a header's right edge;
 // a double-click on it brings the default back. Remembered between
@@ -327,21 +447,26 @@ try {
 delete columnWidths.folder;
 
 // The table fills the list's width, Folder taking the rest, at least
-// `minFolderWidth`. When that does not fit, the table grows wider than the
-// list, which then scrolls sideways. The width is set outright: WebKit
-// ignores `min-width` on a fixed-layout table.
+// `minFolderWidth` (Name, when Folder is hidden, at least its own width).
+// When that does not fit, the table grows wider than the list, which then
+// scrolls sideways. The width is set outright: WebKit ignores `min-width`
+// on a fixed-layout table.
 const minFolderWidth = 120;
 
 function applyColumnWidths() {
+  const rest = restColumn();
+  let total = 0;
   for (const [name, width] of Object.entries(columnWidths)) {
-    for (const column of document.querySelectorAll(`col[data-col="${name}"]`)) {
-      column.style.width = `${width}px`;
+    // A hidden column's <col> is out of the tables, set anyway for later.
+    for (const column of columnGroups.flatMap(([, columns]) => columns)) {
+      if (column.dataset.col === name) column.style.width = name === rest ? "" : `${width}px`;
     }
+    if (name !== rest && !hiddenColumns.has(name)) total += width;
   }
   const star = document.querySelector("th.star").offsetWidth;
   const remove = removeHeader.hidden ? 0 : removeHeader.offsetWidth;
-  const total = Object.values(columnWidths).reduce((sum, width) => sum + width, 0);
-  const needed = star + remove + total + minFolderWidth;
+  const restWidth = rest === "name" ? columnWidths.name : minFolderWidth;
+  const needed = star + remove + total + restWidth;
   for (const table of tables) table.style.width = `${Math.max(listBox.clientWidth, needed)}px`;
 }
 
@@ -2560,6 +2685,7 @@ const shortcutList = [
   ["Del", "Take the selection out of the open collection"],
   ["Double-click", "Edit the tempo or the key of a sample, or switch loop / one-shot"],
   ["Right-click", "Collections, rename, move, convert or trash the selection"],
+  ["Right-click the header", "Show or hide columns"],
   ["Drag a row", "Drop the selection into your DAW, or onto a collection"],
 ];
 
@@ -2822,6 +2948,8 @@ document.getElementById("show-settings").addEventListener("click", () => {
   settingsDialog.showModal();
 });
 
+applyColumns();
+applyColumnWidths();
 search();
 loadCollections();
 loadColors();

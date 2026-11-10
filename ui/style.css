@@ -673,6 +673,13 @@ header button:disabled,
 	font: inherit;
 }
 
+/* The header's menu: the ✓ of a column shown, its place kept for one
+   hidden, so that the names are aligned. */
+#context-menu .tick {
+	display: inline-block;
+	width: 1.4em;
+}
+
 #context-menu hr {
 	border: none;
 	border-top: 1px solid var(--border);
@@ -884,7 +891,7 @@ td {
 	border-right-color: color-mix(in srgb, var(--border) 45%, transparent);
 }
 
-th:last-child, td:last-child {
+th.last, td:last-child {
 	border-right: none;
 }
 
