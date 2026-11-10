@@ -559,7 +559,7 @@ pub fn peaks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{TempDir, memory_db, write_wav};
+    use crate::test_support::{TempDir, memory_db, write_sound, write_wav};
     use std::fs;
 
     #[test]
@@ -609,5 +609,185 @@ mod tests {
         assert!(move_sample(&db, &old, &new).is_err());
         assert!(old.is_file());
         assert_eq!(db::file_id(&db, &old).unwrap(), Some(id));
+    }
+
+    #[test]
+    fn which_files_are_samples() {
+        assert!(is_audio(Path::new("/lib/kick.WAV")));
+        assert!(is_audio(Path::new("/lib/pad.aiff")));
+        assert!(!is_audio(Path::new("/lib/notes.txt")));
+        assert!(!is_audio(Path::new("/lib/kick")));
+        // Left by macOS next to `kick.wav`.
+        assert!(!is_audio(Path::new("/lib/._kick.wav")));
+
+        let roots = [PathBuf::from("/lib"), PathBuf::from("/disk/.samples")];
+        assert!(is_hidden_below(
+            Path::new("/lib/.Trash-1000/kick.wav"),
+            &roots
+        ));
+        assert!(is_hidden_below(
+            Path::new("/lib/drums/.kick.wav.part"),
+            &roots
+        ));
+        assert!(!is_hidden_below(Path::new("/lib/drums/kick.wav"), &roots));
+        // A scanned folder may itself be hidden: only what lies below counts.
+        assert!(!is_hidden_below(
+            Path::new("/disk/.samples/kick.wav"),
+            &roots
+        ));
+        // Outside every scanned folder: not this function's concern.
+        assert!(!is_hidden_below(
+            Path::new("/elsewhere/.x/kick.wav"),
+            &roots
+        ));
+    }
+
+    #[test]
+    fn scanning_counts_first_then_reports_each_file() {
+        let dir = TempDir::new();
+        write_wav(&dir.path().join("a.wav"));
+        write_wav(&dir.path().join("drums/b.wav"));
+        fs::write(dir.path().join("broken.wav"), "not a sound").unwrap();
+        fs::write(dir.path().join("notes.txt"), "not audio").unwrap();
+        let mut db = memory_db();
+
+        let mut calls = Vec::new();
+        let scan = scan(&mut db, dir.path(), &mut |done, total| {
+            calls.push((done, total))
+        })
+        .unwrap();
+        // Every audio file, readable or not, the total known from the start.
+        assert_eq!(calls, [(1, 3), (2, 3), (3, 3)]);
+        assert_eq!(scan.folder, dir.path());
+        assert_eq!((scan.samples.len(), scan.unreadable), (2, 1));
+        assert_eq!(db::folders(&db).unwrap(), [dir.path().to_path_buf()]);
+    }
+
+    #[test]
+    fn scanning_a_file_is_refused() {
+        let dir = TempDir::new();
+        let file = dir.path().join("a.wav");
+        write_wav(&file);
+        assert!(scan(&mut memory_db(), &file, &mut |_, _| {}).is_err());
+    }
+
+    #[test]
+    fn indexing_saves_beyond_one_batch() {
+        let dir = TempDir::new();
+        // More than two batches: the last one, incomplete, is saved too.
+        let count = 2 * SAVE_BATCH + 50;
+        for i in 0..count {
+            write_sound(&dir.path().join(format!("{i:04}.wav")), 1, &[0; 10]);
+        }
+        let db = memory_db();
+        let (samples, unreadable) = index(&db, dir.path(), &mut |_| {});
+        assert_eq!((samples.len(), unreadable), (count, 0));
+        assert_eq!(db::all_files(&db).unwrap().len(), count);
+    }
+
+    #[test]
+    fn a_folder_on_an_unplugged_disk_can_still_be_removed() {
+        let dir = TempDir::new();
+        let disk = dir.path().join("disk");
+        write_wav(&disk.join("kick.wav"));
+        let mut db = memory_db();
+        scan(&mut db, &disk, &mut |_, _| {}).unwrap();
+        fs::remove_dir_all(&disk).unwrap();
+
+        // The path no longer resolves: taken as given.
+        assert_eq!(remove_folder(&mut db, &disk).unwrap(), 1);
+        assert!(db::folders(&db).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_converted_copy_gets_the_tags_and_collections() {
+        if convert::ffmpeg().is_none() {
+            eprintln!("ffmpeg not found: conversion not tested");
+            return;
+        }
+        let dir = TempDir::new();
+        // Already mono: "mono" is ignored, and not added to the name.
+        let source = dir.path().join("kick.wav");
+        write_wav(&source);
+        let db = memory_db();
+        let id = db::save(&db, &read_info(&source).unwrap()).unwrap();
+        db::add_tags(&db, id, &["drums".to_string()]).unwrap();
+        let collection = db::create_collection(&db, "Set").unwrap();
+        db::add_to_collection(&db, collection, &[id]).unwrap();
+
+        let options = convert::Options {
+            format: "flac".to_string(),
+            bits: None,
+            mp3_bitrate: 320,
+            ogg_quality: 8,
+            mono: true,
+        };
+        let copy = convert_sample(&db, &source, &options).unwrap();
+        assert_eq!(copy, dir.path().join("kick.flac"));
+        let copy_id = db::file_id(&db, &copy).unwrap().unwrap();
+        assert_eq!(db::tags_of(&db, copy_id).unwrap(), ["drums"]);
+        assert_eq!(
+            db::collections_holding(&db, &[copy_id]).unwrap(),
+            [collection]
+        );
+    }
+
+    /// 2.4 s of silence named for 90 BPM: its length says 100 (4 beats).
+    fn loop_90(dir: &TempDir) -> PathBuf {
+        let path = dir.path().join("Loop 90BPM.wav");
+        write_sound(&path, 1, &vec![0; 105_840]);
+        path
+    }
+
+    #[test]
+    fn each_tempo_method_on_its_own() {
+        let dir = TempDir::new();
+        let path = loop_90(&dir);
+        let methods = tempo_methods(&path).unwrap();
+        assert_eq!(
+            (methods.name, methods.file, methods.length),
+            (Some(90), None, Some(100))
+        );
+
+        let db = memory_db();
+        let id = db::save(&db, &read_info(&path).unwrap()).unwrap();
+        assert_eq!(detect_tempo(&db, id, &path, "name").unwrap(), Some(90));
+        assert_eq!(detect_tempo(&db, id, &path, "length").unwrap(), Some(100));
+        assert_eq!(detect_tempo(&db, id, &path, "file").unwrap(), None);
+        assert!(detect_tempo(&db, id, &path, "guess").is_err());
+    }
+
+    #[test]
+    fn detecting_from_the_sound_caches_the_waveform() {
+        let dir = TempDir::new();
+        let path = loop_90(&dir);
+        let db = memory_db();
+        let id = db::save(&db, &read_info(&path).unwrap()).unwrap();
+        let stamp = db::FileStamp::read(&path).unwrap();
+        assert!(!db::has_waveform(&db, id, stamp).unwrap());
+        // Silence has no pulse.
+        assert_eq!(detect_tempo(&db, id, &path, "sound").unwrap(), None);
+        assert!(db::has_waveform(&db, id, stamp).unwrap());
+    }
+
+    #[test]
+    fn peaks_come_from_the_cache_until_the_file_changes() {
+        let dir = TempDir::new();
+        let path = dir.path().join("kick.wav");
+        write_wav(&path);
+        let db = memory_db();
+        let id = db::save(&db, &read_info(&path).unwrap()).unwrap();
+        assert_eq!(peaks(&db, id, &path).unwrap().len(), 1024);
+
+        // A cached waveform that could not come from the file: read back as
+        // it is, so the file was not decoded again.
+        let stamp = db::FileStamp::read(&path).unwrap();
+        let marked = vec![(-1.0, 1.0); 3];
+        db::save_waveform(&db, id, stamp, &marked, waveform::Measures::default()).unwrap();
+        assert_eq!(peaks(&db, id, &path).unwrap(), marked);
+
+        // Another size: the cache is stale, the file decoded again.
+        write_sound(&path, 1, &[0; 20]);
+        assert_eq!(peaks(&db, id, &path).unwrap(), vec![(0.0, 0.0); 20]);
     }
 }
