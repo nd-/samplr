@@ -156,5 +156,10 @@ mod tests {
         assert_eq!(tempo(0, 4.0), None);
         assert_eq!(tempo(4, 0.0), None);
         assert_eq!(tempo(1000, 1.0), None);
+        // The tempos a sample can be given by hand, 20 to 400.
+        assert_eq!(tempo(20, 60.0), Some(20));
+        assert_eq!(tempo(400, 60.0), Some(400));
+        assert_eq!(tempo(19, 60.0), None);
+        assert_eq!(tempo(401, 60.0), None);
     }
 }

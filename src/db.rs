@@ -1380,4 +1380,157 @@ mod tests {
         assert!(!has_waveform(&db, id, changed).unwrap());
         assert!(waveform(&db, id, changed).unwrap().is_none());
     }
+
+    /// The only sample found by `words`, as the interface gets it.
+    fn shown(db: &Connection, path: &str) -> SampleInfo {
+        let mut samples = search(db, &[], &[path], false, None).unwrap();
+        assert_eq!(samples.len(), 1);
+        samples.remove(0)
+    }
+
+    /// Tempo 120 and key Am from its name, a loop from its folder.
+    const BASS: &str = "/lib/Loops/Bass 120BPM Am.wav";
+
+    #[test]
+    fn a_tempo_set_by_hand() {
+        let db = new_db();
+        let id = add(&db, BASS);
+        let tempo = |db: &Connection| {
+            let sample = shown(db, BASS);
+            (sample.bpm, sample.bpm_source, sample.bpm_fixed)
+        };
+        assert_eq!(tempo(&db), (Some(120), Some(analysis::Source::Name), false));
+        set_tempo(&db, id, Some(90)).unwrap();
+        assert_eq!(
+            tempo(&db),
+            (Some(90), Some(analysis::Source::Manual), false)
+        );
+        // 0: none, to silence a wrong guess.
+        set_tempo(&db, id, Some(0)).unwrap();
+        assert_eq!(tempo(&db), (None, None, false));
+        set_tempo(&db, id, None).unwrap();
+        assert_eq!(tempo(&db), (Some(120), Some(analysis::Source::Name), false));
+    }
+
+    #[test]
+    fn a_tempo_chosen_with_detect_bpm_stays_until_typed_over() {
+        let db = new_db();
+        let id = add(&db, BASS);
+        set_detected_tempo(&db, id, 100, "sound").unwrap();
+        let sample = shown(&db, BASS);
+        assert_eq!(sample.bpm, Some(100));
+        assert_eq!(sample.bpm_source, Some(analysis::Source::Sound));
+        assert!(sample.bpm_fixed);
+        // Typed by hand afterwards: no longer "chosen with Detect BPM".
+        set_tempo(&db, id, Some(95)).unwrap();
+        let sample = shown(&db, BASS);
+        assert_eq!(sample.bpm_source, Some(analysis::Source::Manual));
+        assert!(!sample.bpm_fixed);
+    }
+
+    #[test]
+    fn the_tempo_detected_from_the_sound_is_a_loop_s_last_resort() {
+        let db = new_db();
+        let measures = waveform::Measures {
+            tempo: Some(97),
+            ..Default::default()
+        };
+        let stamp = FileStamp {
+            size: 1,
+            modified: 1,
+        };
+        // A loop without a tempo in its name: the detected one replaces the
+        // estimate from the length.
+        let groove = add(&db, "/lib/Loops/Groove.wav");
+        // Two seconds: four beats at 120, the estimate from the length.
+        db.execute(
+            "UPDATE files SET duration_secs = 2.0 WHERE id = ?1",
+            [groove],
+        )
+        .unwrap();
+        let before = shown(&db, "Groove");
+        assert_eq!(before.bpm, Some(120));
+        assert_eq!(before.bpm_source, Some(analysis::Source::Length));
+        save_waveform(&db, groove, stamp, &[], measures).unwrap();
+        let sample = shown(&db, "Groove");
+        assert_eq!(sample.bpm, Some(97));
+        assert_eq!(sample.bpm_source, Some(analysis::Source::Sound));
+        // The name comes first.
+        let bass = add(&db, BASS);
+        save_waveform(&db, bass, stamp, &[], measures).unwrap();
+        assert_eq!(shown(&db, BASS).bpm, Some(120));
+        // A tempo silenced by hand stays silent.
+        set_tempo(&db, groove, Some(0)).unwrap();
+        assert_eq!(shown(&db, "Groove").bpm, None);
+        // A one-shot gets none, and does not become a loop.
+        let kick = add(&db, "/lib/One Shots/Kick.wav");
+        save_waveform(&db, kick, stamp, &[], measures).unwrap();
+        let sample = shown(&db, "Kick");
+        assert_ne!(sample.bpm, Some(97));
+        assert!(!sample.looped);
+    }
+
+    #[test]
+    fn a_key_set_by_hand() {
+        let db = new_db();
+        let id = add(&db, BASS);
+        assert_eq!(shown(&db, BASS).key.as_deref(), Some("Am"));
+        set_key(&db, id, Some("C")).unwrap();
+        assert_eq!(shown(&db, BASS).key.as_deref(), Some("C"));
+        set_key(&db, id, Some("")).unwrap();
+        assert_eq!(shown(&db, BASS).key, None);
+        set_key(&db, id, None).unwrap();
+        assert_eq!(shown(&db, BASS).key.as_deref(), Some("Am"));
+    }
+
+    #[test]
+    fn a_loop_set_by_hand() {
+        let db = new_db();
+        let id = add(&db, BASS);
+        let looped = |db: &Connection| {
+            let sample = shown(db, BASS);
+            (sample.looped, sample.loop_source)
+        };
+        assert_eq!(looped(&db), (true, Some(analysis::Source::Name)));
+        set_loop(&db, id, Some(false)).unwrap();
+        assert_eq!(looped(&db), (false, Some(analysis::Source::Manual)));
+        set_loop(&db, id, None).unwrap();
+        assert_eq!(looped(&db), (true, Some(analysis::Source::Name)));
+    }
+
+    #[test]
+    fn a_type_set_by_hand() {
+        let db = new_db();
+        let id = add(&db, BASS);
+        let kind = |db: &Connection| {
+            let sample = shown(db, BASS);
+            (sample.sound_type, sample.type_source)
+        };
+        assert_eq!(
+            kind(&db),
+            (Some("bass".to_string()), Some(analysis::Source::Name))
+        );
+        set_sound_type(&db, id, Some("keys/piano")).unwrap();
+        assert_eq!(
+            kind(&db),
+            (
+                Some("keys/piano".to_string()),
+                Some(analysis::Source::Manual)
+            )
+        );
+        // '': no type, set by hand.
+        set_sound_type(&db, id, Some("")).unwrap();
+        assert_eq!(kind(&db), (None, Some(analysis::Source::Manual)));
+        // A type no longer in the list counts as not set.
+        set_sound_type(&db, id, Some("drums/theremin")).unwrap();
+        assert_eq!(
+            kind(&db),
+            (Some("bass".to_string()), Some(analysis::Source::Name))
+        );
+        set_sound_type(&db, id, None).unwrap();
+        assert_eq!(
+            kind(&db),
+            (Some("bass".to_string()), Some(analysis::Source::Name))
+        );
+    }
 }
