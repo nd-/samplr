@@ -11,6 +11,9 @@ pub mod sound_type;
 pub mod watch;
 pub mod waveform;
 
+#[cfg(test)]
+mod test_support;
+
 use std::error::Error;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -550,4 +553,60 @@ pub fn peaks(
     let (peaks, measures) = waveform::compute(path)?;
     db::save_waveform(db, file_id, stamp, &peaks, measures)?;
     Ok(peaks)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{TempDir, memory_db, write_wav};
+    use std::fs;
+
+    #[test]
+    fn moving_a_sample_keeps_its_id_and_tags() {
+        let dir = TempDir::new();
+        let (old, new) = (
+            dir.path().join("kick.wav"),
+            dir.path().join("drums/kick.wav"),
+        );
+        write_wav(&old);
+        fs::create_dir(new.parent().unwrap()).unwrap();
+        let db = memory_db();
+        let id = db::save(&db, &read_info(&old).unwrap()).unwrap();
+        db::add_tags(&db, id, &["drums".to_string()]).unwrap();
+
+        move_sample(&db, &old, &new).unwrap();
+        assert!(!old.exists() && new.is_file());
+        assert_eq!(db::file_id(&db, &old).unwrap(), None);
+        assert_eq!(db::file_id(&db, &new).unwrap(), Some(id));
+        assert_eq!(db::tags_of(&db, id).unwrap(), ["drums"]);
+    }
+
+    #[test]
+    fn moving_a_sample_never_overwrites_a_file() {
+        let dir = TempDir::new();
+        let (old, new) = (dir.path().join("a.wav"), dir.path().join("b.wav"));
+        write_wav(&old);
+        fs::write(&new, b"not to be lost").unwrap();
+        let db = memory_db();
+        let id = db::save(&db, &read_info(&old).unwrap()).unwrap();
+
+        assert!(move_sample(&db, &old, &new).is_err());
+        assert!(old.is_file());
+        assert_eq!(fs::read(&new).unwrap(), b"not to be lost");
+        assert_eq!(db::file_id(&db, &old).unwrap(), Some(id));
+    }
+
+    #[test]
+    fn a_failed_move_leaves_the_database_alone() {
+        let dir = TempDir::new();
+        let (old, new) = (dir.path().join("a.wav"), dir.path().join("missing/a.wav"));
+        write_wav(&old);
+        let db = memory_db();
+        let id = db::save(&db, &read_info(&old).unwrap()).unwrap();
+
+        // The destination folder does not exist: the rename fails.
+        assert!(move_sample(&db, &old, &new).is_err());
+        assert!(old.is_file());
+        assert_eq!(db::file_id(&db, &old).unwrap(), Some(id));
+    }
 }

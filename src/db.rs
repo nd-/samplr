@@ -32,7 +32,14 @@ fn db_path() -> Result<PathBuf, Box<dyn Error>> {
 /// Opens the database (creating it on first launch) and makes sure the tables exist.
 pub fn open() -> Result<Connection, Box<dyn Error>> {
     let db = Connection::open(db_path()?)?;
+    set_up(&db)?;
+    Ok(db)
+}
 
+/// Brings an open database to the current schema and registers the
+/// functions the queries use. Separate from `open` so that the tests run it
+/// on a database in memory.
+pub(crate) fn set_up(db: &Connection) -> Result<(), Box<dyn Error>> {
     // SQLite only checks foreign keys when asked to, and the setting has to
     // be repeated every time the database is opened.
     db.execute_batch(
@@ -70,7 +77,7 @@ pub fn open() -> Result<Connection, Box<dyn Error>> {
             peaks    BLOB NOT NULL
         );",
     )?;
-    migrate(&db)?;
+    migrate(db)?;
 
     // SQLite's `lower` only knows ASCII: "Été" stays "Été", and a search for
     // "été" missed it. The search compares through this one, Rust's
@@ -81,8 +88,7 @@ pub fn open() -> Result<Connection, Box<dyn Error>> {
         FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
         |context| Ok(context.get::<String>(0)?.to_lowercase()),
     )?;
-
-    Ok(db)
+    Ok(())
 }
 
 /// The schema version `migrate` brings a database to: the last step's.
@@ -1068,4 +1074,317 @@ fn normalize_tag(tag: &str) -> Result<String, Box<dyn Error>> {
 /// on Linux) could not be found again.
 fn path_as_text(path: &Path) -> Result<&str, Box<dyn Error>> {
     Ok(path.to_str().ok_or("file name with invalid characters")?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A new database in memory, at the current schema.
+    fn new_db() -> Connection {
+        let db = Connection::open_in_memory().unwrap();
+        set_up(&db).unwrap();
+        db
+    }
+
+    /// Saves a sample as `scan` would, with nothing read from a file.
+    fn add(db: &Connection, path: &str) -> i64 {
+        let info = SampleInfo {
+            path: PathBuf::from(path),
+            duration_secs: Some(1.0),
+            sample_rate: Some(44_100),
+            channels: Some(2),
+            bits: Some(16),
+            tags: Vec::new(),
+            favorite: false,
+            collections: Vec::new(),
+            bpm: None,
+            bpm_source: None,
+            bpm_fixed: false,
+            key: None,
+            looped: false,
+            loop_source: None,
+            sound_type: None,
+            type_source: None,
+            lufs: None,
+            peak_db: None,
+            codec: None,
+            acid: None,
+        };
+        save(db, &info).unwrap()
+    }
+
+    fn tag(db: &Connection, file_id: i64, tags: &[&str]) {
+        let tags: Vec<String> = tags.iter().map(|t| t.to_string()).collect();
+        add_tags(db, file_id, &tags).unwrap();
+    }
+
+    /// The paths a search finds, by words typed in the search box.
+    fn found(db: &Connection, words: &[&str]) -> Vec<String> {
+        search(db, &[], words, "", false, None)
+            .unwrap()
+            .into_iter()
+            .map(|sample| sample.path.display().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn new_database_reaches_the_current_version() {
+        let db = new_db();
+        let version: i64 = db
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        assert_eq!(colors(&db).unwrap().len(), 10);
+        // Opening it again changes nothing: no step runs twice.
+        set_up(&db).unwrap();
+        assert_eq!(colors(&db).unwrap().len(), 10);
+    }
+
+    #[test]
+    fn a_new_scan_keeps_the_id_and_the_tags() {
+        let db = new_db();
+        let id = add(&db, "/lib/kick.wav");
+        tag(&db, id, &["drums"]);
+        assert_eq!(add(&db, "/lib/kick.wav"), id);
+        assert_eq!(tags_of(&db, id).unwrap(), ["drums"]);
+    }
+
+    #[test]
+    fn tags_are_stored_lowercase_and_trimmed() {
+        let db = new_db();
+        let id = add(&db, "/lib/kick.wav");
+        tag(&db, id, &["Kick", " kick ", "KICK"]);
+        assert_eq!(tags_of(&db, id).unwrap(), ["kick"]);
+        let spaced = add_tags(&db, id, &["two words".to_string()]);
+        assert!(spaced.is_err());
+        assert!(add_tags(&db, id, &[" ".to_string()]).is_err());
+    }
+
+    #[test]
+    fn a_tag_no_sample_carries_is_deleted() {
+        let db = new_db();
+        let id = add(&db, "/lib/kick.wav");
+        tag(&db, id, &["drums", "dry"]);
+        let removed = remove_tags(&db, id, &["DRUMS".to_string()]).unwrap();
+        assert_eq!(removed, 1);
+        assert_eq!(list_tags(&db).unwrap(), [("dry".to_string(), 1)]);
+    }
+
+    #[test]
+    fn removing_a_folder_hides_its_samples_and_keeps_their_tags() {
+        let db = new_db();
+        add_folder(&db, Path::new("/lib")).unwrap();
+        let id = add(&db, "/lib/kick.wav");
+        tag(&db, id, &["drums"]);
+
+        assert_eq!(remove_folder(&db, Path::new("/lib")).unwrap(), 1);
+        assert!(found(&db, &[]).is_empty());
+        assert!(list_tags(&db).unwrap().is_empty());
+
+        // Scanned again: back, with the same id and its tags.
+        add_folder(&db, Path::new("/lib")).unwrap();
+        assert_eq!(add(&db, "/lib/kick.wav"), id);
+        assert_eq!(found(&db, &[]), ["/lib/kick.wav"]);
+        assert_eq!(tags_of(&db, id).unwrap(), ["drums"]);
+    }
+
+    #[test]
+    fn a_sample_inside_another_scanned_folder_stays_shown() {
+        let db = new_db();
+        add_folder(&db, Path::new("/lib")).unwrap();
+        add_folder(&db, Path::new("/lib/drums")).unwrap();
+        add(&db, "/lib/drums/kick.wav");
+        add(&db, "/lib/pad.wav");
+        assert_eq!(remove_folder(&db, Path::new("/lib")).unwrap(), 1);
+        assert_eq!(found(&db, &[]), ["/lib/drums/kick.wav"]);
+    }
+
+    #[test]
+    fn removing_a_folder_not_scanned_is_refused() {
+        let db = new_db();
+        assert!(remove_folder(&db, Path::new("/elsewhere")).is_err());
+    }
+
+    #[test]
+    fn a_folder_does_not_hold_its_namesakes() {
+        let db = new_db();
+        add(&db, "/lib/kick/a.wav");
+        add(&db, "/lib/kicks/b.wav");
+        assert_eq!(count_under(&db, Path::new("/lib/kick")).unwrap(), 1);
+        assert_eq!(forget(&db, Path::new("/lib/kick")).unwrap(), 1);
+        assert_eq!(found(&db, &[]), ["/lib/kicks/b.wav"]);
+    }
+
+    #[test]
+    fn forgetting_a_sample_deletes_its_last_tags() {
+        let db = new_db();
+        let id = add(&db, "/lib/kick.wav");
+        tag(&db, id, &["drums"]);
+        assert_eq!(forget(&db, Path::new("/lib/kick.wav")).unwrap(), 1);
+        assert!(list_tags(&db).unwrap().is_empty());
+    }
+
+    #[test]
+    fn renaming_a_folder_keeps_the_ids_and_tags() {
+        let db = new_db();
+        let kick = add(&db, "/lib/drums/kick.wav");
+        let snare = add(&db, "/lib/drums/deep/snare.wav");
+        tag(&db, kick, &["drums"]);
+
+        let renamed = rename(&db, Path::new("/lib/drums"), Path::new("/lib/perc")).unwrap();
+        assert_eq!(renamed, 2);
+        assert_eq!(
+            file_id(&db, Path::new("/lib/perc/kick.wav")).unwrap(),
+            Some(kick)
+        );
+        assert_eq!(
+            file_id(&db, Path::new("/lib/perc/deep/snare.wav")).unwrap(),
+            Some(snare)
+        );
+        assert_eq!(tags_of(&db, kick).unwrap(), ["drums"]);
+    }
+
+    #[test]
+    fn a_rename_already_applied_changes_nothing() {
+        let db = new_db();
+        let id = add(&db, "/lib/new.wav");
+        tag(&db, id, &["drums"]);
+        // The watcher reporting a move `move_sample` already applied.
+        let renamed = rename(&db, Path::new("/lib/old.wav"), Path::new("/lib/new.wav")).unwrap();
+        assert_eq!(renamed, 0);
+        assert_eq!(tags_of(&db, id).unwrap(), ["drums"]);
+    }
+
+    #[test]
+    fn a_rename_over_a_sample_replaces_it() {
+        let db = new_db();
+        let kept = add(&db, "/lib/a.wav");
+        add(&db, "/lib/b.wav");
+        rename(&db, Path::new("/lib/a.wav"), Path::new("/lib/b.wav")).unwrap();
+        assert_eq!(file_id(&db, Path::new("/lib/b.wav")).unwrap(), Some(kept));
+        assert_eq!(found(&db, &[]), ["/lib/b.wav"]);
+    }
+
+    #[test]
+    fn search_words_match_the_path_or_a_tag() {
+        let db = new_db();
+        let kick = add(&db, "/lib/Kick_01.wav");
+        add(&db, "/lib/Snare_01.wav");
+        tag(&db, kick, &["punchy"]);
+        assert_eq!(found(&db, &["kick"]), ["/lib/Kick_01.wav"]);
+        assert_eq!(found(&db, &["PUNCH"]), ["/lib/Kick_01.wav"]);
+        // Every word must be found.
+        assert!(found(&db, &["kick", "snare"]).is_empty());
+    }
+
+    #[test]
+    fn search_folds_case_beyond_ascii() {
+        let db = new_db();
+        add(&db, "/lib/Été/pad.wav");
+        assert_eq!(found(&db, &["été"]), ["/lib/Été/pad.wav"]);
+        assert_eq!(found(&db, &["ÉTÉ"]), ["/lib/Été/pad.wav"]);
+    }
+
+    #[test]
+    fn search_takes_an_underscore_literally() {
+        let db = new_db();
+        add(&db, "/lib/kick_1.wav");
+        add(&db, "/lib/kickA1.wav");
+        // As a `LIKE` wildcard, `_` would also match the `A`.
+        assert_eq!(found(&db, &["k_1"]), ["/lib/kick_1.wav"]);
+    }
+
+    #[test]
+    fn search_by_tags_needs_all_of_them() {
+        let db = new_db();
+        let both = add(&db, "/lib/a.wav");
+        let one = add(&db, "/lib/b.wav");
+        tag(&db, both, &["drums", "dry"]);
+        tag(&db, one, &["drums"]);
+        let tags = ["Drums".to_string(), "dry".to_string()];
+        let samples = search(&db, &tags, &[], "", false, None).unwrap();
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].path, Path::new("/lib/a.wav"));
+        assert_eq!(samples[0].tags, ["drums", "dry"]);
+    }
+
+    #[test]
+    fn search_filters_favorites_and_collections() {
+        let db = new_db();
+        let a = add(&db, "/lib/a.wav");
+        let b = add(&db, "/lib/b.wav");
+        set_favorite(&db, a, true).unwrap();
+        let collection = create_collection(&db, "Set").unwrap();
+        add_to_collection(&db, collection, &[b]).unwrap();
+
+        let favorites = search(&db, &[], &[], "", true, None).unwrap();
+        assert_eq!(favorites.len(), 1);
+        assert!(favorites[0].favorite);
+        let held = search(&db, &[], &[], "", false, Some(collection)).unwrap();
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].path, Path::new("/lib/b.wav"));
+        assert_eq!(held[0].collections, [collection]);
+    }
+
+    #[test]
+    fn collections_holding_keeps_those_holding_every_sample() {
+        let db = new_db();
+        let a = add(&db, "/lib/a.wav");
+        let b = add(&db, "/lib/b.wav");
+        let both = create_collection(&db, "Both").unwrap();
+        let only_a = create_collection(&db, "Only a").unwrap();
+        add_to_collection(&db, both, &[a, b]).unwrap();
+        add_to_collection(&db, only_a, &[a]).unwrap();
+        // Adding twice adds nothing.
+        assert_eq!(add_to_collection(&db, both, &[a]).unwrap(), 0);
+
+        assert_eq!(collections_holding(&db, &[a, b]).unwrap(), [both]);
+        let mut holding_a = collections_holding(&db, &[a]).unwrap();
+        holding_a.sort();
+        assert_eq!(holding_a, [both, only_a]);
+    }
+
+    #[test]
+    fn a_forgotten_sample_leaves_its_collections() {
+        let db = new_db();
+        let id = add(&db, "/lib/a.wav");
+        let collection = create_collection(&db, "Set").unwrap();
+        add_to_collection(&db, collection, &[id]).unwrap();
+        forget(&db, Path::new("/lib/a.wav")).unwrap();
+        assert_eq!(collections(&db).unwrap()[0].samples, 0);
+    }
+
+    #[test]
+    fn deleting_a_colour_leaves_its_tags_without_colour() {
+        let db = new_db();
+        let id = add(&db, "/lib/a.wav");
+        tag(&db, id, &["drums"]);
+        let color = add_color(&db, "Lime", "#a0e040").unwrap();
+        set_tag_color(&db, "drums", Some(color)).unwrap();
+        assert_eq!(tag_colors(&db).unwrap(), [("drums".to_string(), color)]);
+        delete_color(&db, color).unwrap();
+        assert!(tag_colors(&db).unwrap().is_empty());
+        assert_eq!(tags_of(&db, id).unwrap(), ["drums"]);
+    }
+
+    #[test]
+    fn a_waveform_is_stale_once_the_file_changes() {
+        let db = new_db();
+        let id = add(&db, "/lib/a.wav");
+        let stamp = FileStamp {
+            size: 100,
+            modified: 1_000,
+        };
+        let peaks = vec![(-0.5, 0.5); 4];
+        save_waveform(&db, id, stamp, &peaks, waveform::Measures::default()).unwrap();
+        assert!(has_waveform(&db, id, stamp).unwrap());
+        assert!(waveform(&db, id, stamp).unwrap().is_some());
+        let changed = FileStamp {
+            size: 100,
+            modified: 2_000,
+        };
+        assert!(!has_waveform(&db, id, changed).unwrap());
+        assert!(waveform(&db, id, changed).unwrap().is_none());
+    }
 }

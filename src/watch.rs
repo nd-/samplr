@@ -187,3 +187,196 @@ fn sync(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{TempDir, memory_db, write_wav};
+    use notify_debouncer_full::notify::Event;
+    use notify_debouncer_full::notify::event::{CreateKind, RemoveKind};
+    use std::fs;
+    use std::time::Instant;
+
+    fn event(kind: EventKind, paths: &[&Path]) -> DebouncedEvent {
+        let mut event = Event::new(kind);
+        for path in paths {
+            event = event.add_path(path.to_path_buf());
+        }
+        DebouncedEvent::new(event, Instant::now())
+    }
+
+    fn known(db: &Connection, root: &Path) -> Vec<PathBuf> {
+        let mut paths = db::files_under(db, root).unwrap();
+        paths.sort();
+        paths
+    }
+
+    fn ignore(_: String) {}
+
+    #[test]
+    fn a_folder_inside_another_is_watched_once() {
+        let folders = [
+            PathBuf::from("/lib"),
+            PathBuf::from("/lib/drums"),
+            PathBuf::from("/other"),
+        ];
+        assert_eq!(
+            roots(&folders),
+            [PathBuf::from("/lib"), PathBuf::from("/other")]
+        );
+    }
+
+    #[test]
+    fn catching_up_forgets_deleted_files_and_adds_new_ones() {
+        let dir = TempDir::new();
+        let root = dir.path();
+        let (gone, kept, new) = (root.join("a.wav"), root.join("b.wav"), root.join("c.wav"));
+        write_wav(&gone);
+        write_wav(&kept);
+        let mut db = memory_db();
+        index(&db, root, &mut |_| {});
+        let kept_id = db::file_id(&db, &kept).unwrap().unwrap();
+        db::add_tags(&db, kept_id, &["drums".to_string()]).unwrap();
+
+        // While samplr was closed.
+        fs::remove_file(&gone).unwrap();
+        write_wav(&new);
+        catch_up(&mut db, root, &mut ignore).unwrap();
+
+        assert_eq!(known(&db, root), [kept.clone(), new]);
+        assert_eq!(db::file_id(&db, &kept).unwrap(), Some(kept_id));
+        assert_eq!(db::tags_of(&db, kept_id).unwrap(), ["drums"]);
+    }
+
+    #[test]
+    fn catching_up_forgets_what_lies_in_a_hidden_folder() {
+        let dir = TempDir::new();
+        let root = dir.path();
+        let trashed = root.join(".Trash-1000/files/kick.wav");
+        write_wav(&trashed);
+        let mut db = memory_db();
+        // Imported by an older samplr, which did not skip hidden folders.
+        db::save(&db, &crate::read_info(&trashed).unwrap()).unwrap();
+
+        catch_up(&mut db, root, &mut ignore).unwrap();
+        assert!(known(&db, root).is_empty());
+    }
+
+    #[test]
+    fn catching_up_with_an_unplugged_disk_forgets_nothing() {
+        let dir = TempDir::new();
+        let root = dir.path().join("disk");
+        write_wav(&root.join("kick.wav"));
+        let mut db = memory_db();
+        index(&db, &root, &mut |_| {});
+        fs::remove_dir_all(&root).unwrap();
+
+        catch_up(&mut db, &root, &mut ignore).unwrap();
+        assert_eq!(known(&db, &root).len(), 1);
+    }
+
+    #[test]
+    fn a_file_removed_live_is_forgotten() {
+        let dir = TempDir::new();
+        let root = dir.path();
+        let kick = root.join("kick.wav");
+        write_wav(&kick);
+        let db = memory_db();
+        index(&db, root, &mut |_| {});
+        fs::remove_file(&kick).unwrap();
+
+        let removed = event(EventKind::Remove(RemoveKind::File), &[&kick]);
+        handle_event(&db, &[root.to_path_buf()], &removed, &mut ignore).unwrap();
+        assert!(known(&db, root).is_empty());
+    }
+
+    #[test]
+    fn a_disk_unplugged_live_forgets_nothing() {
+        let dir = TempDir::new();
+        let root = dir.path().join("disk");
+        let kick = root.join("kick.wav");
+        write_wav(&kick);
+        let db = memory_db();
+        index(&db, &root, &mut |_| {});
+        fs::remove_dir_all(&root).unwrap();
+
+        let removed = event(EventKind::Remove(RemoveKind::Any), &[&kick]);
+        handle_event(&db, std::slice::from_ref(&root), &removed, &mut ignore).unwrap();
+        assert_eq!(known(&db, &root), [kick]);
+    }
+
+    #[test]
+    fn a_file_created_live_is_added() {
+        let dir = TempDir::new();
+        let root = dir.path();
+        let db = memory_db();
+        let kick = root.join("drums/kick.wav");
+        write_wav(&kick);
+
+        let created = event(
+            EventKind::Create(CreateKind::Folder),
+            &[&root.join("drums")],
+        );
+        handle_event(&db, &[root.to_path_buf()], &created, &mut ignore).unwrap();
+        assert_eq!(known(&db, root), [kick]);
+    }
+
+    #[test]
+    fn a_rename_keeps_the_tags() {
+        let dir = TempDir::new();
+        let root = dir.path();
+        let (old, new) = (root.join("kick.wav"), root.join("deep/kick 2.wav"));
+        write_wav(&old);
+        let db = memory_db();
+        index(&db, root, &mut |_| {});
+        let id = db::file_id(&db, &old).unwrap().unwrap();
+        db::add_tags(&db, id, &["drums".to_string()]).unwrap();
+        fs::create_dir_all(new.parent().unwrap()).unwrap();
+        fs::rename(&old, &new).unwrap();
+
+        let renamed = event(
+            EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+            &[&old, &new],
+        );
+        handle_event(&db, &[root.to_path_buf()], &renamed, &mut ignore).unwrap();
+        assert_eq!(db::file_id(&db, &new).unwrap(), Some(id));
+        assert_eq!(db::tags_of(&db, id).unwrap(), ["drums"]);
+    }
+
+    #[test]
+    fn a_file_moved_to_the_trash_is_forgotten() {
+        let dir = TempDir::new();
+        let root = dir.path();
+        let (old, new) = (root.join("kick.wav"), root.join(".Trashes/kick.wav"));
+        write_wav(&old);
+        let db = memory_db();
+        index(&db, root, &mut |_| {});
+        fs::create_dir_all(new.parent().unwrap()).unwrap();
+        fs::rename(&old, &new).unwrap();
+
+        let moved = event(
+            EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+            &[&old, &new],
+        );
+        handle_event(&db, &[root.to_path_buf()], &moved, &mut ignore).unwrap();
+        assert!(known(&db, root).is_empty());
+    }
+
+    #[test]
+    fn a_sample_renamed_to_another_extension_is_forgotten() {
+        let dir = TempDir::new();
+        let root = dir.path();
+        let (old, new) = (root.join("kick.wav"), root.join("kick.bak"));
+        write_wav(&old);
+        let db = memory_db();
+        index(&db, root, &mut |_| {});
+        fs::rename(&old, &new).unwrap();
+
+        let renamed = event(
+            EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+            &[&old, &new],
+        );
+        handle_event(&db, &[root.to_path_buf()], &renamed, &mut ignore).unwrap();
+        assert!(known(&db, root).is_empty());
+    }
+}
