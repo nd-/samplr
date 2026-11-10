@@ -218,7 +218,8 @@ mod tests {
         assert_eq!(tempo_from_length(4.0), Some(120));
         // A one-shot.
         assert_eq!(tempo_from_length(0.437), None);
-        assert_eq!(tempo_from_length(3.1416), None);
+        // A length that is no whole number of beats at a usual tempo.
+        assert_eq!(tempo_from_length(3.17), None);
     }
 
     #[test]
