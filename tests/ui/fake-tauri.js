@@ -8,7 +8,8 @@
 // `window.__answer` is what `dialog.ask` answers (true by default), each
 // question kept in `window.__asked`; `window.__chosenFolder` is what the
 // folder chooser gives (`null`: cancelled), `window.__splice` the Splice
-// folders found, `window.__ffmpeg` whether ffmpeg is installed.
+// folders found, `window.__ffmpeg` whether ffmpeg is installed,
+// `window.__unreadable` the paths whose file cannot be read.
 // `window.__pending` counts the commands not answered yet.
 // `window.__library` changes the library as the folder watcher would (the
 // test then emits `library-changed`), `window.__delay(command, args)` gives
@@ -280,7 +281,17 @@
       }
       return { samples: 3, unreadable: 0 };
     },
-    file_info: () => ({ size: 1000, modified: 0, tags: [] }),
+    // Kick 1 carries its own metadata; a path in `__unreadable` fails.
+    file_info: ({ path }) => {
+      if (window.__unreadable.includes(path)) throw `${path}: permission denied`;
+      const tags = path.endsWith("/Kick 1.wav")
+        ? [
+            ["Artist", "Hutch"],
+            ["Genre", "Dub"],
+          ]
+        : [];
+      return { size: 2_500_000, modified: 1_700_000_000, tags };
+    },
     waveform: () => Array.from({ length: 1024 }, (_, i) => [-Math.abs(Math.sin(i / 20)), Math.abs(Math.sin(i / 20))]),
     play: () => null,
     stop: () => null,
@@ -421,6 +432,7 @@
   window.__asked = [];
   window.__chosenFolder = null;
   window.__ffmpeg = true;
+  window.__unreadable = [];
   window.__splice = [];
   window.__emit = (name, payload) => {
     for (const handler of listeners.get(name) ?? []) handler({ event: name, payload });
