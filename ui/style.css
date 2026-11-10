@@ -826,6 +826,15 @@ footer {
 	padding: var(--space-2) var(--space-4);
 }
 
+/* A name not being edited reads as text, not as a box to type in. */
+#color-list input[type="text"]:read-only {
+	border-color: transparent;
+	background: transparent;
+	color: inherit;
+	outline: none;
+	cursor: default;
+}
+
 #color-list input[type="color"] {
 	width: 2.4rem;
 	height: 1.8rem;
