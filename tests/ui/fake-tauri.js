@@ -5,7 +5,8 @@
 //
 // For the tests: `window.__calls` records every command with its arguments,
 // `window.__emit(name, payload)` sends an event as Rust would, and
-// `window.__answer` is what `dialog.ask` answers (true by default).
+// `window.__answer` is what `dialog.ask` answers (true by default), each
+// question kept in `window.__asked`.
 // `window.__library` changes the library as the folder watcher would (the
 // test then emits `library-changed`), `window.__delay(command, args)` gives
 // an answer's delay in milliseconds, and `window.__problems` holds what
@@ -50,6 +51,19 @@
     { id: 1, name: "Red", hex: "#e5484d" },
     { id: 2, name: "Blue", hex: "#0090ff" },
   ];
+  // Tag name → colour id.
+  const tagColors = new Map();
+
+  function color(id) {
+    const found = palette.find((c) => c.id === id);
+    if (!found) throw `no colour ${id}`;
+    return found;
+  }
+
+  function checkHex(hex) {
+    if (!/^#[0-9a-f]{6}$/i.test(hex.trim())) throw `invalid colour: "${hex}" (expected #rrggbb)`;
+    return hex.trim().toLowerCase();
+  }
 
   function chosen(paths) {
     return paths.map((path) => {
@@ -122,7 +136,35 @@
         samples: samples.filter((s) => s.collections.includes(c.id)).length,
       })),
     colors: () => palette,
-    tag_colors: () => [],
+    tag_colors: () => [...tagColors],
+    add_color: ({ name, hex }) => {
+      const id = Math.max(0, ...palette.map((c) => c.id)) + 1;
+      palette.push({ id, name: name.trim(), hex: checkHex(hex) });
+      return id;
+    },
+    update_color: ({ id, name, hex }) => {
+      Object.assign(color(id), { name: name.trim(), hex: checkHex(hex) });
+      return null;
+    },
+    color_usage: ({ id }) => [
+      [...tagColors.values()].filter((c) => c === id).length,
+      collections.filter((c) => c.color_id === id).length,
+    ],
+    delete_color: ({ id }) => {
+      palette.splice(palette.indexOf(color(id)), 1);
+      for (const [tag, c] of tagColors) if (c === id) tagColors.delete(tag);
+      for (const collection of collections) if (collection.color_id === id) collection.color_id = null;
+      return null;
+    },
+    set_tag_color: ({ tag, color }) => {
+      if (color === null) tagColors.delete(tag);
+      else tagColors.set(tag, color);
+      return null;
+    },
+    set_collection_color: ({ collection, color }) => {
+      collections.find((c) => c.id === collection).color_id = color;
+      return null;
+    },
     tags: () => tagCounts(),
     splice_folders: () => [],
     library_problems: () => window.__problems.splice(0),
@@ -243,6 +285,7 @@
   const listeners = new Map();
   window.__calls = [];
   window.__answer = true;
+  window.__asked = [];
   window.__emit = (name, payload) => {
     for (const handler of listeners.get(name) ?? []) handler({ event: name, payload });
   };
@@ -267,7 +310,10 @@
       },
     },
     dialog: {
-      ask: async () => window.__answer,
+      ask: async (message) => {
+        window.__asked.push(message);
+        return window.__answer;
+      },
       open: async () => null,
     },
     drag: { startDrag: async () => null },
