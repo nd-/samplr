@@ -49,6 +49,29 @@ pub struct SampleInfo {
     pub key: Option<String>,
 }
 
+/// Moves or renames a sample's file to `new` and its database row with it,
+/// keeping its `id` (tags, collections, favorite, waveform). Never
+/// overwrites a file already at `new`. Between two disks, where the system
+/// cannot rename, the file is copied then the original removed.
+///
+/// The folder watcher will also see the change: it then finds the row
+/// already moved, which changes nothing.
+pub fn move_sample(db: &Connection, old: &Path, new: &Path) -> Result<(), Box<dyn Error>> {
+    if new.exists() {
+        return Err(format!("{} already exists", new.display()).into());
+    }
+    match std::fs::rename(old, new) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
+            std::fs::copy(old, new)?;
+            std::fs::remove_file(old)?;
+        }
+        Err(error) => return Err(error.into()),
+    }
+    db::rename(db, old, new)?;
+    Ok(())
+}
+
 /// True for `._kick.wav`: metadata that macOS leaves next to `kick.wav` on a
 /// disk that cannot store it (USB stick, network share). Not sound.
 pub fn is_mac_metadata(path: &Path) -> bool {

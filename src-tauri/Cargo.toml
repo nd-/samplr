@@ -14,6 +14,8 @@ samplr = { path = ".." }
 rusqlite = "0.41"
 # Turns the commands' answers into JSON for the page (already compiled for Tauri)
 serde = { version = "1", features = ["derive"] }
+# Absolute paths written like the library's (no `\\?\` prefix on Windows)
+dunce = "1.0"
 # Preview playback (same version as the library uses)
 rodio = { version = "0.23", features = ["symphonia-all"] }
 # Desktop window showing the web interface of ui/, through the system's web

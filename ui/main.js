@@ -21,6 +21,28 @@ async function confirmAction(message, title) {
 const searchBox = document.getElementById("search");
 const tbody = document.getElementById("samples");
 const status = document.getElementById("status");
+
+// An error: a red box above the status line, closed by its × or after
+// 10 seconds, so that a refused action is not missed. The status line keeps
+// it too.
+const errorBox = document.getElementById("error-box");
+const errorText = document.getElementById("error-text");
+let errorTimer = null;
+
+function showError(error) {
+  status.textContent = `Error: ${error}`;
+  errorText.textContent = String(error);
+  errorBox.hidden = false;
+  clearTimeout(errorTimer);
+  errorTimer = setTimeout(hideError, 10000);
+}
+
+function hideError() {
+  errorBox.hidden = true;
+  clearTimeout(errorTimer);
+}
+
+document.getElementById("error-close").addEventListener("click", hideError);
 const canvas = document.getElementById("wave");
 const tagBar = document.getElementById("tagbar");
 const tagInput = document.getElementById("new-tags");
@@ -535,7 +557,7 @@ async function addTags() {
     tagInput.value = "";
     flash([...rowsOf(paths), document.getElementById("tagbar")]);
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
   }
 }
 
@@ -546,7 +568,7 @@ async function removeTag(tag) {
     const paths = chosen.map((sample) => sample.path);
     showTags(chosen, await invoke("remove_tag", { paths, tag }));
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
   }
 }
 
@@ -562,7 +584,7 @@ async function loadWaveform() {
     if (samples[selected]?.path !== path) return;
     peaks = result;
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
   }
   drawWaveform();
 }
@@ -631,7 +653,7 @@ function play(start = 0) {
   stopButton.disabled = false;
   invoke("play", { path: sample.path, id: playId, looping: loopBox.checked, start }).catch((error) => {
     stopPlayhead();
-    status.textContent = `Error: ${error}`;
+    showError(error);
   });
 }
 
@@ -803,7 +825,7 @@ async function startDrag(sample) {
       mode: "copy",
     });
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
   }
 }
 
@@ -862,7 +884,7 @@ async function addFolder() {
     status.textContent =
       `${added.samples} sample(s) saved, ${added.unreadable} unreadable.`;
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
   } finally {
     scanning = null;
     scanBar.hidden = true;
@@ -882,7 +904,7 @@ async function showFolders() {
   try {
     folders = await invoke("folders");
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
     return;
   }
   const items = folders.map((folder) => {
@@ -928,7 +950,7 @@ async function removeFolder(folder) {
     await showFolders();
     status.textContent = `Folder removed, ${hidden} sample(s) hidden.`;
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
   }
 }
 
@@ -949,7 +971,7 @@ async function refresh({ stopIfGone = true } = {}) {
     });
     sortSamples();
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
     return;
   }
   // The selected samples still in the list stay selected.
@@ -1000,7 +1022,7 @@ async function setFavorite(chosen, favorite) {
   try {
     await invoke("set_favorite", { paths: chosen.map((sample) => sample.path), favorite });
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
     return;
   }
   for (const sample of chosen) {
@@ -1025,7 +1047,7 @@ async function loadCollections() {
   try {
     collections = await invoke("collections");
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
     return;
   }
   // The open collection may have been deleted meanwhile.
@@ -1115,7 +1137,7 @@ async function deleteCollection(collection) {
   try {
     await invoke("delete_collection", { collection: collection.id });
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
     return;
   }
   await loadCollections();
@@ -1129,7 +1151,7 @@ async function createCollection(name) {
     await loadCollections();
     return id;
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
     return null;
   }
 }
@@ -1153,7 +1175,7 @@ async function addToCollection(collection, paths = chosenPaths()) {
   try {
     result = await invoke("add_to_collection", { collection: collection.id, paths });
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
     return;
   }
   // The Collections column changes, and dropped into the open collection,
@@ -1181,7 +1203,7 @@ async function removeFromCollection(paths = chosenPaths(), collection = currentC
     await refresh({ stopIfGone: false });
     status.textContent = `${removed} sample(s) removed from the collection.`;
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
   }
 }
 
@@ -1313,10 +1335,11 @@ const contextMenu = document.getElementById("context-menu");
 // `keepOpen`: the menu stays open after the action and shows the new state
 // (adding to or removing from collections, several in a row); otherwise it
 // closes first.
-// `hex`: a coloured dot before the label.
+// `hex`: a coloured dot before the label; `""` for an empty one, which keeps
+// the label aligned with those of coloured items.
 function menuButton(label, action, keepOpen = false, hex = null) {
   const button = document.createElement("button");
-  if (hex) button.append(dot(hex));
+  if (hex !== null) button.append(dot(hex));
   button.append(label);
   button.addEventListener("click", async () => {
     if (!keepOpen) closeContextMenu();
@@ -1346,7 +1369,7 @@ async function openContextMenu(x, y) {
   try {
     holding = await invoke("collections_holding", { paths: chosenPaths() });
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
     return;
   }
   const label = document.createElement("div");
@@ -1361,7 +1384,7 @@ async function openContextMenu(x, y) {
         `✓ ${collection.name}`,
         () => {},
         false,
-        colorHex(collection.color_id),
+        colorHex(collection.color_id) ?? "",
       );
       already.disabled = true;
       already.title = "Already in this collection";
@@ -1382,7 +1405,7 @@ async function openContextMenu(x, y) {
           collection.name,
           () => addToCollection(collection),
           true,
-          colorHex(collection.color_id),
+          colorHex(collection.color_id) ?? "",
         ),
       );
     }
@@ -1407,6 +1430,11 @@ async function openContextMenu(x, y) {
     items.push(document.createElement("hr"));
     items.push(menuButton("Remove from this collection (Del)", removeFromCollection));
   }
+  // The files themselves: a DAW project pointing to the old path will no
+  // longer find them, hence the explicit wording.
+  items.push(document.createElement("hr"));
+  if (chosenPaths().length === 1) items.push(renameButton());
+  items.push(menuButton("Move file(s) to folder…", moveChosen));
   contextMenu.replaceChildren(...items);
   contextMenu.hidden = false;
   // Kept inside the window.
@@ -1417,6 +1445,74 @@ async function openContextMenu(x, y) {
 
 function closeContextMenu() {
   contextMenu.hidden = true;
+}
+
+// "Rename file…": the button turns into a box holding the name without its
+// extension (kept as it is). Enter renames, Esc closes the menu.
+function renameButton() {
+  const button = document.createElement("button");
+  button.textContent = "Rename file…";
+  button.title = "Renames the file on disk; a DAW project using it will no longer find it";
+  button.addEventListener("click", () => {
+    const path = chosenPaths()[0];
+    const { name } = splitPath(path);
+    const dot = name.lastIndexOf(".");
+    const input = document.createElement("input");
+    input.spellcheck = false;
+    input.value = dot > 0 ? name.slice(0, dot) : name;
+    input.title = dot > 0 ? `The extension ${name.slice(dot)} is kept` : "";
+    input.addEventListener("keydown", async (event) => {
+      // The keys typed here are for the name only (see the collection box).
+      event.stopPropagation();
+      if (event.key === "Escape") closeContextMenu();
+      if (event.key !== "Enter" || input.value.trim() === "") return;
+      try {
+        const renamed = await invoke("rename_sample", { path, name: input.value });
+        closeContextMenu();
+        await pathsChanged(new Map([[path, renamed]]));
+      } catch (error) {
+        showError(error);
+        input.select();
+      }
+    });
+    button.replaceWith(input);
+    input.focus();
+    input.select();
+  });
+  return button;
+}
+
+// Moves the selected samples' files into a folder chosen in the system's
+// folder chooser, inside a scanned folder.
+async function moveChosen() {
+  const paths = chosenPaths();
+  const folder = await window.__TAURI__.dialog.open({
+    directory: true,
+    title: `Move ${paths.length} file(s) to…`,
+    defaultPath: splitPath(paths[0]).folder,
+  });
+  if (folder === null) return;
+  try {
+    const moved = await invoke("move_samples", { paths, folder });
+    await pathsChanged(new Map(paths.map((path, i) => [path, moved[i]])));
+    status.textContent = `${moved.length} file(s) moved to ${folder}`;
+  } catch (error) {
+    // Some may have moved before the failure: the list shows where they are.
+    await refresh({ stopIfGone: false });
+    showError(error);
+  }
+}
+
+// Files renamed or moved (old path → new path): the selection, the sound
+// playing and the list follow them, nothing stops.
+async function pathsChanged(renamed) {
+  for (const sample of samples) {
+    if (renamed.has(sample.path)) sample.path = renamed.get(sample.path);
+  }
+  selectedPaths = new Set([...selectedPaths].map((path) => renamed.get(path) ?? path));
+  if (renamed.has(playingPath)) playingPath = renamed.get(playingPath);
+  await refresh({ stopIfGone: false });
+  flash(rowsOf([...renamed.values()]));
 }
 
 tbody.addEventListener("contextmenu", (event) => {
@@ -1453,7 +1549,7 @@ async function search() {
     render();
     renderTags();
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
   }
 }
 
@@ -1636,7 +1732,7 @@ function editCell(index, td, command) {
     try {
       await invoke(command, { paths, value });
     } catch (error) {
-      status.textContent = `Error: ${error}`;
+      showError(error);
       if (!td.isConnected) return;
       if (leaving) {
         td.replaceWith(command === "set_tempo" ? bpmCell(sample) : keyCell(sample));
@@ -1708,7 +1804,7 @@ async function loadColors() {
     palette = await invoke("colors");
     tagColorIds = new Map(await invoke("tag_colors"));
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
     return;
   }
   drawRows();
@@ -1761,7 +1857,7 @@ function renderSettings() {
       try {
         await invoke("update_color", { id: color.id, name: name.value, hex: picker.value });
       } catch (error) {
-        status.textContent = `Error: ${error}`;
+        showError(error);
         return;
       }
       await loadColors();
@@ -1826,7 +1922,7 @@ async function deleteColor(color) {
     if (!confirmed) return;
     await invoke("delete_color", { id: color.id });
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
     return;
   }
   await loadColors();
@@ -1912,7 +2008,7 @@ document.getElementById("add-color").addEventListener("click", async () => {
   try {
     await invoke("add_color", { name: colorName(hex), hex });
   } catch (error) {
-    status.textContent = `Error: ${error}`;
+    showError(error);
     return;
   }
   await loadColors();

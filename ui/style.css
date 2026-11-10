@@ -32,6 +32,8 @@
 	/* Derived, so that a theme only gives its base colours. */
 	--hover: color-mix(in srgb, var(--fg) 6%, var(--bg));
 	--signal-soft: color-mix(in srgb, var(--signal) 22%, var(--bg));
+	/* Errors: the same red in every theme, under white text (contrast 6.5). */
+	--error: #B3261E;
 	/* Buttons: a flat fill tinted with the palette's main colour. */
 	--button: color-mix(in srgb, var(--wave) 16%, var(--bg));
 	--button-hover: color-mix(in srgb, var(--wave) 28%, var(--bg));
@@ -753,6 +755,38 @@ tbody tr.current td {
 	display: flex;
 	align-items: center;
 	gap: var(--space-6);
+}
+
+/* An error, above the status line until closed (see `showError`). */
+#error-box {
+	position: fixed;
+	z-index: 20;
+	left: 50%;
+	bottom: var(--space-12);
+	transform: translateX(-50%);
+	display: flex;
+	align-items: center;
+	gap: var(--space-8);
+	max-width: min(40rem, 90vw);
+	padding: var(--space-6) var(--space-8);
+	border-radius: 6px;
+	background: var(--error);
+	color: #fff;
+	box-shadow: 0 4px 12px rgb(0 0 0 / 30%);
+}
+
+#error-box[hidden] {
+	display: none;
+}
+
+#error-close {
+	border: none;
+	background: none;
+	color: inherit;
+	font: inherit;
+	font-size: 1.3rem;
+	line-height: 1;
+	cursor: pointer;
 }
 
 #scan-bar {

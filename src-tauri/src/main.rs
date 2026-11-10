@@ -276,6 +276,58 @@ fn set_key(paths: Vec<PathBuf>, value: String) -> Result<(), String> {
     transaction.commit().map_err(|e| e.to_string())
 }
 
+/// Renames a sample's file, in its folder, keeping its extension: `name` is
+/// the new name without it. Returns the new path.
+#[tauri::command(async)]
+fn rename_sample(path: PathBuf, name: String) -> Result<PathBuf, String> {
+    let name = name.trim();
+    // A name, not a path: no separator, nothing that would leave the folder.
+    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
+        return Err(format!("“{name}” is not a file name"));
+    }
+    let mut file_name = name.to_string();
+    if let Some(extension) = path.extension().and_then(|e| e.to_str()) {
+        file_name = format!("{file_name}.{extension}");
+    }
+    let new = path.with_file_name(file_name);
+    if new == path {
+        return Ok(path);
+    }
+    let db = db::open().map_err(|e| e.to_string())?;
+    file_id(&db, &path)?;
+    samplr::move_sample(&db, &path, &new).map_err(|e| e.to_string())?;
+    Ok(new)
+}
+
+/// Moves samples into `folder`, which must be inside a scanned folder: moved
+/// elsewhere, they would leave the library without anything to follow them.
+/// Stops at the first failure (a file of that name already there); the
+/// samples moved before it stay moved. Returns the new paths, in order.
+#[tauri::command(async)]
+fn move_samples(paths: Vec<PathBuf>, folder: PathBuf) -> Result<Vec<PathBuf>, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    let folder = dunce::canonicalize(&folder).map_err(|e| e.to_string())?;
+    let scanned = db::folders(&db).map_err(|e| e.to_string())?;
+    if !scanned.iter().any(|root| folder.starts_with(root)) {
+        return Err(format!(
+            "{} is not in a scanned folder: add it with + Folder first",
+            folder.display()
+        ));
+    }
+    let mut moved = Vec::new();
+    for path in &paths {
+        file_id(&db, path)?;
+        let name = path.file_name().ok_or("no file name")?;
+        let new = folder.join(name);
+        if new != *path {
+            samplr::move_sample(&db, path, &new)
+                .map_err(|e| format!("{e} ({} sample(s) moved before)", moved.len()))?;
+        }
+        moved.push(new);
+    }
+    Ok(moved)
+}
+
 /// The `playback-position` event: where the sound `id` is, in seconds from
 /// its start (a loop keeps counting from its first start).
 #[derive(Serialize, Clone)]
@@ -580,6 +632,8 @@ fn main() {
             set_favorite,
             set_tempo,
             set_key,
+            rename_sample,
+            move_samples,
             colors,
             add_color,
             update_color,
