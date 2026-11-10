@@ -2,10 +2,12 @@
 // a throwaway database (`SAMPLR_DB`): the real one is never touched.
 
 use std::fs;
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::mpsc;
+use std::time::Duration;
 
 use serde_json::Value;
 
@@ -340,4 +342,122 @@ fn a_closed_pipe_ends_quietly() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn tag_and_fav_add_a_file_not_yet_scanned() {
+    let library = Library::new();
+    let kick = library.add("kick.wav");
+    let snare = library.add("snare.wav");
+
+    library.json(&["tag", text(&kick), "drums"]);
+    library.json(&["fav", text(&snare)]);
+    let list = library.json(&["list"]);
+    assert_eq!(names(&list), ["kick.wav", "snare.wav"]);
+    assert_eq!(list[0]["tags"], serde_json::json!(["drums"]));
+    assert_eq!(list[1]["favorite"], true);
+    // Known to the database, but its folder is not followed.
+    assert_eq!(library.json(&["folders"]), serde_json::json!([]));
+}
+
+#[test]
+fn only_audio_files_are_tagged() {
+    let library = Library::new();
+    let notes = library.samples().join("notes.txt");
+    fs::write(&notes, "not a sound").unwrap();
+    let output = library.run(&["tag", text(&notes), "drums"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("is not a known audio file"));
+}
+
+#[test]
+fn the_waveform_drawn_in_the_terminal() {
+    let library = Library::new();
+    let kick = library.add("kick.wav");
+    let output = library.run(&["wave", text(&kick), "--width", "20"]);
+    assert!(output.status.success());
+    let drawing = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<&str> = drawing.lines().collect();
+    // Six lines of twenty columns, then the file's path.
+    assert_eq!(lines.len(), 7);
+    assert!(lines[..6].iter().all(|line| line.chars().count() == 20));
+    assert_eq!(lines[6], text(&kick));
+}
+
+#[test]
+fn watching_needs_a_scanned_folder() {
+    let library = Library::new();
+    let output = library.run(&["watch"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("no folder to watch"));
+}
+
+/// A `samplr --json watch` running in the background; stopped when dropped.
+struct Watch {
+    child: std::process::Child,
+    lines: mpsc::Receiver<String>,
+}
+
+impl Watch {
+    fn start(library: &Library) -> Watch {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_samplr"))
+            .args(["--json", "watch"])
+            .env("SAMPLR_DB", library.dir.0.join("samplr.db"))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        // Read in a thread of its own, so that a missing line makes the test
+        // fail after a while instead of waiting forever.
+        let stdout = child.stdout.take().unwrap();
+        let (sender, lines) = mpsc::channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                if sender.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        Watch { child, lines }
+    }
+
+    /// Waits for a change reported as `expected`, skipping the others.
+    fn expect(&self, expected: &str) {
+        loop {
+            let line = self
+                .lines
+                .recv_timeout(Duration::from_secs(10))
+                .unwrap_or_else(|_| panic!("no change \"{expected}\" reported"));
+            let change: Value = serde_json::from_str(&line).unwrap();
+            if change["change"] == expected {
+                return;
+            }
+        }
+    }
+}
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+#[test]
+fn watching_reports_each_change_as_a_line_of_json() {
+    let library = Library::new();
+    library.add("kick.wav");
+    library.scan();
+    let root = text(&library.samples()).to_string();
+
+    let watch = Watch::start(&library);
+    // The catch-up first, then the changes as they come.
+    watch.expect(&format!("{root}: 1 sample(s), 0 removed, 0 unreadable"));
+    let snare = library.add("snare.wav");
+    watch.expect(&format!("+ {}", text(&snare)));
+    fs::remove_file(&snare).unwrap();
+    watch.expect(&format!("- {} (1 sample(s))", text(&snare)));
+    drop(watch);
+
+    assert_eq!(names(&library.json(&["list"])), ["kick.wav"]);
 }
