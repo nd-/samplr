@@ -15,6 +15,9 @@ function openFakeLibrary() {
     await page.addInitScript({ path: path.join(__dirname, "fake-tauri.js") });
     await page.goto(pageUrl);
     await expect(page.locator("#status")).toHaveText("50 sample(s)");
+    // The other startup answers (colours, tags, collections) draw the rows
+    // again when they come: a click landing meanwhile would be lost.
+    await expect.poll(() => page.evaluate(() => window.__pending)).toBe(0);
   });
 
   test.afterEach(async ({ page }) => {

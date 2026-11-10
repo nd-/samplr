@@ -7,6 +7,7 @@
 // `window.__emit(name, payload)` sends an event as Rust would, and
 // `window.__answer` is what `dialog.ask` answers (true by default), each
 // question kept in `window.__asked`.
+// `window.__pending` counts the commands not answered yet.
 // `window.__library` changes the library as the folder watcher would (the
 // test then emits `library-changed`), `window.__delay(command, args)` gives
 // an answer's delay in milliseconds, and `window.__problems` holds what
@@ -284,6 +285,7 @@
 
   const listeners = new Map();
   window.__calls = [];
+  window.__pending = 0;
   window.__answer = true;
   window.__asked = [];
   window.__emit = (name, payload) => {
@@ -296,10 +298,15 @@
         window.__calls.push({ command, args: structuredClone(args) });
         const run = commands[command];
         if (!run) throw `the fake Tauri API has no command “${command}”`;
-        const answer = structuredClone(run(args));
-        const delay = window.__delay(command, args);
-        if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
-        return answer;
+        window.__pending += 1;
+        try {
+          const answer = structuredClone(run(args));
+          const delay = window.__delay(command, args);
+          if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+          return answer;
+        } finally {
+          window.__pending -= 1;
+        }
       },
     },
     event: {
