@@ -133,6 +133,16 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
              PRAGMA user_version = 4;",
         )?;
     }
+    if version < 5 {
+        // Tempo and key set by hand. NULL: worked out from the name and the
+        // length (see `analysis`); 0 and '' mean "none", to silence a wrong
+        // guess.
+        db.execute_batch(
+            "ALTER TABLE files ADD COLUMN bpm INTEGER;
+             ALTER TABLE files ADD COLUMN key TEXT;
+             PRAGMA user_version = 5;",
+        )?;
+    }
     db.execute_batch("COMMIT")?;
     Ok(())
 }
@@ -559,6 +569,26 @@ pub fn set_favorite(db: &Connection, file_id: i64, favorite: bool) -> Result<(),
     Ok(())
 }
 
+/// Sets a sample's tempo by hand: `Some(0)` for none, `None` to go back to
+/// the one worked out from the name or the length.
+pub fn set_tempo(db: &Connection, file_id: i64, bpm: Option<u32>) -> Result<(), Box<dyn Error>> {
+    db.execute(
+        "UPDATE files SET bpm = ?1 WHERE id = ?2",
+        params![bpm, file_id],
+    )?;
+    Ok(())
+}
+
+/// Sets a sample's key by hand, in sharps ("A#m"): `Some("")` for none,
+/// `None` to go back to the one read in the name.
+pub fn set_key(db: &Connection, file_id: i64, key: Option<&str>) -> Result<(), Box<dyn Error>> {
+    db.execute(
+        "UPDATE files SET key = ?1 WHERE id = ?2",
+        params![key, file_id],
+    )?;
+    Ok(())
+}
+
 /// A collection: samples gathered by hand. A sample can be in several.
 #[derive(Serialize)]
 pub struct Collection {
@@ -735,7 +765,8 @@ pub fn search(
                  WHERE ft.file_id = f.id),
                 f.favorite,
                 (SELECT group_concat(cf.collection_id) FROM collection_files cf
-                 WHERE cf.file_id = f.id)
+                 WHERE cf.file_id = f.id),
+                f.bpm, f.key
          FROM files f
          WHERE f.hidden = 0 AND instr(lower(f.path), lower(?1)) > 0",
     );
@@ -783,8 +814,16 @@ pub fn search(
         // Worked out from the name and the length at each search, rather
         // than stored: a renamed file needs nothing more.
         let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-        let tempo = analysis::tempo(stem, duration_secs);
-        let key = analysis::key_from_name(stem);
+        let tempo = match row.get::<_, Option<u32>>(8)? {
+            Some(0) => None,
+            Some(bpm) => Some((bpm, analysis::Source::Manual)),
+            None => analysis::tempo(stem, duration_secs),
+        };
+        let key = match row.get::<_, Option<String>>(9)? {
+            Some(key) if key.is_empty() => None,
+            Some(key) => Some(key),
+            None => analysis::key_from_name(stem),
+        };
         Ok(SampleInfo {
             duration_secs,
             sample_rate: row.get(2)?,

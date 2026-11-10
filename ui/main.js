@@ -99,7 +99,7 @@ function buildRow(index) {
     cell(folder, "folder"),
     cell(formatDuration(sample.duration_secs), "number"),
     bpmCell(sample),
-    cell(sample.key ?? "", "key"),
+    keyCell(sample),
     collectionsCell(sample.collections),
     tagsCell(sample.tags),
   );
@@ -198,7 +198,8 @@ function rowIndex(event) {
 
 tbody.addEventListener("click", (event) => {
   const index = rowIndex(event);
-  if (index < 0) return;
+  // A tempo or a key being edited: clicking in its box selects nothing.
+  if (index < 0 || event.target instanceof HTMLInputElement) return;
   // The star only toggles the favorite: the row is not selected, nothing
   // plays. The same for the × of a collection.
   if (event.target.closest("td.star")) {
@@ -209,15 +210,20 @@ tbody.addEventListener("click", (event) => {
     removeFromCollection([samples[index].path]);
     return;
   }
+  // A tempo or a key is edited with a double-click: a click there selects
+  // without playing, and the second click of the double-click does nothing.
+  // Elsewhere, quick clicks on a row still retrigger the sound, like a pad.
+  const editable = event.target.closest("td.bpm, td.key") !== null;
+  if (editable && event.detail > 1) return;
   // Cmd on a Mac, Ctrl elsewhere (Ctrl+click is a right-click on a Mac).
-  if (event.metaKey || event.ctrlKey) select(index, "toggle");
-  else if (event.shiftKey) select(index, "range");
-  else select(index);
+  if (event.metaKey || event.ctrlKey) select(index, "toggle", !editable);
+  else if (event.shiftKey) select(index, "range", !editable);
+  else select(index, "single", !editable);
 });
 
 tbody.addEventListener("mousedown", (event) => {
   const index = rowIndex(event);
-  if (index >= 0) watchForDrag(event, samples[index]);
+  if (index >= 0 && !(event.target instanceof HTMLInputElement)) watchForDrag(event, samples[index]);
 });
 
 const removeHeader = document.querySelector("th.remove");
@@ -1492,13 +1498,73 @@ function dot(hex) {
 // The tempo of a row: as written in the name, or "≈ 100" when estimated from
 // the sample's length.
 function bpmCell(sample) {
-  if (sample.bpm === null) return cell("", "number");
+  if (sample.bpm === null) return cell("", "number bpm");
   if (sample.bpm_source === "length") {
-    const td = cell(`≈ ${sample.bpm}`, "number estimated");
+    const td = cell(`≈ ${sample.bpm}`, "number bpm estimated");
     td.title = "Estimated from the length (a whole number of bars)";
     return td;
   }
-  return cell(String(sample.bpm), "number");
+  return cell(String(sample.bpm), "number bpm");
+}
+
+// Tempo and key by hand: a double-click on the cell edits it, for the whole
+// selection when the row is in it. Enter or leaving the box saves, Esc
+// cancels; empty goes back to the value worked out from the name or the
+// length, "-" means none (a wrong guess).
+tbody.addEventListener("dblclick", (event) => {
+  const index = rowIndex(event);
+  const td = event.target.closest("td.bpm, td.key");
+  if (index < 0 || !td || td.querySelector("input")) return;
+  editCell(index, td, td.classList.contains("bpm") ? "set_tempo" : "set_key");
+});
+
+function editCell(index, td, command) {
+  const sample = samples[index];
+  const initial = String((command === "set_tempo" ? sample.bpm : sample.key) ?? "");
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = initial;
+  input.placeholder = "auto";
+  input.spellcheck = false;
+  input.title = "Enter to save, Esc to cancel. Empty: automatic; -: none";
+  td.replaceChildren(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  async function finish(save) {
+    if (done) return;
+    done = true;
+    const value = input.value.trim();
+    if (!save || value === initial) {
+      // The row may have been drawn again meanwhile (scrolling).
+      if (td.isConnected) td.replaceWith(command === "set_tempo" ? bpmCell(sample) : keyCell(sample));
+      return;
+    }
+    const paths = selectedPaths.has(sample.path)
+      ? selectedSamples().map((s) => s.path)
+      : [sample.path];
+    try {
+      await invoke(command, { paths, value });
+    } catch (error) {
+      status.textContent = `Error: ${error}`;
+      if (td.isConnected) td.replaceWith(command === "set_tempo" ? bpmCell(sample) : keyCell(sample));
+      return;
+    }
+    await refresh({ stopIfGone: false });
+    flash(rowsOf(paths));
+  }
+  input.addEventListener("keydown", (event) => {
+    // The list's keys (arrows, Enter, Esc, Del) must not react.
+    event.stopPropagation();
+    if (event.key === "Enter") finish(true);
+    else if (event.key === "Escape") finish(false);
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+
+function keyCell(sample) {
+  return cell(sample.key ?? "", "key");
 }
 
 // The names of collections, by `id`, in the order of the left column.

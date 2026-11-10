@@ -17,6 +17,8 @@ pub enum Source {
     Name,
     /// Computed from the sample's length: an estimate.
     Length,
+    /// Set by hand in the interface.
+    Manual,
 }
 
 /// The tempos a name may give: sample packs stay within this range.

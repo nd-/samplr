@@ -674,6 +674,22 @@ td.remove button:hover {
 	color: var(--muted);
 }
 
+/* A tempo or a key being edited (double-click). */
+/* No border nor vertical padding: rows have a fixed height, which the
+   virtual list relies on. */
+td.bpm input, td.key input {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 0 var(--space-2);
+	border: 0;
+	outline: 1px solid var(--wave);
+	background: var(--surface);
+	color: var(--fg);
+	font: inherit;
+	line-height: inherit;
+	text-align: inherit;
+}
+
 tbody tr:hover {
 	background: var(--hover);
 }

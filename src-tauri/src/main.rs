@@ -234,6 +234,48 @@ fn set_favorite(paths: Vec<PathBuf>, favorite: bool) -> Result<(), String> {
     transaction.commit().map_err(|e| e.to_string())
 }
 
+/// Sets the samples' tempo by hand. `value`: a tempo, `"-"` for none, empty
+/// to go back to the one worked out from the name or the length.
+#[tauri::command(async)]
+fn set_tempo(paths: Vec<PathBuf>, value: String) -> Result<(), String> {
+    let value = value.trim();
+    let bpm = match value {
+        "" => None,
+        "-" => Some(0),
+        _ => match value.parse::<u32>() {
+            Ok(bpm) if (20..=400).contains(&bpm) => Some(bpm),
+            _ => return Err(format!("“{value}” is not a tempo between 20 and 400")),
+        },
+    };
+    let mut db = db::open().map_err(|e| e.to_string())?;
+    let transaction = db.transaction().map_err(|e| e.to_string())?;
+    for file_id in file_ids(&transaction, &paths)? {
+        db::set_tempo(&transaction, file_id, bpm).map_err(|e| e.to_string())?;
+    }
+    transaction.commit().map_err(|e| e.to_string())
+}
+
+/// Sets the samples' key by hand, in any spelling ("Bbm", "a#min"). `value`:
+/// `"-"` for none, empty to go back to the one read in the name.
+#[tauri::command(async)]
+fn set_key(paths: Vec<PathBuf>, value: String) -> Result<(), String> {
+    let value = value.trim();
+    let key = match value {
+        "" => None,
+        "-" => Some(String::new()),
+        _ => match analysis::normalize_key(value) {
+            Some(key) => Some(key),
+            None => return Err(format!("“{value}” is not a key (e.g. Am, F#, Bbm)")),
+        },
+    };
+    let mut db = db::open().map_err(|e| e.to_string())?;
+    let transaction = db.transaction().map_err(|e| e.to_string())?;
+    for file_id in file_ids(&transaction, &paths)? {
+        db::set_key(&transaction, file_id, key.as_deref()).map_err(|e| e.to_string())?;
+    }
+    transaction.commit().map_err(|e| e.to_string())
+}
+
 /// The `playback-position` event: where the sound `id` is, in seconds from
 /// its start (a loop keeps counting from its first start).
 #[derive(Serialize, Clone)]
@@ -536,6 +578,8 @@ fn main() {
             add_tags,
             remove_tag,
             set_favorite,
+            set_tempo,
+            set_key,
             colors,
             add_color,
             update_color,
