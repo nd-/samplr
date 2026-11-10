@@ -25,6 +25,9 @@
 	--selected: light-dark(#F4E1B6, #4F3F1C);
 	--wave: light-dark(#C47A08, #F2A93B);
 	--signal: light-dark(#3F5BD9, #8EA2FF);
+	/* The same red in every palette (a refused value): the themes do not
+	   redefine it, their `color-scheme` picks the light or dark one. */
+	--error: light-dark(#C62828, #FF6B6B);
 	/* Derived, so that a theme only gives its base colours. */
 	--hover: color-mix(in srgb, var(--fg) 6%, var(--bg));
 	--signal-soft: color-mix(in srgb, var(--signal) 22%, var(--bg));
@@ -683,11 +686,18 @@ td.bpm input, td.key input {
 	padding: 0 var(--space-2);
 	border: 0;
 	outline: 1px solid var(--wave);
+	/* Inside the box: the cell would cut an outline drawn outside it. */
+	outline-offset: -1px;
 	background: var(--surface);
 	color: var(--fg);
 	font: inherit;
 	line-height: inherit;
 	text-align: inherit;
+}
+
+td.bpm input.invalid, td.key input.invalid {
+	outline: 2px solid var(--error);
+	outline-offset: -2px;
 }
 
 tbody tr:hover {

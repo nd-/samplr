@@ -1531,8 +1531,10 @@ function editCell(index, td, command) {
   input.focus();
   input.select();
 
+  // A value refused after Enter keeps the box open, outlined in red, to be
+  // corrected; refused on leaving the box, the old value comes back.
   let done = false;
-  async function finish(save) {
+  async function finish(save, leaving = false) {
     if (done) return;
     done = true;
     const value = input.value.trim();
@@ -1548,7 +1550,15 @@ function editCell(index, td, command) {
       await invoke(command, { paths, value });
     } catch (error) {
       status.textContent = `Error: ${error}`;
-      if (td.isConnected) td.replaceWith(command === "set_tempo" ? bpmCell(sample) : keyCell(sample));
+      if (!td.isConnected) return;
+      if (leaving) {
+        td.replaceWith(command === "set_tempo" ? bpmCell(sample) : keyCell(sample));
+        return;
+      }
+      done = false;
+      input.classList.add("invalid");
+      input.title = String(error);
+      input.select();
       return;
     }
     await refresh({ stopIfGone: false });
@@ -1560,7 +1570,8 @@ function editCell(index, td, command) {
     if (event.key === "Enter") finish(true);
     else if (event.key === "Escape") finish(false);
   });
-  input.addEventListener("blur", () => finish(true));
+  input.addEventListener("input", () => input.classList.remove("invalid"));
+  input.addEventListener("blur", () => finish(true, true));
 }
 
 function keyCell(sample) {
