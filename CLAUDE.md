@@ -102,18 +102,18 @@ mixing macOS and Linux binaries in `target/`. Do not put this setting in the pro
 
 Database: `samplr.db` in the system data folder (`~/.local/share/samplr` on Linux,
 `~/Library/Application Support/samplr` on Mac). The `SAMPLR_DB` variable points to another
-database, for experiments. Tables `files` (with `hidden`, see `remove-folder`, `favorite`, `bpm`
-and `key` set by hand, `acid_beats`, `acid_root` and `acid_loop` from the file's ACID chunk),
-`tags`, `file_tags`, `folders` (the folders given to `scan`, followed by `watch`), `waveforms`,
-`collections` and `collection_files` (samples gathered by hand; a sample forgotten by the database
-leaves its collections, a hidden one stays in them and comes back with its folder), `colors` (the
-palette: name, `#rrggbb`, position; filled with 10 colours by the migration to version 4). `tags`
-and `collections` have a `color_id` (`ON DELETE SET NULL`: deleting a colour leaves them without
-colour). A tag deleted because no sample carries it any more loses its colour. Schema changes go
-through `db::migrate`: SQLite keeps the schema version (`PRAGMA user_version`, 6 so far), each
-step runs once, under `BEGIN IMMEDIATE` so that the app and a command opening the database
-together do not both run it. A new database goes through every step too (the `CREATE TABLE`s are
-version 0): add a column with a migration step, not in the `CREATE TABLE`, and raise
+database, for experiments. Tables `files` (with `hidden`, see `remove-folder`, `favorite`, `bpm`,
+`key` and `looped` set by hand, `acid_beats`, `acid_root` and `acid_loop` from the file's ACID
+chunk), `tags`, `file_tags`, `folders` (the folders given to `scan`, followed by `watch`),
+`waveforms`, `collections` and `collection_files` (samples gathered by hand; a sample forgotten by
+the database leaves its collections, a hidden one stays in them and comes back with its folder),
+`colors` (the palette: name, `#rrggbb`, position; filled with 10 colours by the migration to
+version 4). `tags` and `collections` have a `color_id` (`ON DELETE SET NULL`: deleting a colour
+leaves them without colour). A tag deleted because no sample carries it any more loses its colour.
+Schema changes go through `db::migrate`: SQLite keeps the schema version (`PRAGMA user_version`, 7
+so far), each step runs once, under `BEGIN IMMEDIATE` so that the app and a command opening the
+database together do not both run it. A new database goes through every step too (the `CREATE
+TABLE`s are version 0): add a column with a migration step, not in the `CREATE TABLE`, and raise
 `SCHEMA_VERSION` with it: an up-to-date database is opened without taking the write lock,
 otherwise every command, even a search, waited behind any process writing and failed after 5 s
 ("database is locked"). For the same reason `index` (scan, startup catch-up, a folder appearing)
@@ -541,6 +541,17 @@ Audio pitfalls met so far:
   tracks, which the library hardly has; worth measuring again on long files only, with its
   confidence ≥ 0.5 (80 % right on the few labelled ones over 10 s). Never decode a whole file into
   memory for an analysis: a 3-hour recording took the machine's memory.
+- Loop or one-shot (`analysis::looped`, unit-tested): set by hand first (`files.looped`), else the
+  ACID chunk's flag, else the words of the file name then of its folders from the deepest up, the
+  first that says it winning (`loop_from_words`: "loop", "loops"; "one shot", "oneshot", "hit",
+  "hits", "fx", "sfx", "fill", "fills", so that `… Loops/HITS/Kick/kick.wav` is a one-shot), else
+  a loop when a tempo is known (a guess, greyed). Worked out at each search (`SampleInfo::looped`,
+  `loop_source`), shown in the Loop column as ✓ or —, sortable, searched with `loop:yes` /
+  `loop:no`. A double-click switches it for the selection (`switchLoop`, `set_loop`); a value
+  equal to the one worked out is not kept as set by hand, so switching twice goes back to
+  automatic. On the Linux library: 466 decided by the chunk, 2295 by the words, 540 guessed from
+  the tempo; effects and fills were taken for loops when their length happened to give a whole
+  tempo, hence their words.
 - Errors: `showError` in `main.js` shows them in a red box above the status line (`#error-box`,
   `--error` the same red in every theme, closed by its × or after 10 s, not while the pointer is
   on it; its text can be selected and copied) and in the status line; every failure reported to

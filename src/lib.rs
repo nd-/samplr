@@ -49,6 +49,11 @@ pub struct SampleInfo {
     pub bpm_source: Option<analysis::Source>,
     /// Key from the file name, in sharps ("A#m"); `None` when unknown.
     pub key: Option<String>,
+    /// A loop (`true`) or a one-shot, and where that comes from (see
+    /// `analysis::looped`); `false` and `None` until the sample is read back
+    /// from the database.
+    pub looped: bool,
+    pub loop_source: Option<analysis::Source>,
     /// The file's ACID chunk, read with the file (`read_info`) and kept in
     /// the database; not sent to the page.
     #[serde(skip)]
@@ -346,6 +351,8 @@ pub fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
         bpm: None,
         bpm_source: None,
         key: None,
+        looped: false,
+        loop_source: None,
         acid: acid::read(path),
     })
 }

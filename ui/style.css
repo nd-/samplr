@@ -790,6 +790,12 @@ td.remove button:hover {
 	font-variant-numeric: tabular-nums;
 }
 
+/* Loop / one-shot: centred, it is a mark rather than a text. */
+td.loop,
+th[data-sort="loop"] {
+	text-align: center;
+}
+
 /* A tempo estimated from the length, not written in the name. */
 .estimated {
 	color: var(--muted);

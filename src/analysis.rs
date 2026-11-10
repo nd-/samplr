@@ -154,6 +154,56 @@ pub fn tempo(stem: &str, seconds: Option<f64>, acid_beats: Option<u32>) -> Optio
         .map(|tempo| (tempo, Source::Length))
 }
 
+/// Loop or one-shot, from the words of the file name, then of its folders
+/// from the deepest up: the first that says it wins, so that
+/// `Drums Loops/HITS/Kick/kick_01.wav` is a one-shot. "loop", "loops" say
+/// loop; "one shot", "oneshot", "hit", "hits", "fx", "sfx", "fill", "fills"
+/// say one-shot. `None` when no word says it.
+pub fn loop_from_words(path: &std::path::Path) -> Option<bool> {
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let folders = path
+        .parent()
+        .into_iter()
+        .flat_map(|folder| folder.iter().rev())
+        .filter_map(|part| part.to_str());
+    for part in std::iter::once(stem).chain(folders) {
+        let lower = part.to_lowercase();
+        let words: Vec<&str> = lower
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .collect();
+        let one_shot = words.iter().any(|word| {
+            // Effects and drum fills are played once too.
+            matches!(
+                *word,
+                "oneshot" | "oneshots" | "hit" | "hits" | "fx" | "sfx" | "fill" | "fills"
+            )
+        }) || words
+            .windows(2)
+            .any(|pair| pair[0] == "one" && pair[1].starts_with("shot"));
+        if one_shot {
+            return Some(false);
+        }
+        if words.iter().any(|word| matches!(*word, "loop" | "loops")) {
+            return Some(true);
+        }
+    }
+    None
+}
+
+/// Loop or one-shot, and where it comes from: the ACID chunk's flag, else
+/// the words of the path, else a loop when a tempo is known (from the name,
+/// the chunk or the length), a one-shot otherwise (an estimate).
+pub fn looped(path: &std::path::Path, acid_loop: Option<bool>, has_tempo: bool) -> (bool, Source) {
+    if let Some(looped) = acid_loop {
+        return (looped, Source::File);
+    }
+    if let Some(looped) = loop_from_words(path) {
+        return (looped, Source::Name);
+    }
+    (has_tempo, Source::Length)
+}
+
 /// The same key whatever the spelling: "Bbm", "A#m", "bbmin" give "A#m".
 pub fn normalize_key(key_text: &str) -> Option<String> {
     let mut word = key_text.trim().to_string();
@@ -239,6 +289,54 @@ mod tests {
         );
         assert_eq!(tempo("Loop", Some(4.0), None), Some((120, Source::Length)));
         assert_eq!(tempo("Kick", Some(0.3), None), None);
+    }
+
+    #[test]
+    fn loop_words() {
+        use std::path::Path;
+        assert_eq!(
+            loop_from_words(Path::new("/s/Arab Percussion Loop 1.wav")),
+            Some(true)
+        );
+        assert_eq!(
+            loop_from_words(Path::new("/s/Dub Loops/HITS/Kick/kick_01.wav")),
+            Some(false)
+        );
+        assert_eq!(
+            loop_from_words(Path::new("/s/Loops/Kick One Shot.wav")),
+            Some(false)
+        );
+        assert_eq!(
+            loop_from_words(Path::new("/s/Loops/Oneshots/tom.wav")),
+            Some(false)
+        );
+        assert_eq!(
+            loop_from_words(Path::new("/s/Pack/Drum Loops/beat.wav")),
+            Some(true)
+        );
+        assert_eq!(
+            loop_from_words(Path::new("/s/MP2_FX/MP2_Plane.wav")),
+            Some(false)
+        );
+        assert_eq!(
+            loop_from_words(Path::new("/s/MP2_DRUM_FILLS/MP2_DrumFill_16.wav")),
+            Some(false)
+        );
+        // "loophole" or "hither" are not the words.
+        assert_eq!(loop_from_words(Path::new("/s/loophole/hither.wav")), None);
+    }
+
+    #[test]
+    fn loop_sources() {
+        use std::path::Path;
+        let kick = Path::new("/s/Kick.wav");
+        assert_eq!(looped(kick, Some(true), false), (true, Source::File));
+        assert_eq!(
+            looped(Path::new("/s/Hits/x.wav"), None, true),
+            (false, Source::Name)
+        );
+        assert_eq!(looped(kick, None, true), (true, Source::Length));
+        assert_eq!(looped(kick, None, false), (false, Source::Length));
     }
 
     #[test]

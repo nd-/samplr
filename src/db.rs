@@ -86,7 +86,7 @@ pub fn open() -> Result<Connection, Box<dyn Error>> {
 }
 
 /// The schema version `migrate` brings a database to: the last step's.
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 /// Brings a database created by an older samplr up to date. Its version is
 /// kept by SQLite (`user_version`, 0 for a new database); each step runs once.
@@ -174,6 +174,14 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
              ALTER TABLE files ADD COLUMN acid_root TEXT;
              ALTER TABLE files ADD COLUMN acid_loop INTEGER;
              PRAGMA user_version = 6;",
+        )?;
+    }
+    if version < 7 {
+        // Loop (1) or one-shot (0) set by hand; NULL: worked out (see
+        // `analysis::looped`).
+        db.execute_batch(
+            "ALTER TABLE files ADD COLUMN looped INTEGER;
+             PRAGMA user_version = 7;",
         )?;
     }
     db.execute_batch("COMMIT")?;
@@ -642,6 +650,16 @@ pub fn set_key(db: &Connection, file_id: i64, key: Option<&str>) -> Result<(), B
     Ok(())
 }
 
+/// Sets a sample as a loop or a one-shot by hand; `None` goes back to the
+/// value worked out.
+pub fn set_loop(db: &Connection, file_id: i64, looped: Option<bool>) -> Result<(), Box<dyn Error>> {
+    db.execute(
+        "UPDATE files SET looped = ?1 WHERE id = ?2",
+        params![looped, file_id],
+    )?;
+    Ok(())
+}
+
 /// A collection: samples gathered by hand. A sample can be in several.
 #[derive(Serialize)]
 pub struct Collection {
@@ -825,7 +843,7 @@ pub fn search(
                 f.favorite,
                 (SELECT group_concat(cf.collection_id) FROM collection_files cf
                  WHERE cf.file_id = f.id),
-                f.bpm, f.key, f.acid_beats, f.acid_root, f.acid_loop
+                f.bpm, f.key, f.acid_beats, f.acid_root, f.acid_loop, f.looped
          FROM files f
          WHERE f.hidden = 0 AND instr(unicode_lower(f.path), unicode_lower(?1)) > 0",
     );
@@ -887,6 +905,10 @@ pub fn search(
             Some(key) => Some(key),
             None => analysis::key_from_name(stem).or(acid_root.clone()),
         };
+        let (looped, loop_source) = match row.get::<_, Option<bool>>(13)? {
+            Some(looped) => (looped, analysis::Source::Manual),
+            None => analysis::looped(&path, acid_loop, tempo.is_some()),
+        };
         Ok(SampleInfo {
             duration_secs,
             sample_rate: row.get(2)?,
@@ -903,6 +925,8 @@ pub fn search(
             bpm: tempo.map(|(bpm, _)| bpm),
             bpm_source: tempo.map(|(_, source)| source),
             key,
+            looped,
+            loop_source: Some(loop_source),
             acid: acid_loop.map(|looped| acid::Acid {
                 beats: acid_beats.unwrap_or(0),
                 root: acid_root,

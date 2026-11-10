@@ -148,6 +148,7 @@ function buildRow(index) {
     cell(formatDuration(sample.duration_secs), "number"),
     bpmCell(sample),
     keyCell(sample),
+    loopCell(sample),
     collectionsCell(sample.collections),
     tagsCell(sample.tags),
     cell(folder, "folder"),
@@ -259,10 +260,10 @@ tbody.addEventListener("click", (event) => {
     removeFromCollection([samples[index].path]);
     return;
   }
-  // A tempo or a key is edited with a double-click: a click there selects
+  // A tempo, a key or loop / one-shot is edited with a double-click: a click there selects
   // without playing, and the second click of the double-click does nothing.
   // Elsewhere, quick clicks on a row still retrigger the sound, like a pad.
-  const editable = event.target.closest("td.bpm, td.key") !== null;
+  const editable = event.target.closest("td.bpm, td.key, td.loop") !== null;
   if (editable && event.detail > 1) return;
   const andPlay = autoplayBox.checked && !editable;
   // Cmd on a Mac, Ctrl elsewhere (Ctrl+click is a right-click on a Mac).
@@ -288,7 +289,15 @@ const columnGroup = removeColumn.parentElement;
 // Column widths, changed by dragging the handle on a header's right edge;
 // a double-click on it brings the default back. Remembered between
 // sessions, on this computer only. Tags takes the rest of the width.
-const defaultWidths = { name: 280, folder: 320, length: 90, bpm: 70, key: 60, collections: 160 };
+const defaultWidths = {
+  name: 280,
+  folder: 320,
+  length: 90,
+  bpm: 70,
+  key: 60,
+  loop: 60,
+  collections: 160,
+};
 let columnWidths = { ...defaultWidths };
 try {
   columnWidths = { ...defaultWidths, ...JSON.parse(localStorage.getItem("columnWidths") ?? "{}") };
@@ -417,6 +426,7 @@ const sortValues = {
   length: (sample) => sample.duration_secs,
   bpm: (sample) => sample.bpm,
   key: (sample) => sample.key,
+  loop: (sample) => (sample.looped ? 1 : 0),
   tags: (sample) => sample.tags.join(" ") || null,
   collections: (sample) => collectionNames(sample.collections).join(" ") || null,
 };
@@ -2090,8 +2100,49 @@ function bpmCell(sample) {
 // selection when the row is in it. Enter or leaving the box saves, Esc
 // cancels; empty goes back to the value worked out from the name or the
 // length, "-" means none (a wrong guess).
+// Loop or one-shot: ✓ or —, greyed when only guessed from the tempo.
+const loopOrigins = {
+  file: "from the file's ACID chunk",
+  name: "from the words of its name or folders",
+  length: "guessed: a loop when it has a tempo",
+  manual: "set by hand",
+};
+
+function loopCell(sample) {
+  const guess = sample.loop_source === "length";
+  const td = cell(sample.looped ? "✓" : "—", guess ? "loop estimated" : "loop");
+  td.title = `${sample.looped ? "Loop" : "One-shot"}, ${loopOrigins[sample.loop_source] ?? ""}. Double-click to change`;
+  return td;
+}
+
+// A double-click on Loop switches it, for the whole selection when the row
+// is in it. A value that is the one samplr works out by itself is not kept
+// as set by hand: switching twice goes back to automatic.
+async function switchLoop(index) {
+  const sample = samples[index];
+  const wanted = !sample.looped;
+  const chosen = selectedPaths.has(sample.path) ? selectedSamples() : [sample];
+  // Worked out by itself: the value shown, unless it was set by hand, in
+  // which case it is the other one (only a value differing from it is kept).
+  const automatic = (s) => (s.loop_source === "manual" ? !s.looped : s.looped);
+  const backToAuto = chosen.filter((s) => automatic(s) === wanted).map((s) => s.path);
+  const byHand = chosen.filter((s) => automatic(s) !== wanted).map((s) => s.path);
+  try {
+    if (backToAuto.length > 0) await invoke("set_loop", { paths: backToAuto, looped: null });
+    if (byHand.length > 0) await invoke("set_loop", { paths: byHand, looped: wanted });
+  } catch (error) {
+    showError(error);
+  }
+  await refresh({ stopIfGone: false });
+  flash(rowsOf(chosen.map((s) => s.path)));
+}
+
 tbody.addEventListener("dblclick", (event) => {
   const index = rowIndex(event);
+  if (index >= 0 && event.target.closest("td.loop")) {
+    switchLoop(index);
+    return;
+  }
   const td = event.target.closest("td.bpm, td.key");
   if (index < 0 || !td || td.querySelector("input")) return;
   editCell(index, td, td.classList.contains("bpm") ? "set_tempo" : "set_key");
@@ -2247,7 +2298,7 @@ const shortcutList = [
   ["Ctrl+D", "Make the selection favorites, or no longer"],
   ["Ctrl+B", "Show or hide the collections"],
   ["Del", "Take the selection out of the open collection"],
-  ["Double-click", "Edit the tempo or the key of a sample"],
+  ["Double-click", "Edit the tempo or the key of a sample, or switch loop / one-shot"],
   ["Right-click", "Collections, rename, move, convert or trash the selection"],
   ["Drag a row", "Drop the selection into your DAW, or onto a collection"],
 ];

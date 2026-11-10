@@ -62,6 +62,7 @@ fn search(
     let mut words = Vec::new();
     let mut tempos = None;
     let mut key = None;
+    let mut looped = None;
     for word in query.split_whitespace() {
         // `bpm:` and `key:` filters; one still being typed and not valid
         // yet (`bpm:1`, `key:`) filters nothing.
@@ -72,6 +73,15 @@ fn search(
         }
         if let Some(value) = word.get(4..).filter(|_| lower.starts_with("key:")) {
             key = analysis::normalize_key(value).or(key);
+            continue;
+        }
+        if let Some(value) = lower.strip_prefix("loop:") {
+            looped = match value {
+                "yes" | "y" | "true" | "1" => Some(true),
+                "no" | "n" | "false" | "0" => Some(false),
+                // Still being typed: no filter.
+                _ => looped,
+            };
             continue;
         }
         match word.strip_prefix('#') {
@@ -91,6 +101,9 @@ fn search(
     }
     if let Some(key) = key {
         samples.retain(|sample| sample.key.as_ref() == Some(&key));
+    }
+    if let Some(looped) = looped {
+        samples.retain(|sample| sample.looped == looped);
     }
     Ok(samples)
 }
@@ -269,6 +282,18 @@ fn set_tempo(paths: Vec<PathBuf>, value: String) -> Result<(), String> {
     let transaction = db.transaction().map_err(|e| e.to_string())?;
     for file_id in file_ids(&transaction, &paths)? {
         db::set_tempo(&transaction, file_id, bpm).map_err(|e| e.to_string())?;
+    }
+    transaction.commit().map_err(|e| e.to_string())
+}
+
+/// Sets samples as loops (`true`) or one-shots by hand; `None` goes back to
+/// the value worked out.
+#[tauri::command(async)]
+fn set_loop(paths: Vec<PathBuf>, looped: Option<bool>) -> Result<(), String> {
+    let mut db = db::open().map_err(|e| e.to_string())?;
+    let transaction = db.transaction().map_err(|e| e.to_string())?;
+    for file_id in file_ids(&transaction, &paths)? {
+        db::set_loop(&transaction, file_id, looped).map_err(|e| e.to_string())?;
     }
     transaction.commit().map_err(|e| e.to_string())
 }
@@ -795,6 +820,7 @@ fn main() {
             set_favorite,
             set_tempo,
             set_key,
+            set_loop,
             rename_sample,
             move_samples,
             trash_samples,
