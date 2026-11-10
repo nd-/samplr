@@ -570,6 +570,8 @@ function showTags(changed, allTags) {
   drawRows();
   applyColumnWidths();
   renderTags();
+  // A tag may have appeared, gone, or changed count.
+  loadTagList();
 }
 
 // A short light on what just changed, so that one sees the action took.
@@ -1043,6 +1045,8 @@ async function refresh({ stopIfGone = true } = {}) {
     drawWaveform();
   }
   renderTags();
+  // Changes on disk, a folder removed, files trashed: the counts change.
+  loadTagList();
 }
 
 window.__TAURI__.event.listen("library-changed", () => refresh());
@@ -1129,6 +1133,97 @@ async function loadCollections() {
   drawRows();
 }
 
+// The Tags box, under the collections: every tag with its number of
+// samples. A click puts `#tag` in the search box, or takes it out, so that
+// tags can be combined; those in the search are marked.
+const tagList = document.getElementById("tag-list");
+let tagCounts = [];
+
+async function loadTagList() {
+  try {
+    tagCounts = await invoke("tags");
+  } catch (error) {
+    showError(error);
+    return;
+  }
+  renderTagList();
+}
+
+// The `#tag` words of the search box, lowercase.
+function searchedTags() {
+  return searchBox.value
+    .split(/\s+/)
+    .filter((word) => word.startsWith("#") && word.length > 1)
+    .map((word) => word.slice(1).toLowerCase());
+}
+
+// The Tags box's order: "name", or "count" (most used first, then by name).
+// Remembered on this computer.
+let tagSortOrder = "name";
+try {
+  if (localStorage.getItem("tagSort") === "count") tagSortOrder = "count";
+} catch {
+  // Storage unavailable: by name.
+}
+const tagSortButtons = document.querySelectorAll("#tag-sort button");
+
+for (const button of tagSortButtons) {
+  button.addEventListener("click", () => {
+    tagSortOrder = button.dataset.sort;
+    try {
+      localStorage.setItem("tagSort", tagSortOrder);
+    } catch {
+      // Storage unavailable: the order is simply not remembered.
+    }
+    renderTagList();
+  });
+}
+
+function renderTagList() {
+  for (const button of tagSortButtons) {
+    button.setAttribute("aria-pressed", String(button.dataset.sort === tagSortOrder));
+  }
+  const searched = searchedTags();
+  // Names in the list's natural order ("kick 2" before "kick 10").
+  const byName = (a, b) => collator.compare(a[0], b[0]);
+  const sorted = [...tagCounts].sort(
+    tagSortOrder === "count" ? (a, b) => b[1] - a[1] || byName(a, b) : byName,
+  );
+  const items = sorted.map(([name, count]) => {
+    const item = collectionItem(
+      name,
+      count,
+      searched.includes(name),
+      () => toggleSearchedTag(name),
+      undefined,
+      tagColor(name) ?? "",
+    );
+    item.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      openColorMenu(event.clientX, event.clientY, tagColorIds.get(name) ?? null, async (color) => {
+        await invoke("set_tag_color", { tag: name, color });
+        await loadColors();
+      });
+    });
+    return item;
+  });
+  if (items.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "empty";
+    empty.textContent = "No tag yet";
+    items.push(empty);
+  }
+  tagList.replaceChildren(...items);
+}
+
+function toggleSearchedTag(name) {
+  const words = searchBox.value.split(/\s+/).filter((word) => word !== "");
+  const kept = words.filter((word) => word.toLowerCase() !== `#${name}`);
+  if (kept.length === words.length) kept.push(`#${name}`);
+  searchBox.value = kept.join(" ");
+  search();
+}
+
 // `id`: the collection's, kept on the item to find it under a drop; none for
 // "All samples", which takes no drop.
 function collectionItem(label, count, active, open, id, hex = null) {
@@ -1139,7 +1234,9 @@ function collectionItem(label, count, active, open, id, hex = null) {
   name.className = "name";
   // The whole name, when the column is too narrow for it.
   name.title = label;
-  if (hex) name.append(dot(hex));
+  // An empty dot when `hex` is "": the names stay aligned with those of
+  // coloured items. None for `null` ("All samples").
+  if (hex !== null) name.append(dot(hex));
   name.append(label);
   name.addEventListener("click", open);
   item.append(name);
@@ -1163,7 +1260,7 @@ function renderCollections() {
       collection.id === currentCollection,
       () => openCollection(collection.id),
       collection.id,
-      colorHex(collection.color_id),
+      colorHex(collection.color_id) ?? "",
     );
     item.title = "Right-click to give it a colour";
     item.addEventListener("contextmenu", (event) => {
@@ -1321,6 +1418,66 @@ function saveCollectionsWidth(width) {
   } catch {
     // Storage unavailable: the width is simply not remembered.
   }
+}
+
+// The height shared between the collections and the tags, changed by
+// dragging the handle between them: the collections' list gets `height`
+// pixels, the tags the rest; `null` shares it equally. Remembered.
+const listsResizer = document.getElementById("lists-resizer");
+// Neither list is ever squeezed below this.
+const minListHeight = 48;
+
+function setCollectionsHeight(height) {
+  if (height === null) {
+    collectionList.style.removeProperty("flex");
+    return;
+  }
+  const shared =
+    collectionList.getBoundingClientRect().height + tagList.getBoundingClientRect().height;
+  const clamped = Math.round(
+    Math.min(Math.max(height, minListHeight), Math.max(minListHeight, shared - minListHeight)),
+  );
+  // May still shrink: a smaller window takes the room from both lists.
+  collectionList.style.flex = `0 1 ${clamped}px`;
+}
+
+function saveCollectionsHeight(height) {
+  try {
+    if (height === null) localStorage.removeItem("collectionsHeight");
+    else localStorage.setItem("collectionsHeight", String(Math.round(height)));
+  } catch {
+    // Storage unavailable: the height is simply not remembered.
+  }
+}
+
+listsResizer.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  const startY = event.clientY;
+  const startHeight = collectionList.getBoundingClientRect().height;
+  listsResizer.setPointerCapture(event.pointerId);
+  listsResizer.classList.add("dragging");
+  const resize = (move) => setCollectionsHeight(startHeight + move.clientY - startY);
+  listsResizer.addEventListener("pointermove", resize);
+  listsResizer.addEventListener(
+    "pointerup",
+    () => {
+      listsResizer.removeEventListener("pointermove", resize);
+      listsResizer.classList.remove("dragging");
+      saveCollectionsHeight(collectionList.getBoundingClientRect().height);
+    },
+    { once: true },
+  );
+});
+listsResizer.addEventListener("dblclick", () => {
+  setCollectionsHeight(null);
+  saveCollectionsHeight(null);
+});
+
+try {
+  const saved = localStorage.getItem("collectionsHeight");
+  if (saved !== null) setCollectionsHeight(Number(saved));
+} catch {
+  // Storage unavailable: shared equally.
 }
 
 collectionsResizer.addEventListener("pointerdown", (event) => {
@@ -1772,6 +1929,8 @@ async function search() {
     drawWaveform();
     render();
     renderTags();
+    // The `#tag` words typed or clicked are marked in the Tags box.
+    renderTagList();
   } catch (error) {
     showError(error);
   }
@@ -2047,6 +2206,7 @@ async function loadColors() {
   applyColumnWidths();
   renderTags();
   renderCollections();
+  renderTagList();
 }
 
 // The palette's colours to choose from, plus "No colour"; `current` is
@@ -2352,3 +2512,4 @@ document.getElementById("show-settings").addEventListener("click", () => {
 search();
 loadCollections();
 loadColors();
+loadTagList();

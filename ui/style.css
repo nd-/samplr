@@ -367,6 +367,28 @@ header button:disabled {
 	justify-content: space-between;
 }
 
+/* Sorting the Tags box: the order in use stands out. */
+#tag-sort {
+	display: flex;
+	gap: var(--space-2);
+}
+
+#tag-sort button {
+	border: none;
+	border-radius: 3px;
+	background: none;
+	color: var(--muted);
+	font: inherit;
+	font-size: 0.8rem;
+	cursor: pointer;
+	padding: 0 var(--space-3);
+}
+
+#tag-sort button[aria-pressed="true"] {
+	background: var(--selected);
+	color: var(--fg);
+}
+
 #toggle-collections {
 	border: none;
 	background: none;
@@ -389,30 +411,40 @@ header button:disabled {
 
 #collections.collapsed h2,
 #collections.collapsed #collection-list,
+#collections.collapsed #tag-list,
+#collections.collapsed #tag-sort,
+#collections.collapsed #lists-resizer,
 #collections.collapsed #new-collection,
 #collections.collapsed #collections-resizer {
 	display: none;
 }
 
-#collection-list {
-	flex: 1;
+/* The collections and the tags share the column's height, each scrolling
+   on its own. */
+#collection-list,
+#tag-list {
+	flex: 1 1 0;
+	min-height: 3rem;
 	overflow-y: auto;
 	list-style: none;
 	margin: 0;
 	padding: 0;
 }
 
-#collection-list li {
+#collection-list li,
+#tag-list li {
 	display: flex;
 	align-items: center;
 	border-radius: 4px;
 }
 
-#collection-list li:hover {
+#collection-list li:hover,
+#tag-list li:hover {
 	background: var(--hover);
 }
 
-#collection-list li.active {
+#collection-list li.active,
+#tag-list li.active {
 	background: var(--selected);
 }
 
@@ -422,7 +454,8 @@ header button:disabled {
 	outline-offset: -2px;
 }
 
-#collection-list .name {
+#collection-list .name,
+#tag-list .name {
 	flex: 1;
 	padding: var(--space-3) var(--space-4);
 	cursor: pointer;
@@ -443,20 +476,38 @@ header button:disabled {
 	cursor: pointer;
 }
 
-#collection-list .count {
+#collection-list .count,
+#tag-list .count {
 	color: var(--muted);
 	font-size: 0.85em;
 }
 
+/* No × after a tag's count: some room before the column's edge. */
+#tag-list .count {
+	padding-right: var(--space-4);
+}
+
+/* The name box and its "+" button on one line. */
 #new-collection {
 	display: flex;
-	flex-direction: column;
 	gap: var(--space-3);
 }
 
 #new-collection input {
+	flex: 1;
+	min-width: 0;
 	font: inherit;
 	padding: var(--space-3) var(--space-4);
+}
+
+/* As tall as the box beside it, through the row's stretching alone: with
+   `aspect-ratio: 1`, WebKitGTK took the height from the width (padding
+   included), and a wider padding made the button taller than the box. */
+#new-collection button {
+	padding-block: 0;
+	padding-inline: var(--space-8);
+	font-size: 1.1rem;
+	line-height: 1;
 }
 
 /* Right-click menu of the list. */
@@ -622,7 +673,19 @@ table {
 	cursor: col-resize;
 }
 
-.resizer:hover, .resizer.dragging {
+/* The same handle lying down: between the collections and the tags, it
+   shares the column's height. Edge to edge of the column. */
+.row-resizer {
+	flex: none;
+	height: 6px;
+	margin: 0 calc(-1 * var(--space-6));
+	cursor: row-resize;
+	/* A fine line in its middle separates the collections from the tags. */
+	background: linear-gradient(var(--border), var(--border)) center / 100% 1px no-repeat;
+}
+
+.resizer:hover, .resizer.dragging,
+.row-resizer:hover, .row-resizer.dragging {
 	background: var(--wave);
 }
 

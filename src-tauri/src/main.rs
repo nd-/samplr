@@ -143,6 +143,14 @@ fn delete_color(id: i64) -> Result<(), String> {
     db::delete_color(&db, id).map_err(|e| e.to_string())
 }
 
+/// Every tag with the number of samples shown carrying it: `[name, count]`
+/// pairs, by name.
+#[tauri::command(async)]
+fn tags() -> Result<Vec<(String, u32)>, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    db::list_tags(&db).map_err(|e| e.to_string())
+}
+
 /// The tags that have a colour: `[name, colour id]` pairs.
 #[tauri::command(async)]
 fn tag_colors() -> Result<Vec<(String, i64)>, String> {
@@ -800,6 +808,7 @@ fn main() {
             color_usage,
             delete_color,
             tag_colors,
+            tags,
             set_tag_color,
             set_collection_color,
             collections,

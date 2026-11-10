@@ -386,19 +386,20 @@ Audio pitfalls met so far:
   no longer a favorite stays in the list until the next search.
 - Collections: the column on the left lists "All samples" then the collections, each with its
   number of samples; a click opens one in the list (search and Favorites filter apply within it).
-  The form at the bottom creates an empty one. A right-click on a row selects it without playing
-  and opens a menu (`#context-menu`, built in the page): add to a collection (those already
-  holding the sample are shown with ✓, greyed and not clickable, with a × next to them that takes
-  the selection out: `collections_holding` command, which returns the collections holding **all**
-  the given samples; a big selection is asked by parts of 10 000, SQLite taking at most 32 766
-  values per query), add to a new collection named in the menu (adding, × and a new collection
-  keep the menu open and redraw it with the new state; only a click elsewhere or Esc closes it;
-  the menu waits for `collections_holding` before showing, and Esc or a press elsewhere meanwhile
-  cancels it: each opening is numbered in `menuOpening`, which closing moves on), and, in an open
-  collection, remove from it. The menu also acts on the files themselves (an explicit action, see
-  the design decisions): "Rename file…" (one sample: the button turns into a box holding the name
-  without its extension, which is kept; `rename_sample`) and "Move file(s) to the trash…" (the
-  selection, always asked first, whatever the Settings checkbox says: these are files, not links;
+  The form under the list (a name box and a "+" button on one line, Enter creates too)
+  creates an empty one. A right-click on a row selects it without playing and opens a menu
+  (`#context-menu`, built in the page): add to a collection (those already holding the sample are
+  shown with ✓, greyed and not clickable, with a × next to them that takes the selection out:
+  `collections_holding` command, which returns the collections holding **all** the given samples;
+  a big selection is asked by parts of 10 000, SQLite taking at most 32 766 values per query), add
+  to a new collection named in the menu (adding, × and a new collection keep the menu open and
+  redraw it with the new state; only a click elsewhere or Esc closes it; the menu waits for
+  `collections_holding` before showing, and Esc or a press elsewhere meanwhile cancels it: each
+  opening is numbered in `menuOpening`, which closing moves on), and, in an open collection,
+  remove from it. The menu also acts on the files themselves (an explicit action, see the design
+  decisions): "Rename file…" (one sample: the button turns into a box holding the name without its
+  extension, which is kept; `rename_sample`) and "Move file(s) to the trash…" (the selection,
+  always asked first, whatever the Settings checkbox says: these are files, not links;
   `trash_samples` → `samplr::trash_sample`: the `trash` crate sends the file to the system's
   trash, freedesktop `~/.local/share/Trash` on Linux, the Finder's on Mac, with its original path
   to put it back; the row is forgotten, so tags, collections and favorite are lost even if the
@@ -420,6 +421,20 @@ Audio pitfalls met so far:
   window, double-click for the default 13rem), remembered in `localStorage` (`collectionsWidth`),
   so that long names can be read; a name too long still ends with an ellipsis and shows whole in
   its tooltip.
+- Tags box: under the collections, in the same column (`#tag-list`), every tag with its number of
+  samples shown (`tags` command, `db::list_tags`); the two lists share the column's height, each
+  scrolling on its own, and fold with it. A handle between them (`#lists-resizer`, the column
+  handles' design lying down, with a fine `--border` line in its middle separating the two boxes)
+  sets the collections' height, the tags taking the rest, neither below 48 px; a double-click
+  shares it equally again; kept in `localStorage` (`collectionsHeight`); the collections' list may
+  still shrink in a smaller window (`flex: 0 1 …`). Sorted by name (natural order, as the list) or
+  by count, most used first then by name, with the "Name" / "Count" buttons of its head; the
+  choice is kept in `localStorage` (`tagSort`). A click puts `#tag` in the search box, or takes it
+  out, so that tags can be combined; the tags of the search, clicked or typed in any case, are
+  marked. A right-click opens the colour menu, as in the tag bar. Reloaded after tags change
+  (`showTags`), after `refresh` (changes on disk, folder removed, files trashed) and at startup;
+  redrawn after colours change and after each search. Collections and tags without colour get an
+  empty dot, so that every name is aligned ("All samples" has none).
 - Show in Finder / file manager (row menu, the selection; `reveal`): `open -R` on Mac; on Linux
   the freedesktop `org.freedesktop.FileManager1.ShowItems` D-Bus method through `gdbus` (part of
   GLib, which Tauri needs anyway; Nautilus, Dolphin, Nemo answer it), with the files as `file://`

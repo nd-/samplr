@@ -12,8 +12,8 @@
     <button id="favorites-only" type="button" title="Show only the favorites" aria-pressed="false">★ Favorites</button>
     <button id="play" type="button" title="Play the selected sample (Enter)">▶ Play</button>
     <button id="stop" type="button" title="Stop playback (Esc)" disabled>■ Stop</button>
-    <label id="loop-box" title="Play in a loop, this sample and the next ones"><input id="loop" type="checkbox"> Play loop</label>
     <label id="autoplay-box" title="Play a sample when its row is clicked; off, a click selects it in silence. The arrow keys always play"><input id="autoplay" type="checkbox" checked> Autoplay</label>
+    <label id="loop-box" title="Play in a loop, this sample and the next ones"><input id="loop" type="checkbox"> Loop</label>
     <label id="volume-box" title="Preview volume">Vol. <input id="volume" type="range" min="0" max="100" value="80"></label>
     <button id="add-folder" type="button" title="Add a folder of samples">+ Folder</button>
     <button id="show-folders" type="button" title="The scanned folders">Folders…</button>
@@ -28,8 +28,17 @@
     <ul id="collection-list"></ul>
     <form id="new-collection">
       <input id="collection-name" type="text" placeholder="New collection" spellcheck="false" required>
-      <button type="submit">Create</button>
+      <button type="submit" title="Create the collection (Enter)" aria-label="Create the collection">+</button>
     </form>
+    <div id="lists-resizer" class="row-resizer" title="Drag to share the height between collections and tags; double-click to share it equally"></div>
+    <div class="aside-head">
+      <h2 id="tags-title" title="Click a tag to search for it, again to take it out of the search; right-click to give it a colour">Tags</h2>
+      <span id="tag-sort">
+        <button type="button" data-sort="name" title="Sort the tags by name" aria-pressed="true">Name</button>
+        <button type="button" data-sort="count" title="Sort the tags by number of samples, most first" aria-pressed="false">Count</button>
+      </span>
+    </div>
+    <ul id="tag-list"></ul>
     <span id="collections-resizer" class="resizer" title="Drag to widen; double-click for the default width"></span>
   </aside>
   <div id="workspace">
