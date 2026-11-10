@@ -10,11 +10,6 @@
   <header>
     <input id="search" type="search" placeholder="Search: words, #tag, bpm:120, key:Am" autofocus spellcheck="false">
     <button id="favorites-only" type="button" title="Show only the favorites" aria-pressed="false">★ Favorites</button>
-    <button id="play" type="button" title="Play the selected sample (Enter)">▶ Play</button>
-    <button id="stop" type="button" title="Stop playback (Esc)" disabled>■ Stop</button>
-    <label id="autoplay-box" title="Play a sample when its row is clicked; off, a click selects it in silence. The arrow keys always play"><input id="autoplay" type="checkbox" checked> Autoplay</label>
-    <label id="loop-box" title="Play in a loop, this sample and the next ones"><input id="loop" type="checkbox"> Loop</label>
-    <label id="volume-box" title="Preview volume">Vol. <input id="volume" type="range" min="0" max="100" value="80"></label>
     <button id="add-folder" type="button" title="Add a folder of samples">+ Folder</button>
     <button id="show-folders" type="button" title="The scanned folders">Folders…</button>
     <button id="show-settings" type="button" title="Settings">Settings…</button>
@@ -42,10 +37,6 @@
     <span id="collections-resizer" class="resizer" title="Drag to widen; double-click for the default width"></span>
   </aside>
   <div id="workspace">
-  <div id="wave-box">
-    <canvas id="wave"></canvas>
-    <div id="playhead" hidden></div>
-  </div>
   <div id="tagbar">
     <input id="new-tags" type="text" placeholder="Add tags" spellcheck="false" disabled>
   </div>
@@ -73,6 +64,27 @@
     <dl id="info-list"></dl>
   </aside>
   </div>
+  <section id="player">
+    <button id="play" type="button" title="Play, pause a loop or play a one-shot again (Space; Enter plays it again)">▶</button>
+    <div id="now">
+      <div id="now-name"></div>
+      <div id="now-details"></div>
+    </div>
+    <div id="wave-box">
+      <canvas id="wave" title="Click to play from there"></canvas>
+      <div id="playhead" hidden></div>
+    </div>
+    <div id="player-controls">
+      <button id="stop" type="button" title="Stop playback (Esc)" disabled>■</button>
+      <div id="player-options">
+        <div id="player-switches">
+          <label id="loop-box" title="Play in a loop, this sample and the next ones"><input id="loop" type="checkbox"> Loop</label>
+          <label id="autoplay-box" title="Play a sample when its row is clicked; off, a click selects it in silence. The arrow keys always play"><input id="autoplay" type="checkbox" checked> Autoplay</label>
+        </div>
+        <label id="volume-box" title="Preview volume">Vol. <input id="volume" type="range" min="0" max="100" value="80"></label>
+      </div>
+    </div>
+  </section>
   <footer>
     <span id="status-box">
       <progress id="scan-bar" hidden></progress>

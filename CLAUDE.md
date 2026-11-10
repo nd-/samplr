@@ -262,10 +262,12 @@ Audio pitfalls met so far:
   search, `refresh` after a change): each request is numbered and an answer overtaken by a newer
   request is dropped, otherwise a slow answer coming last replaced the list with results for
   text no longer in the box.
-- 7c: the selected sample's waveform is drawn on a `<canvas>` above the list, at the screen's
-  real resolution. `samplr::peaks` (in `src/lib.rs`, shared with `samplr wave`) returns the
-  cached peaks or computes and caches them. A late answer for a sample no longer selected is
-  ignored.
+- 7c: the selected sample's waveform is drawn on a `<canvas>` in the playback bar, at the screen's
+  real resolution. `samplr::peaks` (in `src/lib.rs`, shared with `samplr wave`) returns the cached
+  peaks or computes and caches them. A late answer for a sample no longer selected is ignored. The
+  canvas takes the theme's colour through `cssColor` (a probe element resolves the variable to
+  `#rrggbb`): the System theme writes `--wave` as `light-dark(…)`, which a canvas does not read,
+  and the waveform and the drag image were drawn in black.
 - 7d: a tag bar under the waveform shows the selected sample's tags, each with a × to remove
   it. Ctrl+T (Cmd+T on Mac) moves to the tag box; there, Enter adds the tags typed (separated
   by spaces), Backspace on an empty box removes the last tag shown in the bar (`commonTags`:
@@ -280,27 +282,31 @@ Audio pitfalls met so far:
   the window shows, by the official `tauri-plugin-window-state` (in
   `~/.config/fr.dataetic.samplr/.window-state.json` on Linux, the system's config folder on Mac);
   it also copes with a screen unplugged meanwhile.
-- Preview controls: Play, Stop (same as Esc), Space (`playOrPause`: a loop pauses and resumes
-  where it was, `pause` command → `AudioRequest::Pause`, `Player::pause` / `play`, the playhead
-  frozen meanwhile; a one-shot plays again from the start, like a pad; nothing playing, the
-  selected sample plays), L (switches the Play loop box, as a click on it would), the Play loop
-  and Autoplay checkboxes and a volume slider in the header. Autoplay off: a click on a row
-  selects it without playing (to tag or drag it in silence), and stops the sound playing if it was
-  another sample's; the arrow keys, Enter and Play still play; remembered in `localStorage`
-  (`autoplay`). "Play loop" checked: every sample played loops, until the box is unchecked (Stop
-  does not change it); remembered in `localStorage` (`loop`). A sound cannot change mode while
-  playing: toggling the box starts the selected sample again in the new mode, or stops a sound no
-  longer selected. A loop uses rodio's `build_looped`, which seeks back to the start of the file
-  at each end instead of keeping the sound in memory; the audio thread receives either decoder as
-  a `Box<dyn Source + Send>`. The slider's position is squared before reaching rodio (`set_volume`
-  command, 0.0 to 1.0), so that it acts evenly over its whole travel (a linear slider barely
-  changes the loudness in its top half); it is remembered in the web view's `localStorage`. The
-  audio thread receives `AudioRequest::Play`, `Stop` or `Volume`, and applies the volume to the
-  sound playing and to the next ones. It waits for requests at most 100 ms at a time, to notice
-  when the sound has played to its end: it then sends the page a `playback-ended` event with the
-  number the page gave to that sound (`play` command's `id`), and the page ignores the end of a
-  sound already replaced by another one. The audio thread is started in Tauri's `setup`, to get
-  the `AppHandle` it sends events with.
+- Preview controls, in the playback bar at the bottom of the window (`#player`, above the status
+  line): the play / pause button (⏸ while a sound plays, as Space), the selected sample's name
+  and, on one line, its tempo, key, loop, length and loudness (`renderPlayer`, called by
+  `renderInfo`), its waveform, then Stop (same as Esc), Space (`playOrPause`: a loop pauses and
+  resumes where it was, `pause` command → `AudioRequest::Pause`, `Player::pause` / `play`, the
+  playhead frozen meanwhile; a one-shot plays again from the start, like a pad; nothing playing,
+  the selected sample plays), L (switches the Play loop box, as a click on it would), the Loop and
+  Autoplay checkboxes and the volume slider, the two checkboxes on one line and the slider under
+  them (`#player-options`) in the header. Autoplay off: a click on a row selects it without
+  playing (to tag or drag it in silence), and stops the sound playing if it was another sample's;
+  the arrow keys, Enter and Play still play; remembered in `localStorage` (`autoplay`). "Play
+  loop" checked: every sample played loops, until the box is unchecked (Stop does not change it);
+  remembered in `localStorage` (`loop`). A sound cannot change mode while playing: toggling the
+  box starts the selected sample again in the new mode, or stops a sound no longer selected. A
+  loop uses rodio's `build_looped`, which seeks back to the start of the file at each end instead
+  of keeping the sound in memory; the audio thread receives either decoder as a `Box<dyn Source +
+  Send>`. The slider's position is squared before reaching rodio (`set_volume` command, 0.0 to
+  1.0), so that it acts evenly over its whole travel (a linear slider barely changes the loudness
+  in its top half); it is remembered in the web view's `localStorage`. The audio thread receives
+  `AudioRequest::Play`, `Stop` or `Volume`, and applies the volume to the sound playing and to the
+  next ones. It waits for requests at most 100 ms at a time, to notice when the sound has played
+  to its end: it then sends the page a `playback-ended` event with the number the page gave to
+  that sound (`play` command's `id`), and the page ignores the end of a sound already replaced by
+  another one. The audio thread is started in Tauri's `setup`, to get the `AppHandle` it sends
+  events with. The header keeps the search box, Favorites, + Folder, Folders… and Settings…
 - Playhead: a line over the waveform (a `<div>` moved in CSS, not a redraw of the canvas). The
   audio thread sends a `playback-position` event every 100 ms (`Player::get_pos`); in between,
   the page moves the line on the clock (`requestAnimationFrame`). In loop mode the position is

@@ -247,6 +247,7 @@ header {
 /* The buttons with a label: flat and compact, rather than the system's
    raised ones (big and grey under GTK). */
 header button,
+#player button,
 #new-collection button,
 #folder-list button,
 #add-color,
@@ -263,6 +264,7 @@ header button,
 }
 
 header button:hover:enabled,
+#player button:hover:enabled,
 #new-collection button:hover,
 #folder-list button:hover,
 #add-color:hover,
@@ -270,7 +272,8 @@ header button:hover:enabled,
 	background: var(--button-hover);
 }
 
-header button:disabled {
+header button:disabled,
+#player button:disabled {
 	opacity: 0.45;
 	cursor: default;
 }
@@ -675,15 +678,78 @@ header button:disabled {
 	border-top: 1px solid var(--border);
 }
 
+/* The playback bar, at the bottom: the selected sample, its waveform and
+   the playback controls. */
+#player {
+	display: flex;
+	align-items: center;
+	gap: var(--space-8);
+	padding: var(--space-4) var(--space-6);
+	border-top: 1px solid var(--border);
+	background: var(--header);
+}
+
+/* Play / pause: round, the largest control. */
+#player #play {
+	flex: none;
+	width: 2.6rem;
+	height: 2.6rem;
+	padding: 0;
+	border-radius: 50%;
+	font-size: 1.1rem;
+}
+
+#now {
+	flex: none;
+	width: 16rem;
+	min-width: 0;
+}
+
+#now-name {
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+#now-details {
+	color: var(--muted);
+	font-size: 0.85em;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+#player-controls {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: var(--space-8);
+}
+
+/* Loop and Autoplay on one line, the volume under them. */
+#player-options {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	font-size: 0.85em;
+}
+
+#player-switches {
+	display: flex;
+	gap: var(--space-8);
+}
+
 #wave-box {
+	flex: 1;
+	min-width: 0;
 	position: relative;
-	border-bottom: 1px solid var(--border);
 }
 
 #wave {
 	display: block;
 	width: 100%;
-	height: 110px;
+	height: 56px;
 	cursor: text;
 }
 

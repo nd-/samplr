@@ -576,6 +576,7 @@ const tempoOrigins = {
 
 async function renderInfo() {
   const sample = samples[selected];
+  renderPlayer(sample);
   if (!sample) {
     infoFor = null;
     infoOfFile = null;
@@ -651,6 +652,28 @@ function drawInfo(sample) {
     for (const [label, value] of infoOfFile.tags) add(label, value);
   }
   infoList.replaceChildren(...items);
+}
+
+// The playback bar: the selected sample's name, then its tempo, key, loop,
+// length and loudness on one line.
+const nowName = document.getElementById("now-name");
+const nowDetails = document.getElementById("now-details");
+
+function renderPlayer(sample) {
+  if (!sample) {
+    nowName.textContent = "";
+    nowDetails.textContent = "";
+    return;
+  }
+  nowName.textContent = splitPath(sample.path).name;
+  nowName.title = sample.path;
+  const details = [];
+  if (sample.bpm !== null) details.push(`${sample.bpm_source === "length" ? "≈ " : ""}${sample.bpm} BPM`);
+  if (sample.key) details.push(sample.key);
+  if (sample.loop_source) details.push(sample.looped ? "Loop" : "One-shot");
+  if (sample.duration_secs !== null) details.push(formatDuration(sample.duration_secs));
+  if (sample.lufs !== null) details.push(`${sample.lufs.toFixed(1)} LUFS`);
+  nowDetails.textContent = details.join(" · ");
 }
 
 // "WAV · pcm_s24le · 24 bit · 44.1 kHz · stereo".
@@ -774,6 +797,21 @@ async function loadWaveform() {
   drawWaveform();
 }
 
+// A colour variable of the theme as `#rrggbb`. The stylesheet may write it
+// `light-dark(…)` (the System theme) or `color-mix(…)`, which a canvas does
+// not read: it then drew in black. The browser resolves it on an element.
+function cssColor(name) {
+  const probe = document.createElement("span");
+  probe.style.color = `var(${name})`;
+  document.body.append(probe);
+  const computed = getComputedStyle(probe).color;
+  probe.remove();
+  // "rgb(196, 122, 8)", or "color(srgb 0.77 0.48 0.03)" for a mixed colour.
+  const scale = computed.startsWith("color(") ? 255 : 1;
+  const channels = computed.match(/[\d.]+/g).slice(0, 3).map((c) => Math.round(Number(c) * scale));
+  return `#${channels.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+}
+
 // One vertical bar per pixel column, from the lowest to the highest value of
 // the sound over that column, as in every audio editor.
 function drawWaveform() {
@@ -789,7 +827,7 @@ function drawWaveform() {
   context.clearRect(0, 0, width, height);
   if (peaks.length === 0) return;
 
-  context.fillStyle = getComputedStyle(canvas).getPropertyValue("--wave");
+  context.fillStyle = cssColor("--wave");
   const middle = height / 2;
   for (let x = 0; x < width; x++) {
     // The peaks covered by this column: several when there are more peaks
@@ -844,6 +882,7 @@ function playOrPause() {
   }
   paused = !paused;
   invoke("pause", { paused }).catch(showError);
+  updatePlayButton();
   // The playhead stops where the sound is, and goes on from there.
   if (lastPosition !== null) {
     const now = performance.now();
@@ -867,6 +906,7 @@ function play(start = 0) {
   playId += 1;
   playingPath = sample.path;
   paused = false;
+  updatePlayButton();
   startPlayhead(sample.duration_secs, start);
   status.textContent = `▶ ${splitPath(sample.path).name}`;
   stopButton.disabled = false;
@@ -927,6 +967,7 @@ window.__TAURI__.event.listen("playback-position", (event) => {
 function showStopped() {
   playingPath = null;
   paused = false;
+  updatePlayButton();
   stopPlayhead();
   stopButton.disabled = true;
   status.textContent = `${samples.length} sample(s)`;
@@ -943,7 +984,18 @@ window.__TAURI__.event.listen("playback-ended", (event) => {
 
 stopButton.addEventListener("click", stop);
 
-document.getElementById("play").addEventListener("click", () => play());
+const playButton = document.getElementById("play");
+playButton.addEventListener("click", () => {
+  playOrPause();
+  // Back to the list, so that the arrow keys and Space act there.
+  playButton.blur();
+});
+
+// ⏸ while a sound plays, ▶ otherwise (stopped or paused).
+function updatePlayButton() {
+  const playing = playingPath !== null && !paused;
+  playButton.textContent = playing ? "⏸" : "▶";
+}
 
 // "Play loop": every sample played loops until the box is unchecked.
 // Remembered between sessions, like the volume.
@@ -1065,7 +1117,7 @@ function dragImage(label) {
   // Resizing a canvas resets its settings: the font is set again.
   context.font = "14px system-ui, sans-serif";
   // In the theme's accent colour, the text black or white to read on it.
-  const accent = getComputedStyle(document.documentElement).getPropertyValue("--wave").trim();
+  const accent = cssColor("--wave");
   context.fillStyle = accent;
   context.fillRect(0, 0, image.width, image.height);
   context.fillStyle = textOn(accent);
