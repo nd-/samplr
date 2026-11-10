@@ -74,14 +74,24 @@ pub fn open() -> Result<Connection, Box<dyn Error>> {
     Ok(db)
 }
 
+/// The schema version `migrate` brings a database to: the last step's.
+const SCHEMA_VERSION: i64 = 5;
+
 /// Brings a database created by an older samplr up to date. Its version is
 /// kept by SQLite (`user_version`, 0 for a new database); each step runs once.
 /// A new database goes through every step too: the tables above are those of
 /// version 0.
 fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
-    // `IMMEDIATE` takes the write lock before reading the version: the app
-    // and a `samplr` command opening the database together cannot both run
-    // the same step.
+    // Up to date, the usual case: no lock taken. Taking the write lock at
+    // every opening made every command, even a search, wait behind any other
+    // process writing (a long scan), then fail after 5 s.
+    let version: i64 = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if version >= SCHEMA_VERSION {
+        return Ok(());
+    }
+    // `IMMEDIATE` takes the write lock before reading the version again: the
+    // app and a `samplr` command opening the database together cannot both
+    // run the same step.
     db.execute_batch("BEGIN IMMEDIATE")?;
     let version: i64 = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if version < 1 {

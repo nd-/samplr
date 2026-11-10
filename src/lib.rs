@@ -153,14 +153,9 @@ pub fn scan(
     // samplr is run from.
     let folder = dunce::canonicalize(folder)?;
 
-    // A transaction groups all the writes: SQLite writes to disk only once,
-    // on `commit`, instead of once per sample (hundreds of times slower on a
-    // big folder).
     let total = count_audio_files(&folder);
-    let transaction = db.transaction()?;
-    db::add_folder(&transaction, &folder)?;
-    let (samples, unreadable) = index(&transaction, &folder, &mut |done| progress(done, total));
-    transaction.commit()?;
+    db::add_folder(db, &folder)?;
+    let (samples, unreadable) = index(db, &folder, &mut |done| progress(done, total));
     Ok(Scan {
         folder,
         samples,
@@ -206,6 +201,13 @@ pub fn index(
     let mut samples = Vec::new();
     let mut unreadable = 0;
     let mut done = 0;
+    // Files are read outside any transaction, and saved by batches, each in
+    // a short transaction of its own: the write lock is held a few
+    // milliseconds at a time, not for the whole walk (minutes on a slow disk
+    // or a network share), during which the interface and the other commands
+    // could not write, then failed. A batch still writes to disk once rather
+    // than once per sample.
+    let mut batch = Vec::with_capacity(SAVE_BATCH);
 
     for entry in WalkDir::new(folder).sort_by_file_name() {
         // An unreadable folder (missing permissions…) must not stop everything.
@@ -217,19 +219,57 @@ pub fn index(
         }
 
         match read_info(path) {
-            Ok(info) => match db::save(db, &info) {
-                Ok(_) => samples.push(info),
-                Err(error) => {
-                    eprintln!("{}: {error}", path.display());
-                    unreadable += 1;
-                }
-            },
+            Ok(info) => batch.push(info),
             Err(_) => unreadable += 1,
         }
         done += 1;
         progress(done);
+        if batch.len() == SAVE_BATCH {
+            save_batch(db, &mut batch, &mut samples, &mut unreadable);
+        }
     }
+    save_batch(db, &mut batch, &mut samples, &mut unreadable);
     (samples, unreadable)
+}
+
+/// Samples saved per transaction by `index`.
+const SAVE_BATCH: usize = 200;
+
+/// Saves `batch` in one transaction, moving each sample saved into `samples`
+/// and counting the others as unreadable. Must not be called inside a
+/// transaction.
+fn save_batch(
+    db: &Connection,
+    batch: &mut Vec<SampleInfo>,
+    samples: &mut Vec<SampleInfo>,
+    unreadable: &mut usize,
+) {
+    if batch.is_empty() {
+        return;
+    }
+    let saved = (|| -> Result<Vec<SampleInfo>, Box<dyn Error>> {
+        let transaction = db.unchecked_transaction()?;
+        let mut saved = Vec::with_capacity(batch.len());
+        for info in batch.drain(..) {
+            match db::save(&transaction, &info) {
+                Ok(_) => saved.push(info),
+                Err(error) => {
+                    eprintln!("{}: {error}", info.path.display());
+                    *unreadable += 1;
+                }
+            }
+        }
+        transaction.commit()?;
+        Ok(saved)
+    })();
+    match saved {
+        Ok(saved) => samples.extend(saved),
+        Err(error) => {
+            eprintln!("saving {} sample(s): {error}", batch.len());
+            *unreadable += batch.len();
+            batch.clear();
+        }
+    }
 }
 
 /// Opens an audio file with symphonia and reads its characteristics without

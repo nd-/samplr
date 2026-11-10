@@ -94,23 +94,27 @@ Database: `samplr.db` in the system data folder (`~/.local/share/samplr` on Linu
 `~/Library/Application Support/samplr` on Mac). The `SAMPLR_DB` variable points to another
 database, for experiments. Tables `files` (with `hidden`, see `remove-folder`, and `favorite`),
 `tags`, `file_tags`, `folders` (the folders given to `scan`, followed by `watch`), `waveforms`,
-`collections` and `collection_files` (samples gathered by hand; a sample forgotten by the
-database leaves its collections, a hidden one stays in them and comes back with its folder),
-`colors` (the palette: name, `#rrggbb`, position; filled with 10 colours by the migration to
-version 4). `tags` and `collections` have a `color_id` (`ON DELETE SET NULL`: deleting a colour
-leaves them without colour). A tag deleted because no sample carries it any more loses its
-colour. Schema changes go through `db::migrate`: SQLite keeps the schema version
-(`PRAGMA user_version`, 5 so far), each step runs once, under `BEGIN IMMEDIATE` so that the app
-and a command opening the database together do not both run it. A new database goes through
-every step too (the `CREATE TABLE`s are version 0): add a column with a migration step, not in
-the `CREATE TABLE`. A waveform is 1024 (min, max) peaks over all channels, stored as signed
-bytes (2 KB), with the file's size and modification date: if either has changed, the waveform
-is stale and computed again. Peaks are built on the fly by merging buckets two by two, so
-memory use does not depend on the file length, which is not always known in advance (some
-MP3s). Tags are stored lowercase, without spaces; a tag no longer used by any sample is
-deleted. **Unplugged disk**: if the scanned folder itself has disappeared, nothing is removed
-from the database, at startup or live. Otherwise unplugging an external disk would erase the
-tags of all its samples.
+`collections` and `collection_files` (samples gathered by hand; a sample forgotten by the database
+leaves its collections, a hidden one stays in them and comes back with its folder), `colors` (the
+palette: name, `#rrggbb`, position; filled with 10 colours by the migration to version 4). `tags`
+and `collections` have a `color_id` (`ON DELETE SET NULL`: deleting a colour leaves them without
+colour). A tag deleted because no sample carries it any more loses its colour. Schema changes go
+through `db::migrate`: SQLite keeps the schema version (`PRAGMA user_version`, 5 so far), each
+step runs once, under `BEGIN IMMEDIATE` so that the app and a command opening the database
+together do not both run it. A new database goes through every step too (the `CREATE TABLE`s are
+version 0): add a column with a migration step, not in the `CREATE TABLE`, and raise
+`SCHEMA_VERSION` with it: an up-to-date database is opened without taking the write lock,
+otherwise every command, even a search, waited behind any process writing and failed after 5 s
+("database is locked"). For the same reason `index` (scan, startup catch-up, a folder appearing)
+reads the files outside any transaction and saves them by batches of 200, each in a short
+transaction: the lock is never held for the whole walk, which can take minutes on a slow disk or a
+network share. A waveform is 1024 (min, max) peaks over all channels, stored as signed bytes (2
+KB), with the file's size and modification date: if either has changed, the waveform is stale and
+computed again. Peaks are built on the fly by merging buckets two by two, so memory use does not
+depend on the file length, which is not always known in advance (some MP3s). Tags are stored
+lowercase, without spaces; a tag no longer used by any sample is deleted. **Unplugged disk**: if
+the scanned folder itself has disappeared, nothing is removed from the database, at startup or
+live. Otherwise unplugging an external disk would erase the tags of all its samples.
 
 Scanning and playback have been tested on Linux and on the Mac (files read from the SMB share).
 

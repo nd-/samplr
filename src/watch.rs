@@ -53,16 +53,20 @@ pub fn catch_up(
     root: &Path,
     report: &mut dyn FnMut(String),
 ) -> Result<(), Box<dyn Error>> {
+    // Which files vanished is found outside any transaction (one disk access
+    // per sample); forgetting them is then quick. The folder is read again by
+    // `index`, which saves in short transactions of its own.
+    let vanished: Vec<PathBuf> = db::files_under(db, root)?
+        .into_iter()
+        .filter(|path| !path.exists())
+        .collect();
     let transaction = db.transaction()?;
-
     let mut removed = 0;
-    for path in db::files_under(&transaction, root)? {
-        if !path.exists() {
-            removed += db::forget(&transaction, &path)?;
-        }
+    for path in &vanished {
+        removed += db::forget(&transaction, path)?;
     }
-    let (samples, unreadable) = index(&transaction, root, &mut |_| {});
     transaction.commit()?;
+    let (samples, unreadable) = index(db, root, &mut |_| {});
 
     report(format!(
         "{}: {} sample(s), {removed} removed, {unreadable} unreadable",
