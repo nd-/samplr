@@ -138,15 +138,19 @@ function buildRow(index) {
   const star = cell(sample.favorite ? "★" : "☆", "star");
   star.classList.toggle("off", !sample.favorite);
   star.title = shortcut("Favorite (Ctrl+D)");
+  // One row in two slightly darker, after the sample's place in the list:
+  // the table's own children alternate differently as the virtual list
+  // scrolls (the spacer row comes first).
+  if (index % 2 === 1) tr.classList.add("striped");
   tr.append(
     star,
     cell(name),
-    cell(folder, "folder"),
     cell(formatDuration(sample.duration_secs), "number"),
     bpmCell(sample),
     keyCell(sample),
     collectionsCell(sample.collections),
     tagsCell(sample.tags),
+    cell(folder, "folder"),
   );
   // In an open collection, a button at the end of the row takes that
   // sample out of it, whether it is selected or not.

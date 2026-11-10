@@ -31,6 +31,7 @@
 	--error: light-dark(#C62828, #FF6B6B);
 	/* Derived, so that a theme only gives its base colours. */
 	--hover: color-mix(in srgb, var(--fg) 6%, var(--bg));
+	--stripe: color-mix(in srgb, var(--fg) 3%, var(--bg));
 	--signal-soft: color-mix(in srgb, var(--signal) 22%, var(--bg));
 	/* Errors: the same red in every theme, under white text (contrast 6.5). */
 	--error: #B3261E;
@@ -745,6 +746,17 @@ td.bpm input, td.key input {
 td.bpm input.invalid, td.key input.invalid {
 	outline: 2px solid var(--error);
 	outline-offset: -2px;
+}
+
+/* Every row has a background of its own: without one, WebKitGTK draws the
+   text with another smoothing, which looks bold next to a row that has one. */
+tbody tr {
+	background: var(--bg);
+}
+
+/* One row in two (see `buildRow`), under the hover and the selection. */
+tbody tr.striped {
+	background: var(--stripe);
 }
 
 tbody tr:hover {
