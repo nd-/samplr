@@ -7,6 +7,7 @@
 	--space-4: 0.4rem;
 	--space-6: 0.6rem;
 	--space-8: 0.8rem;
+	--space-12: 1.2rem;
 	font-family: system-ui, sans-serif;
 	font-size: 14px;
 	/* Every colour comes from these variables; a theme (below) gives them
@@ -836,13 +837,58 @@ footer {
 	color: var(--fg);
 }
 
+/* Settings: one section per subject, separated by a line, each titled
+   like the Collections column. A long palette scrolls inside the window. */
+#settings {
+	max-height: 85vh;
+	overflow-y: auto;
+	padding: var(--space-8);
+}
+
+#settings section {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	padding: var(--space-12) 0;
+	border-top: 1px solid var(--border);
+}
+
+#settings .dialog-head {
+	padding-bottom: var(--space-6);
+}
+
+#settings section:last-child {
+	padding-bottom: 0;
+}
+
 #settings h3 {
-	margin: var(--space-4) 0 var(--space-2);
-	font-size: 1rem;
+	margin: 0 0 var(--space-4);
+	font-size: 0.9rem;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--muted);
+}
+
+#settings .hint {
+	margin: 0;
+	font-size: 0.9em;
+	color: var(--muted);
+}
+
+/* A label and its control on one line. */
+.setting {
+	display: flex;
+	align-items: center;
+	gap: var(--space-8);
+}
+
+#settings #add-color {
+	align-self: flex-start;
 }
 
 #color-list {
 	list-style: none;
+	margin: 0;
 	padding: 0;
 }
 
@@ -850,7 +896,12 @@ footer {
 	display: flex;
 	align-items: center;
 	gap: var(--space-4);
-	padding: var(--space-2) 0;
+	padding: var(--space-1) var(--space-2);
+	border-radius: 4px;
+}
+
+#color-list li:hover {
+	background: var(--hover);
 }
 
 #color-list input[type="text"] {
