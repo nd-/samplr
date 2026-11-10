@@ -1,6 +1,6 @@
 # samplr
 
-Audio sample manager written in Rust, for macOS and Linux.
+Audio sample manager written in Rust, for macOS, Linux and Windows (Windows not supported yet).
 
 Scan sample folders, keep them in a SQLite database, tag them, find them again and listen to them. A command line tool, and a graphical interface in progress (Tauri).
 

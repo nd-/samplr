@@ -2,19 +2,21 @@
 
 ## The project
 
-Desktop audio sample manager for **macOS and Linux**: listen to, tag and organise samples (for
-musicians, alongside a DAW).
+Desktop audio sample manager for **macOS, Linux and Windows**: listen to, tag and organise samples
+(for musicians, alongside a DAW). Windows is not built nor tested yet (see "Known limitations").
 
 ## How we work
 
 - Move forward in **small steps that compile and run**: each step must be testable with
-  `cargo run`.
+  `cargo run`.  
 - **Everything in the repository is in English**: identifiers, comments, user-facing messages,
   command names, documentation and commit messages.
 - Keep the code simple and readable rather than advanced-idiomatic. No premature abstraction.
 - When a compiler error is pasted, explain it before fixing it.
 - Before handing back: `cargo build`, `cargo clippy` and `cargo fmt` without warnings.
-- Think Mac **and** Linux for every choice (paths, audio, drag and drop, packaging).
+- Think Mac, Linux **and** Windows for every choice (paths, audio, drag and drop, packaging). Code
+  for one system goes under `#[cfg(target_os = "…")]` for each of the three: `not(target_os =
+  "macos")` is not Linux, it is Windows too.
 
 ## Current stack
 
@@ -240,8 +242,8 @@ Audio pitfalls met so far:
     drawn as `<kbd>`); on a Mac they show the Mac's keys (`shortcut()`: ⌘ for Ctrl, ⇧ for Shift, ⌫
     for Del), and so do the tooltips naming a shortcut: they are written for Linux in the code,
     which listens to `metaKey` as well as `ctrlKey`.
-11. Packaging: embed ffmpeg, signed and notarised `.app` / `.dmg` on Mac, AppImage or `.deb` 
-    on Linux.
+11. Packaging: embed ffmpeg, signed and notarised `.app` / `.dmg` on Mac, AppImage or `.deb`
+    on Linux, an installer on Windows (`.msi` or NSIS `.exe`, both built by Tauri).
 
 ## Step 7 in progress (7a to 7d done, tested on Linux)
 
@@ -732,6 +734,10 @@ Audio pitfalls met so far:
 
 ## Known limitations
 
+- Windows: the interface does not compile there yet. `reveal` and `file_uri` (Show in file
+  manager, `src-tauri/src/main.rs`) take any system but macOS for Linux: `std::os::unix`, `gdbus`,
+  `xdg-open`; Windows needs `explorer /select,<path>`. The library and the CLI have never been
+  built on Windows either.
 - Path case: on Mac (by default) and on Windows, `Kick.wav` and `kick.wav` are the same file,
   but the database compares paths as case-sensitive text. A rename that only changes case, or a
   path typed with another case in `tag`, may not find the sample. Needs a design decision.
