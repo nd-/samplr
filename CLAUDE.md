@@ -320,16 +320,21 @@ Audio pitfalls met so far:
   `<li>` carries `data-id`. The collection under the cursor is outlined. `add_to_collection`
   leaves out the paths not in the library (files from elsewhere, folders) and reports how many
   (`unknown`).
-- Virtual list: only the rows on screen, plus 10 above and below, are in the table
-  (`drawRows`), between two empty `spacer` rows that give it its full height; scrolling draws
-  again only when the screen leaves the rows drawn, at most once per frame. Rows have a fixed
-  height (26 px in CSS, measured on the first row shown); the current row is outlined with
-  inner shadows, not borders, which could add a pixel. `rowElement(index)` gives a sample's row
-  or `null` when off screen; `ensureVisible(index)` scrolls just enough below the sticky
-  header. The rows' events (click, star, ×, drag, right-click) are listened to once on the
-  `<tbody>`, each row carrying `data-index`. Measured on 3287 samples (Chromium, fake Tauri
-  API): a search went from 195 ms to 16 ms, building the list from 136 ms to 2 ms. Anything
-  that changes a row must go through `rowElement`, never `tbody.children[index]`.
+- Virtual list: only the rows on screen, plus 10 above and below, are in the table (`drawRows`),
+  between two empty `spacer` rows that give it its full height; scrolling draws again only when
+  the screen leaves the rows drawn, at most once per frame. Rows have a fixed height (26 px in
+  CSS, measured on the first row shown); the current row is outlined with inner shadows, not
+  borders, which could add a pixel. `rowElement(index)` gives a sample's row or `null` when off
+  screen; `ensureVisible(index)` scrolls just enough to show the row. The header is a table of its
+  own above the list (`#list-head`), outside its scrolling, not a `position: sticky` one:
+  WebKitGTK drew the text of the rows passing under a sticky header over its top, depending on the
+  scroll position (`z-index`, a forced layer, a sticky `thead`, separate borders and `contain` did
+  not help; checked in WebKitGTK's MiniBrowser). The rows' table gets a copy of the header's
+  `<colgroup>` at startup, every width is set on both, and the header follows the list sideways
+  (`scrollLeft`). The rows' events (click, star, ×, drag, right-click) are listened to once on the
+  `<tbody>`, each row carrying `data-index`. Measured on 3287 samples (Chromium, fake Tauri API):
+  a search went from 195 ms to 16 ms, building the list from 136 ms to 2 ms. Anything that changes
+  a row must go through `rowElement`, never `tbody.children[index]`.
 - Collections column: for each sample, the collections holding it, each after its colour's dot.
   `search` gives each sample's collection `id`s (`SampleInfo::collections`); the page takes
   names and colours from its `collections` list, so a colour change needs no new search. After

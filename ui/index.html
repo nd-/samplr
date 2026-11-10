@@ -49,7 +49,7 @@
   <div id="tagbar">
     <input id="new-tags" type="text" placeholder="Add tags" spellcheck="false" disabled>
   </div>
-  <main id="list" tabindex="-1">
+  <div id="list-head">
     <table>
       <colgroup>
         <col class="col-star"><col data-col="name"><col data-col="length"><col data-col="bpm"><col data-col="key"><col data-col="loop"><col data-col="collections"><col><col data-col="folder"><col class="col-remove">
@@ -57,6 +57,10 @@
       <thead>
         <tr><th class="star" data-sort="favorite" title="Favorite (Ctrl+D). Click to sort">★</th><th data-sort="name">Name<span class="resizer" data-col="name"></span></th><th class="number" data-sort="length">Length<span class="resizer" data-col="length"></span></th><th class="number" data-sort="bpm" title="Tempo, from the file name, or ≈ estimated from the length. Double-click a cell to set it. Search with bpm:120 or bpm:118-124">BPM<span class="resizer" data-col="bpm"></span></th><th data-sort="key" title="Key, from the file name. Double-click a cell to set it. Search with key:Am">Key<span class="resizer" data-col="key"></span></th><th data-sort="loop" title="Loop or one-shot: from the file's ACID chunk, else the words of its name and folders (loop, one shot, hits, fx, fills…), else a loop when it has a tempo (greyed: a guess). Double-click a cell to change it. Search with loop:yes or loop:no">Loop<span class="resizer" data-col="loop"></span></th><th data-sort="collections">Collections<span class="resizer" data-col="collections"></span></th><th data-sort="tags">Tags</th><th data-sort="folder">Folder<span class="resizer" data-col="folder"></span></th><th class="remove" hidden></th></tr>
       </thead>
+    </table>
+  </div>
+  <main id="list" tabindex="-1">
+    <table>
       <tbody id="samples"></tbody>
     </table>
   </main>

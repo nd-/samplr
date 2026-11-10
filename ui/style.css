@@ -775,9 +775,16 @@ table {
 	background: var(--wave);
 }
 
+/* The list's header, above it and outside its scrolling (see `listHead` in
+   main.js): sideways, it follows the list through `scrollLeft`. */
+#list-head {
+	flex: none;
+	overflow: hidden;
+	background: var(--header);
+}
+
 th {
-	position: sticky;
-	top: 0;
+	position: relative;
 	text-align: left;
 	font-weight: 600;
 	background: var(--header);

@@ -108,7 +108,12 @@ function cell(text, className) {
 // milliseconds at each search; a screenful takes a few. Rows have a fixed
 // height (CSS), measured on the first row shown.
 const listBox = document.getElementById("list");
-const tableHead = document.querySelector("thead");
+// The header is a table of its own above the list, outside its scrolling: a
+// `position: sticky` header made WebKitGTK draw the text of the rows passing
+// under it over its top. The rows' table gets a copy of its columns.
+const listHead = document.getElementById("list-head");
+const tables = [listHead.querySelector("table"), listBox.querySelector("table")];
+tables[1].prepend(listHead.querySelector("colgroup").cloneNode(true));
 const overscan = 10;
 let rowHeight = 0;
 // The samples whose rows are in the table: `firstDrawn` to `lastDrawn`.
@@ -200,6 +205,8 @@ function drawRowsIfNeeded() {
 
 let scrollPending = false;
 listBox.addEventListener("scroll", () => {
+  // The header follows the list sideways.
+  listHead.scrollLeft = listBox.scrollLeft;
   if (scrollPending) return;
   scrollPending = true;
   requestAnimationFrame(() => {
@@ -215,11 +222,11 @@ function rowElement(index) {
   return tbody.children[index - firstDrawn + 1] ?? null;
 }
 
-// Scrolls just enough for the row to show below the sticky header.
+// Scrolls just enough for the row to show.
 function ensureVisible(index) {
   if (index < 0 || rowHeight === 0) return;
   const top = index * rowHeight;
-  const bottom = tableHead.offsetHeight + top + rowHeight;
+  const bottom = top + rowHeight;
   if (top < listBox.scrollTop) listBox.scrollTop = top;
   else if (bottom > listBox.scrollTop + listBox.clientHeight) {
     listBox.scrollTop = bottom - listBox.clientHeight;
@@ -232,8 +239,10 @@ function render() {
   // The column of the × exists only in a collection. Its <col> is taken out
   // rather than given no width: WebKit treats a zero-width <col> as an
   // automatic one, which then shares the free width with Tags.
-  if (currentCollection === null) removeColumn.remove();
-  else columnGroup.append(removeColumn);
+  for (const [column, group] of removeColumns) {
+    if (currentCollection === null) column.remove();
+    else group.append(column);
+  }
   drawRows();
   applyColumnWidths();
   status.textContent = `${samples.length} sample(s)`;
@@ -283,8 +292,11 @@ tbody.addEventListener("mousedown", (event) => {
 });
 
 const removeHeader = document.querySelector("th.remove");
-const removeColumn = document.querySelector("col.col-remove");
-const columnGroup = removeColumn.parentElement;
+// The × column's <col> in each table, with the group to put it back in.
+const removeColumns = [...document.querySelectorAll("col.col-remove")].map((column) => [
+  column,
+  column.parentElement,
+]);
 
 // Column widths, changed by dragging the handle on a header's right edge;
 // a double-click on it brings the default back. Remembered between
@@ -341,7 +353,6 @@ function tagsWidth() {
   // A few pixels more against rounding, which would bring the ellipsis back.
   return Math.max(minTagsWidth, Math.ceil(widest + cellPadding + 4));
 }
-const table = document.querySelector("#list table");
 
 // The width Tags needs, as last measured.
 let measuredTagsWidth = minTagsWidth;
@@ -351,14 +362,16 @@ let measuredTagsWidth = minTagsWidth;
 // sample's tags at each pointer move made the drag stutter on a big library.
 function applyColumnWidths({ remeasure = true } = {}) {
   for (const [name, width] of Object.entries(columnWidths)) {
-    document.querySelector(`col[data-col="${name}"]`).style.width = `${width}px`;
+    for (const column of document.querySelectorAll(`col[data-col="${name}"]`)) {
+      column.style.width = `${width}px`;
+    }
   }
   const star = document.querySelector("th.star").offsetWidth;
   const remove = removeHeader.hidden ? 0 : removeHeader.offsetWidth;
   const total = Object.values(columnWidths).reduce((sum, width) => sum + width, 0);
   if (remeasure) measuredTagsWidth = tagsWidth();
   const needed = star + remove + total + measuredTagsWidth;
-  table.style.width = `${Math.max(listBox.clientWidth, needed)}px`;
+  for (const table of tables) table.style.width = `${Math.max(listBox.clientWidth, needed)}px`;
 }
 
 window.addEventListener("resize", () => applyColumnWidths({ remeasure: false }));
