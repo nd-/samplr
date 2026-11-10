@@ -1,32 +1,8 @@
 // The sample list: drawing, selection, keyboard, sorting, editing a cell,
 // columns, tags and favorites.
-const path = require("node:path");
-const { pathToFileURL } = require("node:url");
-const { test, expect } = require("@playwright/test");
+const { test, expect, openFakeLibrary, calls, row, name } = require("./helpers");
 
-const pageUrl = pathToFileURL(path.join(__dirname, "../../ui/index.html")).href;
-
-// Opens the page on the fake library (50 samples), the list drawn.
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript({ path: path.join(__dirname, "fake-tauri.js") });
-  await page.goto(pageUrl);
-  await expect(page.locator("#status")).toHaveText("50 sample(s)");
-});
-
-// No error reached the error box: every command the page used was
-// answered.
-test.afterEach(async ({ page }) => {
-  await expect(page.locator("#error-box")).toBeHidden();
-});
-
-// The commands the page sent, by name.
-async function calls(page, command) {
-  const all = await page.evaluate(() => window.__calls);
-  return all.filter((call) => call.command === command).map((call) => call.args);
-}
-
-const row = (page, index) => page.locator(`#samples tr[data-index="${index}"]`);
-const name = (page, index) => row(page, index).locator("td").nth(1);
+openFakeLibrary();
 
 test("only the rows on screen are drawn", async ({ page }) => {
   const drawn = await page.locator("#samples tr[data-index]").count();

@@ -92,8 +92,9 @@
       { id: "bass", label: "Bass", subtypes: [] },
     ],
     search,
+    // Sorted by name, case ignored, as the database does.
     collections: () =>
-      collections.map((c) => ({
+      [...collections].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })).map((c) => ({
         ...c,
         samples: samples.filter((s) => s.collections.includes(c.id)).length,
       })),
@@ -111,7 +112,13 @@
     pause: () => null,
     set_volume: () => null,
     set_playback: () => null,
-    collections_holding: () => [],
+    // The collections holding every one of the samples.
+    collections_holding: ({ paths }) => {
+      const held = chosen(paths);
+      return collections
+        .map((c) => c.id)
+        .filter((id) => held.length > 0 && held.every((sample) => sample.collections.includes(id)));
+    },
     set_favorite: ({ paths, favorite }) => {
       for (const sample of chosen(paths)) sample.favorite = favorite;
       return null;
@@ -143,9 +150,29 @@
       return null;
     },
     create_collection: ({ name }) => {
-      const id = collections.length + 1;
+      if (collections.some((c) => c.name === name)) {
+        throw `a collection named "${name}" already exists`;
+      }
+      const id = Math.max(0, ...collections.map((c) => c.id)) + 1;
       collections.push({ id, name, color_id: null });
       return id;
+    },
+    delete_collection: ({ collection }) => {
+      collections.splice(collections.findIndex((c) => c.id === collection), 1);
+      for (const sample of samples) {
+        sample.collections = sample.collections.filter((id) => id !== collection);
+      }
+      return null;
+    },
+    remove_from_collection: ({ collection, paths }) => {
+      let removed = 0;
+      for (const sample of chosen(paths)) {
+        if (sample.collections.includes(collection)) {
+          sample.collections = sample.collections.filter((id) => id !== collection);
+          removed += 1;
+        }
+      }
+      return removed;
     },
     add_to_collection: ({ collection, paths }) => {
       let added = 0;
