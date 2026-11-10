@@ -90,7 +90,9 @@ mixing macOS and Linux binaries in `target/`. Do not put this setting in the pro
   rename or a move, of a file or a folder, keeps the `id` hence the tags. A scanned folder
   inside another one is watched only once.
 - `samplr search [tag]... [--path <text>]`: samples carrying **all** the given tags, whose path
-  contains the text (case-insensitive, `_` taken literally).
+  contains the text (case-insensitive, accents included, `_` taken literally). SQLite's `lower`
+  only knows ASCII: the search compares through `unicode_lower`, Rust's `to_lowercase`
+  registered in `db::open` (rusqlite feature `functions`).
 - `samplr play <file>`: plays a file on the default output.
 - `samplr wave <file> [--width N]`: draws the waveform in the terminal, computing and caching
   it first if needed.
@@ -496,6 +498,10 @@ Audio pitfalls met so far:
 - Path case: on Mac (by default) and on Windows, `Kick.wav` and `kick.wav` are the same file,
   but the database compares paths as case-sensitive text. A rename that only changes case, or a
   path typed with another case in `tag`, may not find the sample. Needs a design decision.
+- Unicode normalisation: on Mac, file names written by HFS+ (and some apps) are decomposed (NFD:
+  "e" then a combining accent), while text typed in the search box is composed (NFC). A search
+  for "été" may then miss "été" in such a name. Fix: normalise both to NFC
+  (`unicode-normalization` crate) in `unicode_lower`. Not done yet: to check on the Mac first.
 
 ## Design decisions
 

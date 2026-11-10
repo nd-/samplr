@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
+use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OptionalExtension, named_params, params, params_from_iter};
 use serde::Serialize;
 
@@ -70,6 +71,16 @@ pub fn open() -> Result<Connection, Box<dyn Error>> {
         );",
     )?;
     migrate(&db)?;
+
+    // SQLite's `lower` only knows ASCII: "Été" stays "Été", and a search for
+    // "été" missed it. The search compares through this one, Rust's
+    // lowercase, which knows every alphabet (tags are stored with it too).
+    db.create_scalar_function(
+        "unicode_lower",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| Ok(context.get::<String>(0)?.to_lowercase()),
+    )?;
 
     Ok(db)
 }
@@ -791,7 +802,7 @@ pub fn search(
                  WHERE cf.file_id = f.id),
                 f.bpm, f.key
          FROM files f
-         WHERE f.hidden = 0 AND instr(lower(f.path), lower(?1)) > 0",
+         WHERE f.hidden = 0 AND instr(unicode_lower(f.path), unicode_lower(?1)) > 0",
     );
     if favorites_only {
         sql.push_str(" AND f.favorite = 1");
@@ -817,14 +828,14 @@ pub fn search(
             values.len()
         ));
     }
-    // Tags are stored lowercase: only the word needs `lower`.
+    // Tags are stored lowercase: only the word needs `unicode_lower`.
     for word in words {
         values.push(word.to_string());
         let n = values.len();
         sql.push_str(&format!(
-            " AND (instr(lower(f.path), lower(?{n})) > 0
+            " AND (instr(unicode_lower(f.path), unicode_lower(?{n})) > 0
                    OR EXISTS (SELECT 1 FROM file_tags ft JOIN tags t ON t.id = ft.tag_id
-                              WHERE ft.file_id = f.id AND instr(t.name, lower(?{n})) > 0))"
+                              WHERE ft.file_id = f.id AND instr(t.name, unicode_lower(?{n})) > 0))"
         ));
     }
     sql.push_str(" ORDER BY f.path");

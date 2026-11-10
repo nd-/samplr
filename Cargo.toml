@@ -15,8 +15,9 @@ dunce = "1.0"
 notify-debouncer-full = "0.7"
 # Audio playback (relies on CoreAudio on Mac, ALSA on Linux)
 rodio = { version = "0.23", features = ["symphonia-all"] }
-# SQLite database; `bundled` compiles SQLite with the project, nothing to install on Mac or Linux
-rusqlite = { version = "0.41", features = ["bundled"] }
+# SQLite database; `bundled` compiles SQLite with the project, nothing to install on Mac or Linux;
+# `functions` lets the search use Rust's lowercase, which knows accents (`unicode_lower`)
+rusqlite = { version = "0.41", features = ["bundled", "functions"] }
 # Turns Rust values into JSON for the graphical interface (already a
 # dependency of Tauri, so nothing more to compile)
 serde = { version = "1", features = ["derive"] }
