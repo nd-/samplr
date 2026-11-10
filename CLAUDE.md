@@ -353,16 +353,20 @@ Audio pitfalls met so far:
 - Visual feedback: after adding samples to a collection (menu or drop), their rows and the
   collection flash; after adding tags, the rows and the tag bar (`flash` in `main.js`, a CSS
   animation from the waveform colour back to the element's own background).
-- Multiple selection: click selects one row, Ctrl/Cmd+click adds or takes out a row,
-  Shift+click and Shift+↑↓ select from the anchor (the last row clicked without Shift) to the
-  row. The page keeps `selected` (the current row: played, waveform shown, outlined when
-  several are selected), `selectedPaths` (paths rather than rows, so that a refresh keeps the
-  selection) and `anchor`. Tags (the tag bar shows the tags common to the selection), Ctrl+D
-  (all become favorites, unless all already are), the collection commands and Del act on the
-  whole selection; the ★ of a row and its × in a collection act on that row only. Dragging a
-  selected row drags the whole selection to the DAW (the drag image says how many); dragging a
-  row outside the selection drags that row alone. A right-click inside the selection keeps it.
-  `add_tags`, `remove_tag` and `set_favorite` take a list of paths and work in one transaction.
+- Multiple selection: click selects one row, Ctrl/Cmd+click adds or takes out a row, Shift+click
+  and Shift+↑↓ select from the anchor (the last row clicked without Shift) to the row, Ctrl/Cmd+A
+  selects every sample of the list, rows off screen included (`selectAll`, no sound; in a text box
+  it still selects the text). No text of the page can be selected (`user-select: none` on `body`,
+  prefixed too for WebKitGTK; text boxes and error messages excepted): a Shift+click selected the
+  page's text from the last place clicked. The page keeps `selected` (the current row: played,
+  waveform shown, outlined when several are selected), `selectedPaths` (paths rather than rows, so
+  that a refresh keeps the selection) and `anchor`. Tags (the tag bar shows the tags common to the
+  selection), Ctrl+D (all become favorites, unless all already are), the collection commands and
+  Del act on the whole selection; the ★ of a row and its × in a collection act on that row only.
+  Dragging a selected row drags the whole selection to the DAW (the drag image says how many);
+  dragging a row outside the selection drags that row alone. A right-click inside the selection
+  keeps it. `add_tags`, `remove_tag` and `set_favorite` take a list of paths and work in one
+  transaction.
 - Favorites: a ★/☆ column at the start of each row (a click toggles it without selecting nor
   playing), Ctrl+D / Cmd+D toggles the selected sample, and a "★ Favorites" button filters the
   list (`search` command's `favorites`). Command `set_favorite`. With the filter on, a sample
@@ -495,9 +499,9 @@ Audio pitfalls met so far:
   confidence ≥ 0.5 (80 % right on the few labelled ones over 10 s). Never decode a whole file into
   memory for an analysis: a 3-hour recording took the machine's memory.
 - Errors: `showError` in `main.js` shows them in a red box above the status line (`#error-box`,
-  `--error` the same red in every theme, closed by its × or after 10 s) and in the status line;
-  every failure reported to the user goes through it, never through the status line alone,
-  which nobody notices.
+  `--error` the same red in every theme, closed by its × or after 10 s, not while the pointer is
+  on it; its text can be selected and copied) and in the status line; every failure reported to
+  the user goes through it, never through the status line alone, which nobody notices.
 - Rust functions called from the page are marked `#[tauri::command]` in `src-tauri/src/main.rs`
   and listed in `generate_handler!`. They return `Result<T, String>`: the error must be
   serialisable to reach JavaScript, `Box<dyn Error>` is not.

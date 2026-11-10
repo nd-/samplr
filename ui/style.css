@@ -209,6 +209,17 @@ body {
 	flex-direction: column;
 	background: var(--bg);
 	color: var(--fg);
+	/* An app, not a document: no text selected by a drag or a Shift+click.
+	   WebKitGTK still wants the prefixed name. */
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+/* What is typed stays selectable, to be copied or replaced, and so do
+   error messages, to be copied into a bug report or a search. */
+input, textarea, #error-text {
+	-webkit-user-select: text;
+	user-select: text;
 }
 
 header {
@@ -625,7 +636,6 @@ th, td {
 
 th[data-sort] {
 	cursor: pointer;
-	user-select: none;
 }
 
 th[data-sort]:hover {
@@ -644,7 +654,6 @@ th.sorted-descending::after {
 
 td {
 	cursor: default;
-	user-select: none;
 }
 
 /* Every row has the same height: the virtual list (see `drawRows` in

@@ -43,6 +43,14 @@ function hideError() {
 }
 
 document.getElementById("error-close").addEventListener("click", hideError);
+// While the pointer is on the box (selecting its text to copy it), it does
+// not close by itself; the 10 seconds start again when the pointer leaves.
+errorBox.addEventListener("mouseenter", () => clearTimeout(errorTimer));
+errorBox.addEventListener("mouseleave", () => {
+  if (errorBox.hidden) return;
+  clearTimeout(errorTimer);
+  errorTimer = setTimeout(hideError, 10000);
+});
 const canvas = document.getElementById("wave");
 const tagBar = document.getElementById("tagbar");
 const tagInput = document.getElementById("new-tags");
@@ -442,6 +450,19 @@ function paintSelection() {
     row.classList.toggle("selected", selectedPaths.has(samples[index].path));
     row.classList.toggle("current", index === selected && selectedPaths.size > 1);
   }
+}
+
+// Every sample of the list, without playing: the current row stays, or
+// becomes the first one.
+function selectAll() {
+  if (samples.length === 0) return;
+  selectedPaths = new Set(samples.map((sample) => sample.path));
+  const hadCurrent = selected >= 0;
+  if (!hadCurrent) selected = 0;
+  anchor = selected;
+  paintSelection();
+  renderTags();
+  if (!hadCurrent) loadWaveform();
 }
 
 // The selected samples, in the list's order.
@@ -1786,6 +1807,13 @@ document.addEventListener("keydown", (event) => {
   // sample a favorite or no longer.
   if ((event.ctrlKey || event.metaKey) && event.key === "d") {
     toggleSelectedFavorites();
+    event.preventDefault();
+    return;
+  }
+  // Ctrl+A, or Cmd+A on Mac, selects every sample of the list, the rows off
+  // screen included; in a text box it keeps selecting the text.
+  if ((event.ctrlKey || event.metaKey) && event.key === "a" && !(event.target instanceof HTMLInputElement)) {
+    selectAll();
     event.preventDefault();
     return;
   }
