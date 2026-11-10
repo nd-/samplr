@@ -237,26 +237,18 @@ fn watch(json: bool) -> Result<(), Box<dyn Error>> {
 }
 
 fn list_folders(json: bool) -> Result<(), Box<dyn Error>> {
-    let db = db::open()?;
+    let folders = samplr::folders(&db::open()?)?;
     if json {
-        let mut folders = Vec::new();
-        for folder in db::folders(&db)? {
-            folders.push(json!({
-                "path": folder,
-                "samples": db::count_under(&db, &folder)?,
-                "found": folder.is_dir(),
-            }));
-        }
         return print_json(&folders);
     }
     let mut out = io::stdout().lock();
-    for folder in db::folders(&db)? {
-        let missing = if folder.is_dir() { "" } else { "  (not found)" };
+    for folder in folders {
+        let missing = if folder.found { "" } else { "  (not found)" };
         writeln!(
             out,
             "{:>6}  {}{missing}",
-            db::count_under(&db, &folder)?,
-            folder.display()
+            folder.samples,
+            folder.path.display()
         )?;
     }
     Ok(())
@@ -319,8 +311,7 @@ fn set_favorite(files: &[PathBuf], favorite: bool, json: bool) -> Result<(), Box
             ensure_saved(&db, file)?
         } else {
             let file = dunce::canonicalize(file)?;
-            let file_id = db::file_id(&db, &file)?
-                .ok_or_else(|| format!("{} is not in the database", file.display()))?;
+            let file_id = db::require_file_id(&db, &file)?;
             (file, file_id)
         };
         db::set_favorite(&db, file_id, favorite)?;
@@ -420,8 +411,7 @@ fn untag(file: &Path, tags: &[String], json: bool) -> Result<(), Box<dyn Error>>
     let file = dunce::canonicalize(file)?;
 
     let db = db::open()?;
-    let file_id = db::file_id(&db, &file)?
-        .ok_or_else(|| format!("{} is not in the database", file.display()))?;
+    let file_id = db::require_file_id(&db, &file)?;
     let removed = db::remove_tags(&db, file_id, tags)?;
     if json {
         return print_json(&json!({ "file": file, "removed": removed }));

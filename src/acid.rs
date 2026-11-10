@@ -13,6 +13,8 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
+use crate::analysis;
+
 /// What the ACID chunk says.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Acid {
@@ -24,10 +26,6 @@ pub struct Acid {
     pub looped: bool,
 }
 
-const NOTES: [&str; 12] = [
-    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
-];
-
 /// Flags of the chunk's first field.
 const ONE_SHOT: u32 = 0x01;
 const ROOT_NOTE_SET: u32 = 0x02;
@@ -36,11 +34,7 @@ const ROOT_NOTE_SET: u32 = 0x02;
 /// read (each chunk is skipped with a seek), never the sound. `None` for any
 /// other format and for a file that cannot be read.
 pub fn read(path: &Path) -> Option<Acid> {
-    let is_wav = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("wav"));
-    if !is_wav {
+    if !crate::is_wav(path) {
         return None;
     }
     let mut file = File::open(path).ok()?;
@@ -77,7 +71,8 @@ fn parse(body: &[u8; 24]) -> Acid {
     let beats = u32::from_le_bytes([body[12], body[13], body[14], body[15]]);
     Acid {
         beats,
-        root: (flags & ROOT_NOTE_SET != 0).then(|| NOTES[usize::from(root_note % 12)].to_string()),
+        root: (flags & ROOT_NOTE_SET != 0)
+            .then(|| analysis::NOTES[usize::from(root_note % 12)].to_string()),
         looped: flags & ONE_SHOT == 0,
     }
 }
@@ -89,7 +84,8 @@ pub fn tempo(beats: u32, seconds: f64) -> Option<u32> {
         return None;
     }
     let tempo = (f64::from(beats) * 60.0 / seconds).round();
-    (20.0..=400.0).contains(&tempo).then_some(tempo as u32)
+    let tempo = tempo as u32;
+    analysis::MANUAL_TEMPOS.contains(&tempo).then_some(tempo)
 }
 
 #[cfg(test)]

@@ -25,10 +25,27 @@ pub enum Source {
     Sound,
 }
 
+impl Source {
+    /// The source named as serde writes it ("name", "sound"…).
+    pub fn from_name(name: &str) -> Option<Source> {
+        match name {
+            "name" => Some(Source::Name),
+            "length" => Some(Source::Length),
+            "manual" => Some(Source::Manual),
+            "file" => Some(Source::File),
+            "sound" => Some(Source::Sound),
+            _ => None,
+        }
+    }
+}
+
 /// The tempos a name may give: sample packs stay within this range.
 const TEMPOS: std::ops::RangeInclusive<u32> = 50..=250;
 
-const NOTES: [&str; 12] = [
+/// The tempos a sample can be given by hand, hence searched for.
+pub const MANUAL_TEMPOS: std::ops::RangeInclusive<u32> = 20..=400;
+
+pub(crate) const NOTES: [&str; 12] = [
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
 ];
 

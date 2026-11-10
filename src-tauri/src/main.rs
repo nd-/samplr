@@ -164,8 +164,7 @@ fn tempo_range(value: &str) -> Option<std::ops::RangeInclusive<u32>> {
     (TEMPOS.contains(&low) && TEMPOS.contains(&high)).then_some(low..=high)
 }
 
-/// The tempos a sample can be given by hand, hence searched for.
-const TEMPOS: std::ops::RangeInclusive<u32> = 20..=400;
+const TEMPOS: std::ops::RangeInclusive<u32> = samplr::analysis::MANUAL_TEMPOS;
 
 /// The palette, in its order.
 #[tauri::command(async)]
@@ -298,13 +297,9 @@ fn remove_from_collection(collection: i64, paths: Vec<PathBuf>) -> Result<usize,
 /// Marks samples as favorites, or no longer.
 #[tauri::command(async)]
 fn set_favorite(paths: Vec<PathBuf>, favorite: bool) -> Result<(), String> {
-    let mut db = db::open().map_err(|e| e.to_string())?;
-    // All the samples or none, and a single write to disk.
-    let transaction = db.transaction().map_err(|e| e.to_string())?;
-    for file_id in file_ids(&transaction, &paths)? {
-        db::set_favorite(&transaction, file_id, favorite).map_err(|e| e.to_string())?;
-    }
-    transaction.commit().map_err(|e| e.to_string())
+    for_each_sample(&paths, |db, _, file_id| {
+        db::set_favorite(db, file_id, favorite)
+    })
 }
 
 /// Sets the samples' tempo by hand. `value`: a tempo, empty or `"-"` for
@@ -325,12 +320,7 @@ fn set_tempo(paths: Vec<PathBuf>, value: String) -> Result<(), String> {
             }
         },
     };
-    let mut db = db::open().map_err(|e| e.to_string())?;
-    let transaction = db.transaction().map_err(|e| e.to_string())?;
-    for file_id in file_ids(&transaction, &paths)? {
-        db::set_tempo(&transaction, file_id, bpm).map_err(|e| e.to_string())?;
-    }
-    transaction.commit().map_err(|e| e.to_string())
+    for_each_sample(&paths, |db, _, file_id| db::set_tempo(db, file_id, bpm))
 }
 
 /// What `detect_tempo` did: how many samples got a tempo, and how many gave
@@ -374,12 +364,7 @@ fn tempo_methods(path: PathBuf) -> Result<samplr::TempoMethods, String> {
 /// the value worked out.
 #[tauri::command(async)]
 fn set_loop(paths: Vec<PathBuf>, looped: Option<bool>) -> Result<(), String> {
-    let mut db = db::open().map_err(|e| e.to_string())?;
-    let transaction = db.transaction().map_err(|e| e.to_string())?;
-    for file_id in file_ids(&transaction, &paths)? {
-        db::set_loop(&transaction, file_id, looped).map_err(|e| e.to_string())?;
-    }
-    transaction.commit().map_err(|e| e.to_string())
+    for_each_sample(&paths, |db, _, file_id| db::set_loop(db, file_id, looped))
 }
 
 /// Sets the samples' kind of sound by hand. `value`: `family` or
@@ -394,47 +379,17 @@ fn set_sound_type(paths: Vec<PathBuf>, value: String) -> Result<(), String> {
         text if samplr::sound_type::parse(text).is_some() => Some(text),
         text => return Err(format!("“{text}” is not a type of sound")),
     };
-    let mut db = db::open().map_err(|e| e.to_string())?;
-    let transaction = db.transaction().map_err(|e| e.to_string())?;
-    for (path, file_id) in paths.iter().zip(file_ids(&transaction, &paths)?) {
+    for_each_sample(&paths, |db, path, file_id| {
         let worked_out = samplr::sound_type::from_path(path).unwrap_or_default();
         let kept = chosen.filter(|chosen| *chosen != worked_out);
-        db::set_sound_type(&transaction, file_id, kept).map_err(|e| e.to_string())?;
-    }
-    transaction.commit().map_err(|e| e.to_string())
+        db::set_sound_type(db, file_id, kept)
+    })
 }
 
-/// A family and its subtypes, for the page's type picker.
-#[derive(Serialize)]
-struct SoundFamily {
-    id: &'static str,
-    label: &'static str,
-    subtypes: Vec<SoundSubtype>,
-}
-
-#[derive(Serialize)]
-struct SoundSubtype {
-    id: &'static str,
-    label: &'static str,
-}
-
+/// The families and their subtypes, for the page's type picker.
 #[tauri::command]
-fn sound_types() -> Vec<SoundFamily> {
+fn sound_types() -> &'static [samplr::sound_type::Family] {
     samplr::sound_type::FAMILIES
-        .iter()
-        .map(|family| SoundFamily {
-            id: family.id,
-            label: family.label,
-            subtypes: family
-                .subtypes
-                .iter()
-                .map(|subtype| SoundSubtype {
-                    id: subtype.id,
-                    label: subtype.label,
-                })
-                .collect(),
-        })
-        .collect()
 }
 
 /// Sets the samples' key by hand, in any spelling ("Bbm", "a#min"). `value`:
@@ -451,12 +406,9 @@ fn set_key(paths: Vec<PathBuf>, value: String) -> Result<(), String> {
             None => return Err(format!("“{value}” is not a key (e.g. Am, F#, Bbm)")),
         },
     };
-    let mut db = db::open().map_err(|e| e.to_string())?;
-    let transaction = db.transaction().map_err(|e| e.to_string())?;
-    for file_id in file_ids(&transaction, &paths)? {
-        db::set_key(&transaction, file_id, key.as_deref()).map_err(|e| e.to_string())?;
-    }
-    transaction.commit().map_err(|e| e.to_string())
+    for_each_sample(&paths, |db, _, file_id| {
+        db::set_key(db, file_id, key.as_deref())
+    })
 }
 
 /// Renames a sample's file, in its folder, keeping its extension: `name` is
@@ -680,29 +632,11 @@ struct Position {
     seconds: f64,
 }
 
-/// A scanned folder, as the `folders` command describes it.
-#[derive(Serialize)]
-struct Folder {
-    path: PathBuf,
-    /// Samples shown from this folder.
-    samples: u32,
-    /// `false` when the folder is not on disk (unplugged disk, deleted).
-    found: bool,
-}
-
 /// The scanned folders, in alphabetical order.
 #[tauri::command(async)]
-fn folders() -> Result<Vec<Folder>, String> {
+fn folders() -> Result<Vec<samplr::Folder>, String> {
     let db = db::open().map_err(|e| e.to_string())?;
-    let mut list = Vec::new();
-    for path in db::folders(&db).map_err(|e| e.to_string())? {
-        list.push(Folder {
-            samples: db::count_under(&db, &path).map_err(|e| e.to_string())?,
-            found: path.is_dir(),
-            path,
-        });
-    }
-    Ok(list)
+    samplr::folders(&db).map_err(|e| e.to_string())
 }
 
 /// Removes a folder from the library, like `samplr remove-folder`: no longer
@@ -816,15 +750,27 @@ fn change_tags(
     paths: &[PathBuf],
     change: impl Fn(&rusqlite::Connection, i64) -> Result<(), Box<dyn std::error::Error>>,
 ) -> Result<Vec<Vec<String>>, String> {
+    let mut all_tags = Vec::new();
+    for_each_sample(paths, |db, _, file_id| {
+        change(db, file_id)?;
+        all_tags.push(db::tags_of(db, file_id)?);
+        Ok(())
+    })?;
+    Ok(all_tags)
+}
+
+/// Applies `change` to each sample of `paths`, all of them or none, in a
+/// single write to disk.
+fn for_each_sample(
+    paths: &[PathBuf],
+    mut change: impl FnMut(&rusqlite::Connection, &Path, i64) -> Result<(), Box<dyn std::error::Error>>,
+) -> Result<(), String> {
     let mut db = db::open().map_err(|e| e.to_string())?;
     let transaction = db.transaction().map_err(|e| e.to_string())?;
-    let mut all_tags = Vec::new();
-    for file_id in file_ids(&transaction, paths)? {
-        change(&transaction, file_id).map_err(|e| e.to_string())?;
-        all_tags.push(db::tags_of(&transaction, file_id).map_err(|e| e.to_string())?);
+    for (path, file_id) in paths.iter().zip(file_ids(&transaction, paths)?) {
+        change(&transaction, path, file_id).map_err(|e| e.to_string())?;
     }
-    transaction.commit().map_err(|e| e.to_string())?;
-    Ok(all_tags)
+    transaction.commit().map_err(|e| e.to_string())
 }
 
 /// The `id`s of samples of the database.
@@ -834,9 +780,7 @@ fn file_ids(db: &rusqlite::Connection, paths: &[PathBuf]) -> Result<Vec<i64>, St
 
 /// The `id` of a sample of the database.
 fn file_id(db: &rusqlite::Connection, path: &Path) -> Result<i64, String> {
-    db::file_id(db, path)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("{} is not in the database", path.display()))
+    db::require_file_id(db, path).map_err(|e| e.to_string())
 }
 
 /// Starts playing a file from `start` seconds, once or in a loop, cutting the

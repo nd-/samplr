@@ -122,10 +122,9 @@ pub struct Stretched {
     channels: rodio::ChannelCount,
     sample_rate: rodio::SampleRate,
     shape: Arc<Shape>,
-    /// Created when first needed, kept for the rest of the sound.
+    /// The stretcher, created when first needed (see the module's comment)
+    /// and kept for the rest of the sound.
     stretch: Option<Engine>,
-    /// Whether the stretcher is on (see the module's comment).
-    active: bool,
     /// Samples passed through untouched since the start, to switch on the
     /// stretcher at a frame's boundary only.
     passed: usize,
@@ -150,7 +149,6 @@ impl Stretched {
             input,
             shape,
             stretch: None,
-            active: false,
             passed: 0,
             semitones: 0.0,
             carry: 0.0,
@@ -198,7 +196,6 @@ impl Stretched {
         self.read_input(latency);
         let stretch = self.stretch.as_mut().expect("created above");
         stretch.seek(&self.input_block, f64::from(tempo));
-        self.active = true;
     }
 
     /// Computes the next block of output; `false` when there is none left.
@@ -242,8 +239,8 @@ impl Iterator for Stretched {
     type Item = rodio::Sample;
 
     fn next(&mut self) -> Option<rodio::Sample> {
-        if !self.active {
-            let at_frame_start = self.passed % self.channel_count() == 0;
+        if self.stretch.is_none() {
+            let at_frame_start = self.passed.is_multiple_of(self.channel_count());
             let (tempo, semitones) = self.shape.get();
             let neutral = tempo == 1.0 && semitones == 0.0;
             if neutral || !at_frame_start {
@@ -270,7 +267,7 @@ impl Source for Stretched {
         // reads the sample rate again only at a span's start: a span to the
         // end (`None`) made it ignore every later change of the player's
         // speed (Tape turned on during the sound).
-        if !self.active {
+        if self.stretch.is_none() {
             return self.input.current_span_len();
         }
         Some(if self.position < self.output.len() {
@@ -299,7 +296,7 @@ impl Source for Stretched {
         self.position = 0;
         self.input_ended = false;
         self.flushed = false;
-        if self.active {
+        if self.stretch.is_some() {
             let (tempo, _) = self.shape.get();
             self.start(tempo);
         }

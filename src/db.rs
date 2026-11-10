@@ -251,13 +251,8 @@ pub fn add_folder(db: &Connection, path: &Path) -> Result<(), Box<dyn Error>> {
 /// The folders scanned so far, in alphabetical order.
 pub fn folders(db: &Connection) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     let mut query = db.prepare("SELECT path FROM folders ORDER BY path")?;
-    let rows = query.query_map([], |row| row.get::<_, String>(0))?;
-
-    let mut folders = Vec::new();
-    for path in rows {
-        folders.push(PathBuf::from(path?));
-    }
-    Ok(folders)
+    let rows = query.query_map([], |row| Ok(PathBuf::from(row.get::<_, String>(0)?)))?;
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 /// Removes a folder from the library: it is no longer followed, and its
@@ -307,14 +302,9 @@ pub fn files_under(db: &Connection, folder: &Path) -> Result<Vec<PathBuf>, Box<d
     let mut query = db.prepare(&format!("SELECT path FROM files WHERE {UNDER_PATH}"))?;
     let rows = query.query_map(
         named_params! { ":path": folder, ":prefix": folder_prefix(folder) },
-        |row| row.get::<_, String>(0),
+        |row| Ok(PathBuf::from(row.get::<_, String>(0)?)),
     )?;
-
-    let mut files = Vec::new();
-    for path in rows {
-        files.push(PathBuf::from(path?));
-    }
-    Ok(files)
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 /// Removes the sample at `path` from the database, or every sample it
@@ -431,12 +421,7 @@ pub fn all_files(db: &Connection) -> Result<Vec<(i64, PathBuf)>, Box<dyn Error>>
     let rows = query.query_map([], |row| {
         Ok((row.get(0)?, PathBuf::from(row.get::<_, String>(1)?)))
     })?;
-
-    let mut files = Vec::new();
-    for file in rows {
-        files.push(file?);
-    }
-    Ok(files)
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 /// The cached waveform of a sample, or `None` if there is none or if it is
@@ -457,6 +442,24 @@ pub fn waveform(
         )
         .optional()?;
     Ok(bytes.map(|b| waveform::from_bytes(&b)))
+}
+
+/// Whether the cached waveform of a sample is up to date, without reading
+/// its peaks.
+pub fn has_waveform(
+    db: &Connection,
+    file_id: i64,
+    stamp: FileStamp,
+) -> Result<bool, Box<dyn Error>> {
+    let found = db
+        .query_row(
+            "SELECT 1 FROM waveforms
+             WHERE file_id = ?1 AND size = ?2 AND modified = ?3 AND measured = ?4",
+            params![file_id, stamp.size, stamp.modified, MEASURED],
+            |_| Ok(()),
+        )
+        .optional()?;
+    Ok(found.is_some())
 }
 
 /// Saves a sample's waveform, replacing the previous one.
@@ -517,6 +520,11 @@ pub fn file_id(db: &Connection, path: &Path) -> Result<Option<i64>, Box<dyn Erro
         })
         .optional()?;
     Ok(id)
+}
+
+/// The `id` of a sample, an error when it is not in the database.
+pub fn require_file_id(db: &Connection, path: &Path) -> Result<i64, Box<dyn Error>> {
+    file_id(db, path)?.ok_or_else(|| format!("{} is not in the database", path.display()).into())
 }
 
 /// Adds tags to a sample. Returns the number of tags actually added (a tag
@@ -587,12 +595,7 @@ pub fn colors(db: &Connection) -> Result<Vec<Color>, Box<dyn Error>> {
             hex: row.get(2)?,
         })
     })?;
-
-    let mut colors = Vec::new();
-    for color in rows {
-        colors.push(color?);
-    }
-    Ok(colors)
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 /// `#rrggbb`, lowercase, as an `<input type="color">` gives it.
@@ -647,12 +650,7 @@ pub fn delete_color(db: &Connection, id: i64) -> Result<(), Box<dyn Error>> {
 pub fn tag_colors(db: &Connection) -> Result<Vec<(String, i64)>, Box<dyn Error>> {
     let mut query = db.prepare("SELECT name, color_id FROM tags WHERE color_id IS NOT NULL")?;
     let rows = query.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
-
-    let mut tags = Vec::new();
-    for tag in rows {
-        tags.push(tag?);
-    }
-    Ok(tags)
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 /// Gives a tag a colour, or none (`None`).
@@ -779,12 +777,7 @@ pub fn collections(db: &Connection) -> Result<Vec<Collection>, Box<dyn Error>> {
             color_id: row.get(3)?,
         })
     })?;
-
-    let mut collections = Vec::new();
-    for collection in rows {
-        collections.push(collection?);
-    }
-    Ok(collections)
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 /// Creates an empty collection and returns its `id`.
@@ -843,11 +836,9 @@ pub fn collections_holding(db: &Connection, file_ids: &[i64]) -> Result<Vec<i64>
              HAVING COUNT(*) = {}",
             part.len()
         ))?;
-        let rows = query.query_map(params_from_iter(part), |row| row.get(0))?;
-        let mut ids = Vec::new();
-        for id in rows {
-            ids.push(id?);
-        }
+        let ids: Vec<i64> = query
+            .query_map(params_from_iter(part), |row| row.get(0))?
+            .collect::<Result<_, _>>()?;
         holding = Some(match holding {
             None => ids,
             Some(before) => before.into_iter().filter(|id| ids.contains(id)).collect(),
@@ -882,12 +873,7 @@ pub fn tags_of(db: &Connection, file_id: i64) -> Result<Vec<String>, Box<dyn Err
          ORDER BY t.name",
     )?;
     let rows = query.query_map([file_id], |row| row.get(0))?;
-
-    let mut tags = Vec::new();
-    for tag in rows {
-        tags.push(tag?);
-    }
-    Ok(tags)
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 /// Every tag carried by a shown sample (not hidden), with the number of such
@@ -901,12 +887,7 @@ pub fn list_tags(db: &Connection) -> Result<Vec<(String, u32)>, Box<dyn Error>> 
          ORDER BY t.name",
     )?;
     let rows = query.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
-
-    let mut tags = Vec::new();
-    for tag in rows {
-        tags.push(tag?);
-    }
-    Ok(tags)
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 /// The samples carrying **all** the given `tags`, whose path contains `text`,
@@ -937,12 +918,18 @@ pub fn search(
                 w.lufs, w.peak_db, f.codec, f.sound_type, w.detected_bpm, f.bpm_origin
          FROM files f
          LEFT JOIN waveforms w ON w.file_id = f.id AND w.measured >= 1
-         WHERE f.hidden = 0 AND instr(unicode_lower(f.path), unicode_lower(?1)) > 0",
+         WHERE f.hidden = 0",
     );
     if favorites_only {
         sql.push_str(" AND f.favorite = 1");
     }
-    let mut values = vec![text.to_string()];
+    // Lowercased here rather than by `unicode_lower` in SQL, the same Rust
+    // `to_lowercase`: once per search instead of once per row.
+    let mut values = Vec::new();
+    if !text.is_empty() {
+        values.push(text.to_lowercase());
+        sql.push_str(" AND instr(unicode_lower(f.path), ?1) > 0");
+    }
     if let Some(collection) = collection {
         // Bound as text like the other values: compared with an INTEGER
         // column, SQLite turns it back into a number.
@@ -963,14 +950,14 @@ pub fn search(
             values.len()
         ));
     }
-    // Tags are stored lowercase: only the word needs `unicode_lower`.
+    // Tags are stored lowercase: only the path needs `unicode_lower`.
     for word in words {
-        values.push(word.to_string());
+        values.push(word.to_lowercase());
         let n = values.len();
         sql.push_str(&format!(
-            " AND (instr(unicode_lower(f.path), unicode_lower(?{n})) > 0
+            " AND (instr(unicode_lower(f.path), ?{n}) > 0
                    OR EXISTS (SELECT 1 FROM file_tags ft JOIN tags t ON t.id = ft.tag_id
-                              WHERE ft.file_id = f.id AND instr(t.name, unicode_lower(?{n})) > 0))"
+                              WHERE ft.file_id = f.id AND instr(t.name, ?{n}) > 0))"
         ));
     }
     sql.push_str(" ORDER BY f.path");
@@ -987,13 +974,11 @@ pub fn search(
         let acid_beats: Option<u32> = row.get(10)?;
         let acid_root: Option<String> = row.get(11)?;
         let acid_loop: Option<bool> = row.get(12)?;
-        let stored_source = match row.get::<_, Option<String>>(19)?.as_deref() {
-            Some("name") => analysis::Source::Name,
-            Some("file") => analysis::Source::File,
-            Some("length") => analysis::Source::Length,
-            Some("sound") => analysis::Source::Sound,
-            _ => analysis::Source::Manual,
-        };
+        let stored_source = row
+            .get::<_, Option<String>>(19)?
+            .as_deref()
+            .and_then(analysis::Source::from_name)
+            .unwrap_or(analysis::Source::Manual);
         let stored_tempo: Option<u32> = row.get(8)?;
         let tempo = match stored_tempo {
             Some(0) => None,
@@ -1066,12 +1051,7 @@ pub fn search(
             path,
         })
     })?;
-
-    let mut samples = Vec::new();
-    for sample in rows {
-        samples.push(sample?);
-    }
-    Ok(samples)
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 /// A tag is stored lowercase with no surrounding spaces: `Kick` and ` kick`

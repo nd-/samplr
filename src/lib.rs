@@ -20,7 +20,7 @@ use serde::Serialize;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
+use symphonia::core::probe::{Hint, ProbeResult};
 use walkdir::WalkDir;
 
 /// File extensions treated as samples.
@@ -220,6 +220,29 @@ pub fn scan(
     })
 }
 
+/// A scanned folder, as `samplr folders` and the interface describe it.
+#[derive(Serialize)]
+pub struct Folder {
+    pub path: PathBuf,
+    /// Samples shown from this folder.
+    pub samples: u32,
+    /// `false` when the folder is not on disk (unplugged disk, deleted).
+    pub found: bool,
+}
+
+/// The scanned folders, in alphabetical order.
+pub fn folders(db: &Connection) -> Result<Vec<Folder>, Box<dyn Error>> {
+    let mut list = Vec::new();
+    for path in db::folders(db)? {
+        list.push(Folder {
+            samples: db::count_under(db, &path)?,
+            found: path.is_dir(),
+            path,
+        });
+    }
+    Ok(list)
+}
+
 /// Removes a scanned folder from the library (see `db::remove_folder`):
 /// no longer followed, its samples hidden but kept with their tags. Returns
 /// the number of samples hidden. The audio files are not touched.
@@ -325,10 +348,16 @@ fn save_batch(
     }
 }
 
-/// Opens an audio file with symphonia and reads its characteristics without
-/// decoding the whole sound (it is fast).
-pub fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
-    let file = File::open(path)?; // `?` hands the error back to the caller, if any
+/// Whether the file is a WAV, after its extension.
+pub(crate) fn is_wav(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("wav"))
+}
+
+/// Opens an audio file with symphonia, reading only its headers.
+pub(crate) fn probe(path: &Path) -> Result<ProbeResult, Box<dyn Error>> {
+    let file = File::open(path)?;
     let stream = MediaSourceStream::new(Box::new(file), Default::default());
 
     // The extension is given as a hint to help symphonia recognise the format.
@@ -337,12 +366,18 @@ pub fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
         hint.with_extension(ext);
     }
 
-    let probed = symphonia::default::get_probe().format(
+    Ok(symphonia::default::get_probe().format(
         &hint,
         stream,
         &FormatOptions::default(),
         &MetadataOptions::default(),
-    )?;
+    )?)
+}
+
+/// Opens an audio file with symphonia and reads its characteristics without
+/// decoding the whole sound (it is fast).
+pub fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
+    let probed = probe(path)?;
 
     let track = probed
         .format
@@ -407,7 +442,7 @@ pub fn update_waveform(
     let Ok(stamp) = db::FileStamp::read(path) else {
         return Ok(WaveformUpdate::Missing);
     };
-    if db::waveform(db, file_id, stamp)?.is_some() {
+    if db::has_waveform(db, file_id, stamp)? {
         return Ok(WaveformUpdate::UpToDate);
     }
     match waveform::compute(path) {
@@ -487,14 +522,13 @@ pub fn detect_tempo(
     path: &Path,
     method: &str,
 ) -> Result<Option<u32>, Box<dyn Error>> {
-    if method != "sound" {
-        let methods = tempo_methods(path)?;
-        return match method {
-            "name" => Ok(methods.name),
-            "file" => Ok(methods.file),
-            "length" => Ok(methods.length),
-            _ => Err(format!("unknown method “{method}”").into()),
-        };
+    let methods = || tempo_methods(path);
+    match analysis::Source::from_name(method) {
+        Some(analysis::Source::Name) => return Ok(methods()?.name),
+        Some(analysis::Source::File) => return Ok(methods()?.file),
+        Some(analysis::Source::Length) => return Ok(methods()?.length),
+        Some(analysis::Source::Sound) => {}
+        _ => return Err(format!("unknown method “{method}”").into()),
     }
     let stamp = db::FileStamp::read(path)?;
     let (peaks, measures) = waveform::compute(path)?;

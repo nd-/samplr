@@ -8,20 +8,28 @@
 // woodwinds"): a subtype's id may be found in several families ("electric"
 // in Guitar and Bass, "synth" in Guitar and Strings).
 
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::LazyLock;
 
+use serde::Serialize;
+
+#[derive(Serialize)]
 pub struct Subtype {
     pub id: &'static str,
     pub label: &'static str,
     /// Words, or two-word phrases ("closed hat"), saying this subtype
     /// whatever the family around them.
+    #[serde(skip)]
     words: &'static [&'static str],
 }
 
+#[derive(Serialize)]
 pub struct Family {
     pub id: &'static str,
     pub label: &'static str,
     /// Words saying the family only.
+    #[serde(skip)]
     words: &'static [&'static str],
     pub subtypes: &'static [Subtype],
 }
@@ -433,17 +441,27 @@ impl Hit {
     }
 }
 
-fn hit_of(word: &str) -> Option<Hit> {
-    FAMILIES.iter().find_map(|family| {
-        if family.words.contains(&word) {
-            return Some(Hit::Family(family));
+/// Every word of `FAMILIES` with what it says, built once: the search works
+/// out the type of every sample, and walking the whole list for each word
+/// made it the slowest part of a search. A word met twice keeps its first
+/// meaning, in the order of `FAMILIES`.
+static HITS: LazyLock<HashMap<&'static str, Hit>> = LazyLock::new(|| {
+    let mut hits = HashMap::new();
+    for family in FAMILIES {
+        for word in family.words {
+            hits.entry(*word).or_insert(Hit::Family(family));
         }
-        family
-            .subtypes
-            .iter()
-            .find(|subtype| subtype.words.contains(&word))
-            .map(|subtype| Hit::Subtype(family, subtype))
-    })
+        for subtype in family.subtypes {
+            for word in subtype.words {
+                hits.entry(*word).or_insert(Hit::Subtype(family, subtype));
+            }
+        }
+    }
+    hits
+});
+
+fn hit_of(word: &str) -> Option<Hit> {
+    HITS.get(word).copied()
 }
 
 /// The words of a name or folder, a two-word phrase taken whole when it

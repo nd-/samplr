@@ -12,19 +12,12 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::{MetadataOptions, MetadataRevision, StandardTagKey};
-use symphonia::core::probe::Hint;
+use symphonia::core::meta::{MetadataRevision, StandardTagKey};
 
 /// The file's metadata as (label, value) pairs, in the file's order, empty
 /// values and duplicates left out.
 pub fn file_tags(path: &Path) -> Vec<(String, String)> {
-    let is_wav = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("wav"));
-    let mut tags = if is_wav {
+    let mut tags = if crate::is_wav(path) {
         File::open(path)
             .ok()
             .map(|mut file| riff_info(&mut file))
@@ -124,20 +117,7 @@ fn info_label(id: &str) -> String {
 /// The tags symphonia reads (ID3, Vorbis comments, MP4…), with readable
 /// names for the usual ones.
 fn symphonia_tags(path: &Path) -> Vec<(String, String)> {
-    let Ok(file) = File::open(path) else {
-        return Vec::new();
-    };
-    let source = MediaSourceStream::new(Box::new(file), Default::default());
-    let mut hint = Hint::new();
-    if let Some(extension) = path.extension().and_then(|e| e.to_str()) {
-        hint.with_extension(extension);
-    }
-    let Ok(mut probed) = symphonia::default::get_probe().format(
-        &hint,
-        source,
-        &FormatOptions::default(),
-        &MetadataOptions::default(),
-    ) else {
+    let Ok(mut probed) = crate::probe(path) else {
         return Vec::new();
     };
     let mut tags = Vec::new();
