@@ -187,15 +187,19 @@ Audio pitfalls met so far:
    gathered by hand (not saved searches: a decision taken), with multiple selection and
    dragging rows onto a collection. Tempo and key ✅: from the file name and the length, or set
    by hand.
-10. ✅ Settings panel ("Settings…" button), in three sections each titled in small capitals and
-    separated by a line (Appearance: theme; Confirmations; Colour palette), scrolling inside the
-    window when the palette is long: theme, confirmations (one checkbox, on by default: ask before
-    deleting a collection, removing a folder or deleting a colour, used or not, the question
-    saying what uses it; removing samples from a collection is never confirmed, moving files to
-    the trash always is), colour palette. The window closes with its × at the top right, Esc, or a
-    press outside it (only the press counts, so that selecting text and releasing outside does not
-    close it); the Folders window too (`closeOnPressOutside`, `.dialog-head`). `confirmAction` in
-    `main.js` asks, or not; the choice is kept in `localStorage` (`askBeforeDeleting`).
+10. ✅ Settings panel ("Settings…" button), in four sections each titled in small capitals and
+    separated by a line (Appearance: theme; Confirmations; Colour palette; Keyboard shortcuts),
+    scrolling inside the window when the palette is long: theme, confirmations (one checkbox, on
+    by default: ask before deleting a collection, removing a folder or deleting a colour, used or
+    not, the question saying what uses it; removing samples from a collection is never confirmed,
+    moving files to the trash always is), colour palette. The window closes with its × at the top
+    right, Esc, or a press outside it (only the press counts, so that selecting text and releasing
+    outside does not close it); the Folders window too (`closeOnPressOutside`, `.dialog-head`).
+    `confirmAction` in `main.js` asks, or not; the choice is kept in `localStorage`
+    (`askBeforeDeleting`). The shortcuts are listed there, not in the footer (`shortcutList`,
+    drawn as `<kbd>`); on a Mac they show the Mac's keys (`shortcut()`: ⌘ for Ctrl, ⇧ for Shift, ⌫
+    for Del), and so do the tooltips naming a shortcut: they are written for Linux in the code,
+    which listens to `metaKey` as well as `ctrlKey`.
 11. Packaging: embed ffmpeg, signed and notarised `.app` / `.dmg` on Mac, AppImage or `.deb` 
     on Linux.
 

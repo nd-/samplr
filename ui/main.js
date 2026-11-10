@@ -2,6 +2,21 @@
 // `window.__TAURI__`, so the page needs no build tool to import it.
 const { invoke } = window.__TAURI__.core;
 
+// Shortcuts are written for Linux ("Ctrl+D") and shown with the Mac's own
+// keys there (⌘ for Ctrl, ⇧ for Shift, ⌫ for Del): the code already listens
+// to `metaKey` as well as `ctrlKey`.
+const isMac = /Mac/.test(navigator.platform || navigator.userAgent);
+
+function shortcut(text) {
+  if (!isMac) return text;
+  return text.replaceAll("Ctrl+", "⌘").replaceAll("Shift+", "⇧").replaceAll("Del", "⌫");
+}
+
+// The titles written in index.html.
+for (const element of document.querySelectorAll('[title*="Ctrl+"]')) {
+  element.title = shortcut(element.title);
+}
+
 // Settings > Confirmations: ask before deleting a collection, removing a
 // folder or deleting a colour (on unless turned off). Remembered on
 // this computer, like the theme.
@@ -122,7 +137,7 @@ function buildRow(index) {
   if (index === selected && selectedPaths.size > 1) tr.classList.add("current");
   const star = cell(sample.favorite ? "★" : "☆", "star");
   star.classList.toggle("off", !sample.favorite);
-  star.title = "Favorite (Ctrl+D)";
+  star.title = shortcut("Favorite (Ctrl+D)");
   tr.append(
     star,
     cell(name),
@@ -1265,7 +1280,9 @@ const collectionsToggle = document.getElementById("toggle-collections");
 function setCollectionsFolded(folded) {
   collectionsColumn.classList.toggle("collapsed", folded);
   collectionsToggle.textContent = folded ? "›" : "‹";
-  collectionsToggle.title = folded ? "Show the collections (Ctrl+B)" : "Hide the collections (Ctrl+B)";
+  collectionsToggle.title = shortcut(
+    folded ? "Show the collections (Ctrl+B)" : "Hide the collections (Ctrl+B)",
+  );
   // The waveform and the list take the width freed or taken.
   drawWaveform();
   applyColumnWidths();
@@ -2041,6 +2058,41 @@ function openColorMenu(x, y, current, choose) {
 // The Settings window: for now, the palette. Each change is saved at once.
 const settingsDialog = document.getElementById("settings");
 const colorList = document.getElementById("color-list");
+
+// The Settings window's list of shortcuts: keys, then what they do.
+const shortcutList = [
+  ["↑ ↓", "Browse the list and play"],
+  ["Enter", "Play the selected sample again"],
+  ["Esc", "Stop"],
+  ["Ctrl+click", "Add a sample to the selection, or take it out"],
+  ["Shift+click, Shift+↑ ↓", "Select from the last sample clicked"],
+  ["Ctrl+A", "Select every sample of the list"],
+  ["Ctrl+T", "Go to the tag box: Enter adds the tags typed, Backspace on an empty box removes the last one"],
+  ["Ctrl+D", "Make the selection favorites, or no longer"],
+  ["Ctrl+B", "Show or hide the collections"],
+  ["Del", "Take the selection out of the open collection"],
+  ["Double-click", "Edit the tempo or the key of a sample"],
+  ["Right-click", "Collections, rename, move, convert or trash the selection"],
+  ["Drag a row", "Drop the selection into your DAW, or onto a collection"],
+];
+
+function renderShortcuts() {
+  const items = [];
+  for (const [keys, action] of shortcutList) {
+    const term = document.createElement("dt");
+    for (const [i, key] of shortcut(keys).split(", ").entries()) {
+      if (i > 0) term.append(" ");
+      const kbd = document.createElement("kbd");
+      kbd.textContent = key;
+      term.append(kbd);
+    }
+    const description = document.createElement("dd");
+    description.textContent = action;
+    items.push(term, description);
+  }
+  document.getElementById("shortcuts").replaceChildren(...items);
+}
+renderShortcuts();
 
 function renderSettings() {
   const items = palette.map((color) => {
