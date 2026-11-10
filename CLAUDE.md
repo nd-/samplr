@@ -249,6 +249,10 @@ Audio pitfalls met so far:
   with several samples selected, the last tag they all carry, never one of the current row
   only), Esc goes back to the search box.
   The `add_tags` and `remove_tag` commands return the sample's tags after the change.
+- Window: the page itself never scrolls (`overflow: hidden` on `body`); the list, the collections
+  and the windows scroll inside, each on its own. The header wraps its buttons onto a second line
+  in a narrow window (`flex-wrap`, search box at least 12rem): unwrapped they needed about 1020
+  px, and below that the whole page scrolled sideways with the last buttons out of the window.
 - Preview controls: Play, Stop (same as Esc), the Play loop and Autoplay checkboxes and a
   volume slider in the header. Autoplay off: a click on a row selects it without playing (to
   tag or drag it in silence), and stops the sound playing if it was another sample's; the arrow

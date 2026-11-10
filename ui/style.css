@@ -210,6 +210,9 @@ body {
 	flex-direction: column;
 	background: var(--bg);
 	color: var(--fg);
+	/* The page itself never scrolls: the list, the collections and the
+	   windows scroll inside, each on its own. */
+	overflow: hidden;
 	/* An app, not a document: no text selected by a drag or a Shift+click.
 	   WebKitGTK still wants the prefixed name. */
 	-webkit-user-select: none;
@@ -223,8 +226,11 @@ input, textarea, #error-text {
 	user-select: text;
 }
 
+/* In a narrow window the buttons go to a second line rather than out of
+   the window, which made the whole page scroll sideways. */
 header {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	gap: var(--space-6);
 	padding: var(--space-6);
@@ -233,6 +239,7 @@ header {
 
 #search {
 	flex: 1;
+	min-width: 12rem;
 	padding: var(--space-4) var(--space-6);
 	font: inherit;
 }
