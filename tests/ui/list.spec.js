@@ -103,6 +103,18 @@ test("a tempo typed in its cell, a refused one keeps the box open", async ({ pag
   });
 });
 
+test("a tempo typed for the whole selection", async ({ page }) => {
+  await page.locator("#autoplay").uncheck();
+  await name(page, 24).click();
+  await name(page, 26).click({ modifiers: ["Shift"] });
+  const cell = row(page, 25).locator("td.bpm");
+  await cell.dblclick();
+  await cell.locator("input").fill("100");
+  await cell.locator("input").press("Enter");
+  expect((await calls(page, "set_tempo")).at(-1).paths).toHaveLength(3);
+  await expect(row(page, 26).locator("td.bpm")).toHaveText("100");
+});
+
 test("Esc leaves a tempo cell unchanged", async ({ page }) => {
   const cell = row(page, 24).locator("td.bpm");
   const before = await cell.textContent();

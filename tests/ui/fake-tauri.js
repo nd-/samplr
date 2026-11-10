@@ -43,6 +43,8 @@
     };
   });
   const byPath = new Map(samples.map((sample) => [sample.path, sample]));
+  // The type worked out from each path, what "Automatic" goes back to.
+  const automaticType = new Map(samples.map((sample) => [sample.path, sample.sound_type]));
   const collections = [];
   const palette = [
     { id: 1, name: "Red", hex: "#e5484d" },
@@ -65,8 +67,9 @@
     return [...counts].sort(([a], [b]) => a.localeCompare(b));
   }
 
-  // Words in the path or a tag, `#tag` exact; the filters (bpm:, key:…)
-  // belong to the Rust side and are not imitated.
+  // Words in the path or a tag, `#tag` exact, `type:` a family or a subtype;
+  // the other filters (bpm:, key:…) belong to the Rust side and are not
+  // imitated.
   function search({ query, favorites, collection }) {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
     return samples
@@ -74,13 +77,21 @@
       .filter((sample) => collection === null || sample.collections.includes(collection))
       .filter((sample) =>
         words.every((word) =>
-          word.startsWith("#")
+          word.startsWith("type:")
+            ? typeMatches(sample.sound_type, word.slice(5))
+            : word.startsWith("#")
             ? sample.tags.includes(word.slice(1))
             : sample.path.toLowerCase().includes(word) ||
               sample.tags.some((tag) => tag.includes(word)),
         ),
       )
       .map((sample) => structuredClone(sample));
+  }
+
+  function typeMatches(value, wanted) {
+    if (!value) return false;
+    const [family, subtype] = value.split("/");
+    return wanted === value || wanted === family || wanted === subtype;
   }
 
   const commands = {
@@ -93,7 +104,15 @@
           { id: "snare", label: "snare" },
         ],
       },
-      { id: "bass", label: "Bass", subtypes: [] },
+      { id: "bass", label: "Bass", subtypes: [{ id: "electric", label: "electric" }] },
+      {
+        id: "guitar",
+        label: "Guitar",
+        subtypes: [
+          { id: "acoustic", label: "acoustic" },
+          { id: "electric", label: "electric" },
+        ],
+      },
     ],
     search,
     // Sorted by name, case ignored, as the database does.
@@ -150,6 +169,19 @@
       for (const sample of chosen(paths)) {
         sample.bpm = text === "" || text === "-" ? null : text === "auto" ? sample.bpm : bpm;
         sample.bpm_source = sample.bpm === null ? null : "manual";
+      }
+      return null;
+    },
+    // "" back to the type worked out, "-" none, else a type set by hand.
+    set_sound_type: ({ paths, value }) => {
+      for (const sample of chosen(paths)) {
+        if (value === "") {
+          sample.sound_type = automaticType.get(sample.path);
+          sample.type_source = sample.sound_type ? "name" : null;
+        } else {
+          sample.sound_type = value === "-" ? null : value;
+          sample.type_source = "manual";
+        }
       }
       return null;
     },
