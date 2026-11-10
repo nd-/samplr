@@ -346,29 +346,26 @@ Audio pitfalls met so far:
   order, case ignored (`Intl.Collator` with `numeric`): "kick 2" before "kick 10". Missing values
   (unknown length, no tag) stay last whichever the direction; equal values fall back to the path.
 - Column widths: the table has a fixed layout (`table-layout: fixed`), its widths come from the
-  `<col>` elements. Columns in this order: ★, Name, Length, BPM, Key, Collections, Tags, Folder
-  (last: the longest and least read), then the × in a collection. A handle on the right edge of
-  the Name, Length, BPM, Key, Collections and Folder headers changes the width by dragging
-  (pointer capture), a double-click brings the default back; Tags takes the rest, ★ and × have
-  fixed widths. The table fills the list's width, Tags taking the rest; Tags is never narrower
-  than what shows every sample's tags whole (`tagsWidth`: the tags' text measured with a canvas in
-  the cells' font, chips' padding included, as the virtual list has no cells for rows off screen;
-  at least 80 px); when the chosen widths plus that do not fit, the table grows wider and the list
-  scrolls sideways. `applyColumnWidths` sets the table's `width` in pixels (the larger of the
-  list's width and what the columns need), recomputed on window resize, folding, tag and colour
-  changes: WebKit ignores `min-width` on a fixed-layout table. The virtual list's spacer rows span
-  exactly the columns shown (6, or 7 with the ×): one more made a phantom column that took a share
-  of the free width from Tags. Widths are never shrunk to fit. Dragging a handle, the collections
-  column's edge or the window's edge reuses the last measure of Tags (`applyColumnWidths({
-  remeasure: false })`): no tag changes then, and measuring every sample's tags at each pointer
-  move made the drag stutter. Widths kept in `localStorage` (`columnWidths`). A click on a handle
-  does not sort. Outside a collection the × column's `<col>` is taken out of the table: a
-  zero-width `<col>` is treated as automatic by WebKit and would share the free width with Tags.
-  Text too long for its cell ends with an ellipsis. One row in two is slightly darker (`striped`,
-  `--stripe` mixed from the text and background colours), after the sample's place in the list
-  rather than `nth-child`: the virtual list's rows alternate differently as it scrolls. Every row
-  has a background of its own (`--bg` otherwise): WebKitGTK smooths the text of a row without one
-  differently, and it looked bold next to a striped one.
+  `<col>` elements. Columns in this order: ★, Name, Length, BPM, Key, Loop, Collections, Tags,
+  Folder (last: the longest and least read), then the × in a collection. A handle on the right
+  edge of every header but Folder changes the width by dragging (pointer capture), a double-click
+  brings the default back (Tags: 200 px); Folder takes the rest, at least 120 px
+  (`minFolderWidth`), ★ and × have fixed widths. Tags is narrowed like any other column, its tags
+  then ending with an ellipsis (it used to take the rest and never be narrower than every sample's
+  tags, measured over the whole library at each change; dropped). When the chosen widths plus
+  Folder's minimum do not fit, the table grows wider than the list, which scrolls sideways.
+  `applyColumnWidths` sets the tables' `width` in pixels (the larger of the list's width and what
+  the columns need), recomputed on window resize and folding: WebKit ignores `min-width` on a
+  fixed-layout table. The virtual list's spacer rows span exactly the columns shown, counted on
+  the header: one more made a phantom column that took a share of the free width. Widths are never
+  shrunk to fit. Widths kept in `localStorage` (`columnWidths`; a width stored for Folder by an
+  older samplr is dropped). A click on a handle does not sort. Outside a collection the × column's
+  `<col>` is taken out of the tables: a zero-width `<col>` is treated as automatic by WebKit and
+  would share the free width. Text too long for its cell ends with an ellipsis. One row in two is
+  slightly darker (`striped`, `--stripe` mixed from the text and background colours), after the
+  sample's place in the list rather than `nth-child`: the virtual list's rows alternate
+  differently as it scrolls. Every row has a background of its own (`--bg` otherwise): WebKitGTK
+  smooths the text of a row without one differently, and it looked bold next to a striped one.
 - Visual feedback: after adding samples to a collection (menu or drop), their rows and the
   collection flash; after adding tags, the rows and the tag bar (`flash` in `main.js`, a CSS
   animation from the waveform colour back to the element's own background).
