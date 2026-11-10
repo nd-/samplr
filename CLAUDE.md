@@ -366,6 +366,14 @@ Audio pitfalls met so far:
   first event the bar shows an activity without a value. The folder is saved and watched
   before the scan starts (like at startup, watching comes before catching up): a file added or
   renamed during a long scan, in a part already gone through, is seen by the watcher.
+- Splice folder: once, at the first launch where one is there (`offerSpliceFolders`,
+  `localStorage` `spliceOffered`, set whatever the answer), the Splice folders found and not
+  followed yet are offered, each in a question ("Add" / "Not now"), then scanned like "+ Folder"
+  (`scanFolder`). `samplr::splice_folders`: `~/Splice/sounds` rather than `~/Splice` when both are
+  there (the latter also holds presets and projects), the same under the Documents folder, and the
+  plugin's `~/Library/Splice/Plug-in/samples` (Mac) or `AppData/Roaming/Splice/Plug-in/samples`
+  (Windows), after Splice's own help; no Splice for Linux. Splice's tempo, key and tags stay in
+  its app: the question says so.
 - Live following: while the app is open, the scanned folders are followed like `samplr watch`
   (catch-up at startup, then live changes; renames keep the tags; an unplugged disk is left
   alone). The code is shared: `src/watch.rs` in the library (`roots`, `new_watcher`,

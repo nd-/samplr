@@ -419,6 +419,38 @@ pub fn update_waveform(
     }
 }
 
+/// The folders where Splice keeps the sounds it downloads, those present
+/// on this computer. Splice documents its folder as `~/Splice` on the Mac
+/// and in the user's folder on Windows, the sounds inside; its plugin keeps
+/// its own elsewhere (`~/Library/Splice/Plug-in/samples` on the Mac,
+/// `AppData/Roaming/Splice/Plug-in/samples` on Windows). There is no Splice
+/// for Linux: none is found there, unless copied by hand.
+pub fn splice_folders() -> Vec<PathBuf> {
+    let home = dirs::home_dir();
+    let mut candidates = Vec::new();
+    if let Some(home) = &home {
+        candidates.push(home.join("Splice").join("sounds"));
+        candidates.push(home.join("Splice"));
+        candidates.push(home.join("Library/Splice/Plug-in/samples"));
+    }
+    if let Some(documents) = dirs::document_dir() {
+        candidates.push(documents.join("Splice").join("sounds"));
+        candidates.push(documents.join("Splice"));
+    }
+    if let Some(config) = dirs::config_dir() {
+        candidates.push(config.join("Splice/Plug-in/samples"));
+    }
+    let mut found: Vec<PathBuf> = Vec::new();
+    for candidate in candidates {
+        // `~/Splice/sounds` rather than `~/Splice` when both are there: the
+        // latter also holds presets and projects.
+        if candidate.is_dir() && !found.iter().any(|kept| kept.starts_with(&candidate)) {
+            found.push(dunce::canonicalize(&candidate).unwrap_or(candidate));
+        }
+    }
+    found
+}
+
 /// The tempos a sample's name, ACID chunk and length give (see
 /// `analysis`), whatever is used for it: what "Detect BPM" offers.
 #[derive(Serialize)]

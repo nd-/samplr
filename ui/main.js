@@ -1464,7 +1464,10 @@ async function addFolder() {
     directory: true,
     title: "Add a folder of samples",
   });
-  if (folder === null) return;
+  if (folder !== null) await scanFolder(folder);
+}
+
+async function scanFolder(folder) {
   addFolderButton.disabled = true;
   status.textContent = `Scanning ${folder}…`;
   scanning = folder;
@@ -1488,6 +1491,36 @@ async function addFolder() {
 }
 
 addFolderButton.addEventListener("click", addFolder);
+
+// Once, at the first launch where one is there: the Splice folders found and
+// not followed yet are offered. The answer, yes or no, is remembered.
+async function offerSpliceFolders() {
+  try {
+    if (localStorage.getItem("spliceOffered") === "true") return;
+  } catch {
+    return;
+  }
+  let found;
+  try {
+    found = await invoke("splice_folders");
+  } catch (error) {
+    showError(error);
+    return;
+  }
+  if (found.length === 0) return;
+  try {
+    localStorage.setItem("spliceOffered", "true");
+  } catch {
+    // Storage unavailable: asked again at the next launch.
+  }
+  for (const folder of found) {
+    const add = await window.__TAURI__.dialog.ask(
+      `samplr found the folder where Splice keeps your sounds:\n${folder}\n\nAdd it to the library? Its samples stay where they are. The tempo, key and tags Splice shows stay in the Splice app: samplr works them out from the names.`,
+      { title: "Splice folder", kind: "info", okLabel: "Add", cancelLabel: "Not now" },
+    );
+    if (add) await scanFolder(folder);
+  }
+}
 
 // The scanned folders, each with the number of samples it holds and a button
 // to remove it from the library.
@@ -3582,3 +3615,4 @@ invoke("sound_types")
 loadCollections();
 loadColors();
 loadTagList();
+offerSpliceFolders();

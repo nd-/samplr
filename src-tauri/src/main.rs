@@ -732,6 +732,18 @@ struct Added {
     unreadable: usize,
 }
 
+/// The Splice folders found on this computer and not followed yet, to offer
+/// adding them (see `samplr::splice_folders`).
+#[tauri::command(async)]
+fn splice_folders() -> Result<Vec<PathBuf>, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    let scanned = db::folders(&db).map_err(|e| e.to_string())?;
+    Ok(samplr::splice_folders()
+        .into_iter()
+        .filter(|found| !scanned.iter().any(|folder| found.starts_with(folder)))
+        .collect())
+}
+
 /// Adds a folder of samples, like `samplr scan`, and follows it from then
 /// on. A big folder takes a while: `(async)` keeps the window responsive
 /// meanwhile, and the page receives `scan-progress` events with the number of
@@ -1059,6 +1071,7 @@ fn main() {
             set_key,
             set_loop,
             detect_tempo,
+            splice_folders,
             tempo_methods,
             set_sound_type,
             sound_types,
