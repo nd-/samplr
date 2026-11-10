@@ -278,8 +278,9 @@ header button:disabled,
 	cursor: default;
 }
 
-/* The favorites filter on: the button stays lit. */
-#favorites-only[aria-pressed="true"] {
+/* The favorites or type filter on: the button stays lit. */
+#favorites-only[aria-pressed="true"],
+#type-filter[aria-pressed="true"] {
 	background: var(--signal-soft);
 	box-shadow: inset 0 0 0 1px var(--signal);
 }
@@ -678,6 +679,110 @@ header button:disabled,
 #context-menu .tick {
 	display: inline-block;
 	width: 1.4em;
+}
+
+/* The type picker (see `openTypePicker`): families on the left, the
+   subtypes of the one pointed at on the right, or the search's results. */
+#type-picker {
+	position: fixed;
+	z-index: 10;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	width: 30rem;
+	max-width: calc(100vw - 8px);
+	padding: var(--space-4);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	background: var(--surface);
+	box-shadow: 0 4px 12px rgb(0 0 0 / 25%);
+}
+
+#type-picker[hidden],
+#type-recent[hidden],
+#type-panes[hidden] {
+	display: none;
+}
+
+#type-search {
+	padding: var(--space-3) var(--space-4);
+	font: inherit;
+}
+
+#type-recent {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+#type-recent .label,
+#type-results .label {
+	color: var(--muted);
+	font-size: 0.85em;
+	padding: var(--space-2) var(--space-4);
+}
+
+#type-panes {
+	display: flex;
+	height: 20rem;
+	max-height: 60vh;
+	border-top: 1px solid var(--border);
+}
+
+#type-families,
+#type-subtypes,
+#type-results {
+	overflow-y: auto;
+	padding-top: var(--space-2);
+}
+
+#type-families {
+	flex: 1;
+	border-right: 1px solid var(--border);
+}
+
+#type-subtypes {
+	flex: 1;
+	padding-left: var(--space-2);
+}
+
+#type-results {
+	max-height: 20rem;
+}
+
+#type-picker button {
+	display: block;
+	width: 100%;
+	padding: var(--space-2) var(--space-4);
+	border: none;
+	border-radius: 3px;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+#type-recent button {
+	display: inline-block;
+	width: auto;
+	background: var(--button);
+}
+
+#type-picker button:hover,
+#type-picker button.active {
+	background: var(--hover);
+}
+
+/* The family whose subtypes show on the right. */
+#type-families button.open {
+	background: var(--selected);
+}
+
+#type-picker hr {
+	border: none;
+	border-top: 1px solid var(--border);
 }
 
 #context-menu hr {

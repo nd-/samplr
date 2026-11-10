@@ -68,6 +68,7 @@ fn search(
     let mut tempos = None;
     let mut key = None;
     let mut looped = None;
+    let mut sound_type = None;
     for word in query.split_whitespace() {
         // `bpm:` and `key:` filters; one still being typed and not valid
         // yet (`bpm:1`, `key:`) filters nothing.
@@ -87,6 +88,12 @@ fn search(
                 // Still being typed: no filter.
                 _ => looped,
             };
+            continue;
+        }
+        if let Some(value) = lower.strip_prefix("type:") {
+            if samplr::sound_type::is_known(value) {
+                sound_type = Some(value.to_string());
+            }
             continue;
         }
         match word.strip_prefix('#') {
@@ -109,6 +116,16 @@ fn search(
     }
     if let Some(looped) = looped {
         samples.retain(|sample| sample.looped == looped);
+    }
+    // `type:drums` keeps the whole family, `type:kick` the kicks only,
+    // `type:electric` electric guitars and basses.
+    if let Some(wanted) = sound_type {
+        samples.retain(|sample| {
+            sample
+                .sound_type
+                .as_deref()
+                .is_some_and(|found| samplr::sound_type::matches(found, &wanted))
+        });
     }
     Ok(samples)
 }
@@ -301,6 +318,61 @@ fn set_loop(paths: Vec<PathBuf>, looped: Option<bool>) -> Result<(), String> {
         db::set_loop(&transaction, file_id, looped).map_err(|e| e.to_string())?;
     }
     transaction.commit().map_err(|e| e.to_string())
+}
+
+/// Sets the samples' kind of sound by hand. `value`: `family` or
+/// `family/subtype` of `sound_type::FAMILIES`, `"-"` for none, empty to go
+/// back to the one worked out. A type equal to the one worked out is not
+/// kept as set by hand, so that the sample follows a later rename.
+#[tauri::command(async)]
+fn set_sound_type(paths: Vec<PathBuf>, value: String) -> Result<(), String> {
+    let chosen = match value.trim() {
+        "" => None,
+        "-" => Some(""),
+        text if samplr::sound_type::parse(text).is_some() => Some(text),
+        text => return Err(format!("“{text}” is not a type of sound")),
+    };
+    let mut db = db::open().map_err(|e| e.to_string())?;
+    let transaction = db.transaction().map_err(|e| e.to_string())?;
+    for (path, file_id) in paths.iter().zip(file_ids(&transaction, &paths)?) {
+        let worked_out = samplr::sound_type::from_path(path).unwrap_or_default();
+        let kept = chosen.filter(|chosen| *chosen != worked_out);
+        db::set_sound_type(&transaction, file_id, kept).map_err(|e| e.to_string())?;
+    }
+    transaction.commit().map_err(|e| e.to_string())
+}
+
+/// A family and its subtypes, for the page's type picker.
+#[derive(Serialize)]
+struct SoundFamily {
+    id: &'static str,
+    label: &'static str,
+    subtypes: Vec<SoundSubtype>,
+}
+
+#[derive(Serialize)]
+struct SoundSubtype {
+    id: &'static str,
+    label: &'static str,
+}
+
+#[tauri::command]
+fn sound_types() -> Vec<SoundFamily> {
+    samplr::sound_type::FAMILIES
+        .iter()
+        .map(|family| SoundFamily {
+            id: family.id,
+            label: family.label,
+            subtypes: family
+                .subtypes
+                .iter()
+                .map(|subtype| SoundSubtype {
+                    id: subtype.id,
+                    label: subtype.label,
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 /// Sets the samples' key by hand, in any spelling ("Bbm", "a#min"). `value`:
@@ -896,6 +968,8 @@ fn main() {
             set_tempo,
             set_key,
             set_loop,
+            set_sound_type,
+            sound_types,
             rename_sample,
             move_samples,
             trash_samples,

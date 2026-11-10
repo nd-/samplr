@@ -157,6 +157,7 @@ function buildRow(index) {
     bpm: () => bpmCell(sample),
     key: () => keyCell(sample),
     loop: () => loopCell(sample),
+    type: () => typeCell(sample),
     lufs: () => loudnessCell(sample),
     channels: () => cell(sample.channels === null ? "" : String(sample.channels), "number"),
     codec: () => cell(sample.codec ?? "", "codec"),
@@ -271,22 +272,34 @@ tbody.addEventListener("click", (event) => {
     removeFromCollection([samples[index].path]);
     return;
   }
-  // A tempo, a key or loop / one-shot is edited with a double-click: a click there selects
-  // without playing, and the second click of the double-click does nothing.
+  // A tempo, a key, loop / one-shot or a type is edited with a double-click:
+  // a click there plays only once no second click has come, so that editing
+  // stays silent, and the second click of the double-click does nothing.
   // Elsewhere, quick clicks on a row still retrigger the sound, like a pad.
-  const editable = event.target.closest("td.bpm, td.key, td.loop") !== null;
+  clearTimeout(delayedPlay);
+  const editable = event.target.closest("td.bpm, td.key, td.loop, td.type") !== null;
   if (editable && event.detail > 1) return;
   const andPlay = autoplayBox.checked && !editable;
   // Cmd on a Mac, Ctrl elsewhere (Ctrl+click is a right-click on a Mac).
   if (event.metaKey || event.ctrlKey) select(index, "toggle", andPlay);
   else if (event.shiftKey) select(index, "range", andPlay);
   else select(index, "single", andPlay);
+  if (editable && autoplayBox.checked && selectedPaths.has(samples[index].path)) {
+    delayedPlay = setTimeout(() => {
+      if (selected === index) play();
+    }, doubleClickDelay);
+  }
   // Autoplay off: moving to another sample silences the one playing, so that
   // what is heard is never another sample than the one selected.
   if (!autoplayBox.checked && playingPath !== null && samples[selected]?.path !== playingPath) {
     stop();
   }
 });
+
+// GTK's default double-click time: a click on an editable cell waits this
+// long before playing, in case a second click makes it an edit.
+const doubleClickDelay = 400;
+let delayedPlay = null;
 
 tbody.addEventListener("mousedown", (event) => {
   const index = rowIndex(event);
@@ -310,6 +323,7 @@ const columnLabels = {
   bpm: "BPM",
   key: "Key",
   loop: "Loop",
+  type: "Type",
   lufs: "LUFS",
   channels: "Ch (channels)",
   codec: "Codec",
@@ -431,6 +445,7 @@ const defaultWidths = {
   bpm: 70,
   key: 60,
   loop: 60,
+  type: 120,
   lufs: 60,
   channels: 40,
   codec: 90,
@@ -536,6 +551,7 @@ const sortValues = {
   bpm: (sample) => sample.bpm,
   key: (sample) => sample.key,
   loop: (sample) => (sample.looped ? 1 : 0),
+  type: (sample) => typeLabel(sample) || null,
   lufs: (sample) => sample.lufs,
   channels: (sample) => sample.channels,
   codec: (sample) => sample.codec,
@@ -767,6 +783,7 @@ function drawInfo(sample) {
     sample.loop_source ? (sample.looped ? "Loop" : "One-shot") : null,
     loopOrigins[sample.loop_source],
   );
+  add("Type", typeLabel(sample) || null, typeOrigins[sample.type_source]);
   if (sample.tags.length > 0) add("Tags", sample.tags.join(", "));
   if (selectedPaths.size > 1) add("Selection", `${selectedPaths.size} samples`);
   if (infoOfFile?.error) {
@@ -1031,7 +1048,10 @@ function playOrPause() {
   if (lastPosition !== null) {
     const now = performance.now();
     if (paused) {
-      lastPosition = { seconds: lastPosition.seconds + (now - lastPosition.at) / 1000, at: now };
+      lastPosition = {
+        seconds: lastPosition.seconds + ((now - lastPosition.at) / 1000) * playSpeed(),
+        at: now,
+      };
     } else {
       lastPosition = { ...lastPosition, at: now };
       if (!animating) {
@@ -2332,6 +2352,7 @@ async function fetchSamples() {
 }
 
 async function search() {
+  updateTypeFilterButton();
   try {
     const found = await fetchSamples();
     if (found === null) return;
@@ -2366,7 +2387,7 @@ searchBox.addEventListener("input", () => {
 document.addEventListener("keydown", (event) => {
   // The folders window has its own keys (Esc closes it, Tab moves between
   // its buttons): the list behind must not react.
-  if (foldersDialog.open || settingsDialog.open || convertDialog.open) return;
+  if (foldersDialog.open || settingsDialog.open || convertDialog.open || picker) return;
   // Typing a collection name: Enter creates it (the form's own behaviour),
   // and the list's keys must not react.
   if (event.target === collectionName) return;
@@ -2588,6 +2609,10 @@ tbody.addEventListener("dblclick", (event) => {
     switchLoop(index);
     return;
   }
+  if (index >= 0 && event.target.closest("td.type")) {
+    editType(event.clientX, event.clientY, index);
+    return;
+  }
   const td = event.target.closest("td.bpm, td.key");
   if (index < 0 || !td || td.querySelector("input")) return;
   editCell(index, td, td.classList.contains("bpm") ? "set_tempo" : "set_key");
@@ -2648,6 +2673,313 @@ function editCell(index, td, command) {
   input.addEventListener("input", () => input.classList.remove("invalid"));
   input.addEventListener("blur", () => finish(true, true));
 }
+
+// The types of sound, from `sound_types`: families, each with its subtypes
+// (`{ id, label, subtypes: [{ id, label }] }`). A sample's type is
+// `family` or `family/subtype`.
+let soundFamilies = [];
+
+// "Drums › kick", "Brass & Woodwinds", or "" for no type.
+function typeName(value) {
+  if (!value) return "";
+  const [familyId, subtypeId] = value.split("/");
+  const family = soundFamilies.find((f) => f.id === familyId);
+  if (!family) return value;
+  const subtype = family.subtypes.find((s) => s.id === subtypeId);
+  return subtype ? `${family.label} › ${subtype.label}` : family.label;
+}
+
+function typeLabel(sample) {
+  return typeName(sample.sound_type);
+}
+
+const typeOrigins = {
+  name: "from the words of its name or folders",
+  manual: "set by hand",
+};
+
+function typeCell(sample) {
+  const td = cell(typeLabel(sample), sample.type_source === "name" ? "type estimated" : "type");
+  td.title = `${typeLabel(sample) || "No type"}, ${typeOrigins[sample.type_source] ?? "nothing in its name or folders says it"}. Double-click to change`;
+  return td;
+}
+
+// The type picker: a search box, the types used lately, then the families
+// on the left and the subtypes of the one pointed at on the right. Typing
+// lists the families and subtypes matching the text instead. Used to set a
+// sample's type and to filter the list by type.
+const typePicker = document.getElementById("type-picker");
+const typeSearch = document.getElementById("type-search");
+const typeRecent = document.getElementById("type-recent");
+const typeFamilies = document.getElementById("type-families");
+const typeSubtypes = document.getElementById("type-subtypes");
+const typeResults = document.getElementById("type-results");
+// The open picker: what is chosen now, the entries above the families
+// ([label, value]), what to do with the choice, the family whose subtypes
+// show, and the entry the keys are on (`pane`: "left", "right" or
+// "results").
+let picker = null;
+
+function recentTypes() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("recentTypes") ?? "[]");
+    return Array.isArray(saved) ? saved.filter((value) => typeName(value) !== value) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberType(value) {
+  const recent = [value, ...recentTypes().filter((v) => v !== value)].slice(0, 5);
+  try {
+    localStorage.setItem("recentTypes", JSON.stringify(recent));
+  } catch {
+    // Storage unavailable: no recent types.
+  }
+}
+
+// Case and accents ignored.
+function folded(text) {
+  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function openTypePicker(x, y, { current, extra, choose }) {
+  closeContextMenu();
+  const familyId = current?.split("/")[0];
+  picker = {
+    current,
+    extra,
+    choose,
+    family: soundFamilies.find((f) => f.id === familyId) ?? soundFamilies[0],
+    pane: "left",
+    index: 0,
+  };
+  typeSearch.value = "";
+  typePicker.hidden = false;
+  renderTypePicker();
+  const { width, height } = typePicker.getBoundingClientRect();
+  typePicker.style.left = `${Math.max(4, Math.min(x, window.innerWidth - width - 4))}px`;
+  typePicker.style.top = `${Math.max(4, Math.min(y, window.innerHeight - height - 4))}px`;
+  typeSearch.focus();
+}
+
+function closeTypePicker() {
+  typePicker.hidden = true;
+  picker = null;
+}
+
+function pickType(value) {
+  const { choose } = picker;
+  if (typeName(value) !== value && value) rememberType(value);
+  closeTypePicker();
+  choose(value);
+}
+
+function pickerButton(label, value, active) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = value === picker.current ? `✓ ${label}` : label;
+  button.classList.toggle("active", active);
+  button.addEventListener("click", () => pickType(value));
+  return button;
+}
+
+// The entries of the left pane: the extra ones, then the families.
+function leftEntries() {
+  return [
+    ...picker.extra.map(([label, value]) => ({ label, value })),
+    ...soundFamilies.map((family) => ({ label: family.label, value: family.id, family })),
+  ];
+}
+
+function searchedTypes(text) {
+  const wanted = folded(text);
+  const found = [];
+  for (const family of soundFamilies) {
+    if (folded(family.label).includes(wanted)) found.push(family.id);
+    for (const subtype of family.subtypes) {
+      if (folded(subtype.label).includes(wanted)) found.push(`${family.id}/${subtype.id}`);
+    }
+  }
+  return found;
+}
+
+function renderTypePicker() {
+  const text = typeSearch.value.trim();
+  const searching = text !== "";
+  typeResults.hidden = !searching;
+  typeFamilies.parentElement.hidden = searching;
+  typeRecent.hidden = searching;
+  if (searching) {
+    const found = searchedTypes(text);
+    picker.pane = "results";
+    picker.index = Math.min(picker.index, Math.max(0, found.length - 1));
+    typeResults.replaceChildren(
+      ...found.map((value, i) => pickerButton(typeName(value), value, i === picker.index)),
+    );
+    if (found.length === 0) {
+      const none = document.createElement("div");
+      none.className = "label";
+      none.textContent = "No type matches";
+      typeResults.append(none);
+    }
+    typeResults.querySelector(".active")?.scrollIntoView({ block: "nearest" });
+    return;
+  }
+  if (picker.pane === "results") {
+    picker.pane = "left";
+    picker.index = 0;
+  }
+  const recent = recentTypes();
+  typeRecent.replaceChildren();
+  if (recent.length > 0) {
+    const label = document.createElement("span");
+    label.className = "label";
+    label.textContent = "Recent";
+    typeRecent.append(label, ...recent.map((value) => pickerButton(typeName(value), value, false)));
+  }
+  typeRecent.hidden = recent.length === 0;
+  const left = leftEntries().map((entry, i) => {
+    const button = pickerButton(
+      entry.family?.subtypes.length ? `${entry.label} ›` : entry.label,
+      entry.value,
+      picker.pane === "left" && i === picker.index,
+    );
+    if (entry.family === picker.family) button.classList.add("open");
+    if (entry.family) {
+      // Only the right pane is drawn again: replacing the button under the
+      // pointer would lose the click that follows.
+      button.addEventListener("mouseenter", () => {
+        picker.family = entry.family;
+        for (const other of typeFamilies.querySelectorAll("button")) {
+          other.classList.toggle("open", other === button);
+        }
+        renderSubtypes();
+      });
+    }
+    return button;
+  });
+  left.splice(picker.extra.length, 0, document.createElement("hr"));
+  typeFamilies.replaceChildren(...left);
+  renderSubtypes();
+  typePicker.querySelector(".active")?.scrollIntoView({ block: "nearest" });
+}
+
+function renderSubtypes() {
+  const family = picker.family;
+  typeSubtypes.replaceChildren(
+    ...(family?.subtypes ?? []).map((subtype, i) =>
+      pickerButton(
+        subtype.label,
+        `${family.id}/${subtype.id}`,
+        picker.pane === "right" && i === picker.index,
+      ),
+    ),
+  );
+}
+
+typeSearch.addEventListener("input", () => {
+  if (picker) picker.index = 0;
+  renderTypePicker();
+});
+
+typeSearch.addEventListener("keydown", (event) => {
+  // The list's keys must not react while choosing.
+  event.stopPropagation();
+  if (!picker) return;
+  const move = { ArrowDown: 1, ArrowUp: -1 }[event.key];
+  if (event.key === "Escape") {
+    closeTypePicker();
+  } else if (move) {
+    const count =
+      picker.pane === "results"
+        ? typeResults.querySelectorAll("button").length
+        : picker.pane === "left"
+          ? leftEntries().length
+          : (picker.family?.subtypes.length ?? 0);
+    picker.index = Math.max(0, Math.min(count - 1, picker.index + move));
+    if (picker.pane === "left") picker.family = leftEntries()[picker.index].family ?? picker.family;
+    renderTypePicker();
+  } else if (event.key === "ArrowRight" && picker.pane === "left" && picker.family?.subtypes.length) {
+    const entry = leftEntries()[picker.index];
+    if (!entry.family) return;
+    picker.pane = "right";
+    picker.index = 0;
+    renderTypePicker();
+  } else if (event.key === "ArrowLeft" && picker.pane === "right") {
+    picker.pane = "left";
+    picker.index = leftEntries().findIndex((entry) => entry.family === picker.family);
+    renderTypePicker();
+  } else if (event.key === "Enter") {
+    // The hidden panes keep their own active entry: only the one shown counts.
+    const shown = picker.pane === "results" ? typeResults : typeFamilies.parentElement;
+    shown.querySelector("button.active")?.click();
+  } else {
+    return;
+  }
+  event.preventDefault();
+});
+
+document.addEventListener("mousedown", (event) => {
+  if (picker && !typePicker.contains(event.target)) closeTypePicker();
+});
+
+// A double-click on a Type cell: the picker sets the type of the sample, or
+// of the whole selection when the row is in it.
+function editType(x, y, index) {
+  const sample = samples[index];
+  const paths = selectedPaths.has(sample.path) ? selectedSamples().map((s) => s.path) : [sample.path];
+  const current = sample.type_source === "manual" ? (sample.sound_type ?? "-") : "";
+  openTypePicker(x, y, {
+    current,
+    extra: [
+      ["Automatic", ""],
+      ["No type", "-"],
+    ],
+    choose: async (value) => {
+      try {
+        await invoke("set_sound_type", { paths, value });
+      } catch (error) {
+        showError(error);
+        return;
+      }
+      await refresh({ stopIfGone: false });
+      flash(rowsOf(paths));
+    },
+  });
+}
+
+// The Type button of the header: the same picker, writing `type:…` in the
+// search box.
+const typeFilterButton = document.getElementById("type-filter");
+
+function searchedType() {
+  const word = searchBox.value.split(/\s+/).find((w) => w.toLowerCase().startsWith("type:"));
+  return word ? word.slice(5).toLowerCase() : "";
+}
+
+function updateTypeFilterButton() {
+  const value = searchedType();
+  const name = value ? typeName(value) || value : "";
+  typeFilterButton.textContent = name ? `Type: ${name}` : "Type";
+  typeFilterButton.setAttribute("aria-pressed", String(value !== ""));
+}
+
+typeFilterButton.addEventListener("click", () => {
+  const { left, bottom } = typeFilterButton.getBoundingClientRect();
+  openTypePicker(left, bottom + 4, {
+    current: searchedType(),
+    extra: [["Any type", ""]],
+    choose: (value) => {
+      const kept = searchBox.value
+        .split(/\s+/)
+        .filter((word) => word !== "" && !word.toLowerCase().startsWith("type:"));
+      if (value) kept.push(`type:${value}`);
+      searchBox.value = kept.join(" ");
+      search();
+    },
+  });
+});
 
 function keyCell(sample) {
   return cell(sample.key ?? "", "key");
@@ -2750,7 +3082,7 @@ const shortcutList = [
   ["Ctrl+B", "Show or hide the collections"],
   ["Ctrl+I", "Show or hide the Info panel"],
   ["Del", "Take the selection out of the open collection"],
-  ["Double-click", "Edit the tempo or the key of a sample, or switch loop / one-shot"],
+  ["Double-click", "Edit the tempo, the key or the type of a sample, or switch loop / one-shot"],
   ["Right-click", "Collections, rename, move, convert or trash the selection"],
   ["Right-click the header", "Show or hide columns"],
   ["Drag a row", "Drop the selection into your DAW, or onto a collection"],
@@ -3017,7 +3349,13 @@ document.getElementById("show-settings").addEventListener("click", () => {
 
 applyColumns();
 applyColumnWidths();
-search();
+// The types are needed to show a subtype with its family: asked first.
+invoke("sound_types")
+  .then((families) => {
+    soundFamilies = families;
+  })
+  .catch(showError)
+  .finally(search);
 loadCollections();
 loadColors();
 loadTagList();

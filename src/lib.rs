@@ -6,6 +6,7 @@ pub mod analysis;
 pub mod convert;
 pub mod db;
 pub mod info;
+pub mod sound_type;
 pub mod watch;
 pub mod waveform;
 
@@ -55,6 +56,11 @@ pub struct SampleInfo {
     /// from the database.
     pub looped: bool,
     pub loop_source: Option<analysis::Source>,
+    /// The kind of sound, `family` or `family/subtype` ("drums/kick", see
+    /// `sound_type`), and where it comes from: `Name` from the path's words,
+    /// `Manual` set by hand.
+    pub sound_type: Option<String>,
+    pub type_source: Option<analysis::Source>,
     /// Loudness, measured with the waveform: integrated LUFS and peak in
     /// dBFS; `None` until measured, or when it cannot be (too short, silent).
     pub lufs: Option<f64>,
@@ -364,6 +370,8 @@ pub fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
         key: None,
         looped: false,
         loop_source: None,
+        sound_type: None,
+        type_source: None,
         lufs: None,
         peak_db: None,
         codec,

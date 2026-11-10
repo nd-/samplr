@@ -117,16 +117,16 @@ background waveforms); its page in `ui/` (`index.html`, `main.js`, `style.css`, 
 Database: `samplr.db` in the system data folder (`~/.local/share/samplr` on Linux,
 `~/Library/Application Support/samplr` on Mac). The `SAMPLR_DB` variable points to another
 database, for experiments. Tables `files` (with `hidden`, see `remove-folder`, `favorite`, `bpm`,
-`key` and `looped` set by hand, `acid_beats`, `acid_root` and `acid_loop` from the file's ACID
-chunk, `codec` as symphonia names it: "pcm_s24le", "flac", "mp3"…), `tags`, `file_tags`, `folders`
-(the folders given to `scan`, followed by `watch`), `waveforms`, `collections` and
-`collection_files` (samples gathered by hand; a sample forgotten by the database leaves its
-collections, a hidden one stays in them and comes back with its folder), `colors` (the palette:
-name, `#rrggbb`, position; filled with 10 colours by the migration to version 4). `tags` and
-`collections` have a `color_id` (`ON DELETE SET NULL`: deleting a colour leaves them without
-colour). A tag deleted because no sample carries it any more loses its colour. Schema changes go
-through `db::migrate`: SQLite keeps the schema version (`PRAGMA user_version`, 9 so far), each
-step runs once, under `BEGIN IMMEDIATE` so that the app and a command opening the database
+`key`, `looped` and `sound_type` set by hand, `acid_beats`, `acid_root` and `acid_loop` from the
+file's ACID chunk, `codec` as symphonia names it: "pcm_s24le", "flac", "mp3"…), `tags`,
+`file_tags`, `folders` (the folders given to `scan`, followed by `watch`), `waveforms`,
+`collections` and `collection_files` (samples gathered by hand; a sample forgotten by the
+database leaves its collections, a hidden one stays in them and comes back with its folder),
+`colors` (the palette: name, `#rrggbb`, position; filled with 10 colours by the migration to
+version 4). `tags` and `collections` have a `color_id` (`ON DELETE SET NULL`: deleting a colour
+leaves them without colour). A tag deleted because no sample carries it any more loses its
+colour. Schema changes go through `db::migrate`: SQLite keeps the schema version (`PRAGMA
+user_version`, 10 so far), each step runs once, under `BEGIN IMMEDIATE` so that the app and a command opening the database
 together do not both run it. A new database goes through every step too (the `CREATE TABLE`s are
 version 0): add a column with a migration step, not in the `CREATE TABLE`, and raise
 `SCHEMA_VERSION` with it: an up-to-date database is opened without taking the write lock,
@@ -306,7 +306,7 @@ Audio pitfalls met so far:
   to its end: it then sends the page a `playback-ended` event with the number the page gave to
   that sound (`play` command's `id`), and the page ignores the end of a sound already replaced by
   another one. The audio thread is started in Tauri's `setup`, to get the `AppHandle` it sends
-  events with. The header keeps the search box, Favorites, + Folder, Folders… and Settings…
+  events with. The header keeps the search box, Favorites, Type, + Folder, Folders… and Settings…
 - Playhead: a line over the waveform (a `<div>` moved in CSS, not a redraw of the canvas). The
   audio thread sends a `playback-position` event every 100 ms; in between, the page moves the line
   on the clock (`requestAnimationFrame`), times the speed. The position is in seconds of the file:
@@ -579,9 +579,12 @@ Audio pitfalls met so far:
   it, for the whole selection when the row is in it (Enter or leaving the box saves, Esc cancels;
   a value refused after Enter keeps the box open, outlined in `--error` red, the reason in its
   tooltip and the status line; refused on leaving the box, the old value comes back; empty goes
-  back to automatic, `-` means none, to silence a wrong guess). A click on these cells selects the
-  row without playing it, and the second click of the double-click does nothing (`event.detail`);
-  elsewhere quick clicks on a row still retrigger the sound, like a pad. Stored in `files.bpm` and
+  back to automatic, `-` means none, to silence a wrong guess). A click on these cells (and on Loop
+  and Type) selects the row and, with Autoplay, plays it only after `doubleClickDelay` (400 ms,
+  GTK's double-click time) if no second click came: editing stays silent, and these cells no
+  longer silence a third of the row (Autoplay seemed broken once the Type column was added). The
+  second click of the double-click does nothing (`event.detail`); elsewhere quick clicks on a row
+  still retrigger the sound, like a pad. Stored in `files.bpm` and
   `files.key` (migration 5): NULL automatic, 0 and '' none; commands `set_tempo` (20 to 400) and
   `set_key` (any spelling, kept in sharps). The edit box has no border nor vertical padding: a
   taller row would break the virtual list's fixed height. Columns BPM ("≈ 100" muted for an
@@ -607,6 +610,32 @@ Audio pitfalls met so far:
   automatic. On the Linux library: 466 decided by the chunk, 2295 by the words, 540 guessed from
   the tempo; effects and fills were taken for loops when their length happened to give a whole
   tempo, hence their words.
+- Kind of sound (`src/sound_type.rs`, unit-tested): two levels, a family and, when the words say
+  it, a subtype. The list merges LANDR's and Splice's instrument categories (both compared, then
+  chosen one by one): Drums, Bass, Brass & Woodwinds, Guitar, Keys, Synth, Strings, Percussion,
+  Pitched Percussion, Vocals, FX, plus Music for a whole piece (Freesound's Broad Sound Taxonomy),
+  about 130 subtypes; Splice's "character" subtypes (clean, riffs, chords…) were left out, but
+  breaks and fills. A type is stored as `family` or `family/subtype` ("drums/kick"): a subtype's
+  id may be in several families (double bass in Bass and Strings, electric in Guitar and Bass).
+  From the words of the file name, then of its folders from the deepest up, two-word phrases
+  taken whole ("closed hat", "thumb piano"): in a name the last word saying a type wins ("Atmos
+  Flute" is a flute), weak words (drum, skank, chords, lead, pluck, stab, riff, hit, mix…) count
+  only when no other one says anything ("Horns_Skank" is a horn), and a family found may still get
+  a subtype from a qualifier of the same name (`QUALIFIERS`: "Elec_Gtr" is an electric guitar) or
+  from the folders above (`HITS/Kick/MP2_Drums_1.wav` is a kick). Worked out at each search, not
+  stored. On the Linux library: 3303 samples, 1061 typed from their folders only. Column Type
+  ("Drums › kick", greyed when worked out), sortable, hideable, searched with `type:drums` (the
+  family), `type:kick` (the subtype in any family) or `type:guitar/electric`. A double-click
+  opens the type picker (`openTypePicker`, `#type-picker`): a search box (typing lists the
+  families and subtypes matching, accents ignored), the five types chosen last (`recentTypes` in
+  `localStorage`), the families on the left and the subtypes of the one pointed at on the right;
+  ↑ ↓ → ← and Enter, Esc closes. Automatic and No type above the families; for the selection
+  when the row is in it (`set_sound_type`). The header's Type button opens the same picker to
+  filter: it writes `type:…` in the search box and shows the type chosen, lit like Favorites.
+  Set by hand in `files.sound_type` (migration 10): NULL automatic, '' none, a value no longer in
+  the list counts as automatic; a type equal to the one worked out is not kept, so that a renamed
+  file follows its new name. Hovering a family redraws only the right pane: replacing the button
+  under the pointer lost the click.
 - Info panel (`#info`, on the right of the list, folds with its › button or Ctrl+I, remembered in
   `localStorage`, `infoFolded`): the current sample's name, folder, format ("WAV · 24 bit · 44.1
   kHz · stereo"), length, size and modification date, tempo, key and loop with where they come

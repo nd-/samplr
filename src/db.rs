@@ -12,7 +12,7 @@ use rusqlite::{Connection, OptionalExtension, named_params, params, params_from_
 use serde::Serialize;
 
 use crate::waveform::{self, Peak};
-use crate::{SampleInfo, acid, analysis};
+use crate::{SampleInfo, acid, analysis, sound_type};
 
 /// Location of the database file: the system's data folder
 /// (`~/.local/share/samplr` on Linux, `~/Library/Application Support/samplr`
@@ -86,7 +86,7 @@ pub fn open() -> Result<Connection, Box<dyn Error>> {
 }
 
 /// The schema version `migrate` brings a database to: the last step's.
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 /// Brings a database created by an older samplr up to date. Its version is
 /// kept by SQLite (`user_version`, 0 for a new database); each step runs once.
@@ -202,6 +202,15 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
         db.execute_batch(
             "ALTER TABLE files ADD COLUMN codec TEXT;
              PRAGMA user_version = 9;",
+        )?;
+    }
+    if version < 10 {
+        // The kind of sound set by hand: `family` or `family/subtype` of
+        // `sound_type::FAMILIES`, '' for none; NULL: worked out from the
+        // path.
+        db.execute_batch(
+            "ALTER TABLE files ADD COLUMN sound_type TEXT;
+             PRAGMA user_version = 10;",
         )?;
     }
     db.execute_batch("COMMIT")?;
@@ -686,6 +695,20 @@ pub fn set_loop(db: &Connection, file_id: i64, looped: Option<bool>) -> Result<(
     Ok(())
 }
 
+/// Sets a sample's kind of sound by hand: `Some("")` for none, `None` to go
+/// back to the one worked out from the path.
+pub fn set_sound_type(
+    db: &Connection,
+    file_id: i64,
+    sound_type: Option<&str>,
+) -> Result<(), Box<dyn Error>> {
+    db.execute(
+        "UPDATE files SET sound_type = ?1 WHERE id = ?2",
+        params![sound_type, file_id],
+    )?;
+    Ok(())
+}
+
 /// A collection: samples gathered by hand. A sample can be in several.
 #[derive(Serialize)]
 pub struct Collection {
@@ -870,7 +893,7 @@ pub fn search(
                 (SELECT group_concat(cf.collection_id) FROM collection_files cf
                  WHERE cf.file_id = f.id),
                 f.bpm, f.key, f.acid_beats, f.acid_root, f.acid_loop, f.looped,
-                w.lufs, w.peak_db, f.codec
+                w.lufs, w.peak_db, f.codec, f.sound_type
          FROM files f
          LEFT JOIN waveforms w ON w.file_id = f.id AND w.measured = 1
          WHERE f.hidden = 0 AND instr(unicode_lower(f.path), unicode_lower(?1)) > 0",
@@ -937,6 +960,18 @@ pub fn search(
             Some(looped) => (looped, analysis::Source::Manual),
             None => analysis::looped(&path, acid_loop, tempo.is_some()),
         };
+        // A value no longer in the list counts as not set.
+        let chosen = row
+            .get::<_, Option<String>>(17)?
+            .filter(|chosen| chosen.is_empty() || sound_type::parse(chosen).is_some());
+        let (sound_type, type_source) = match chosen {
+            Some(chosen) if chosen.is_empty() => (None, Some(analysis::Source::Manual)),
+            Some(chosen) => (Some(chosen), Some(analysis::Source::Manual)),
+            None => match sound_type::from_path(&path) {
+                Some(found) => (Some(found), Some(analysis::Source::Name)),
+                None => (None, None),
+            },
+        };
         Ok(SampleInfo {
             duration_secs,
             sample_rate: row.get(2)?,
@@ -955,6 +990,8 @@ pub fn search(
             key,
             looped,
             loop_source: Some(loop_source),
+            sound_type,
+            type_source,
             lufs: row.get(14)?,
             peak_db: row.get(15)?,
             codec: row.get(16)?,
