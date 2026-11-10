@@ -44,7 +44,7 @@ cargo run -- list                            # shows the samples in the database
 cargo run -- tag ~/Samples/kick.wav kick 808 # adds tags to a sample
 cargo run -- untag ~/Samples/kick.wav 808    # removes some
 cargo run -- tags                            # lists the tags
-cargo run -- search kick 808 --path hard     # samples tagged kick AND 808 whose path contains "hard"
+cargo run -- search '#kick' hard bpm:120     # tagged kick, "hard" in the path or a tag, at 120 BPM
 cargo run -- watch                           # updates the database live when scanned folders change
 cargo run -- play ~/Samples/kick.wav         # plays a file
 cargo run -- wave ~/Samples/kick.wav         # draws its waveform in the terminal

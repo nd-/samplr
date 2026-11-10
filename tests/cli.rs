@@ -187,6 +187,35 @@ fn tags_are_added_searched_and_removed() {
 }
 
 #[test]
+fn search_reads_the_interface_syntax() {
+    let library = Library::new();
+    library.add("Loops/Bass 120BPM Am.wav");
+    library.add("Loops/Pad 90BPM Am.wav");
+    let kick = library.add("Drums/Kick_01.wav");
+    library.scan();
+    library.json(&["tag", text(&kick), "dry"]);
+
+    assert_eq!(names(&library.json(&["search", "#dry"])), ["Kick_01.wav"]);
+    assert_eq!(
+        names(&library.json(&["search", "loop:no"])),
+        ["Kick_01.wav"]
+    );
+    assert_eq!(
+        names(&library.json(&["search", "type:kick"])),
+        ["Kick_01.wav"]
+    );
+    assert_eq!(
+        names(&library.json(&["search", "key:am", "bpm:100-130"])),
+        ["Bass 120BPM Am.wav"]
+    );
+    // Words given as one argument or several: the same search.
+    assert_eq!(
+        names(&library.json(&["search", "loops am"])),
+        names(&library.json(&["search", "loops", "am"]))
+    );
+}
+
+#[test]
 fn favorites() {
     let library = Library::new();
     let kick = library.add("kick.wav");

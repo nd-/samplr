@@ -88,12 +88,12 @@ enum Command {
     },
     /// Computes the waveforms missing from the database, or out of date
     Waveforms,
-    /// Finds the samples carrying all the given tags
+    /// Finds samples, with the syntax of the interface's search box
     Search {
-        tags: Vec<String>,
-        /// Only keep the samples whose path contains this text
-        #[arg(long)]
-        path: Option<String>,
+        /// Each word must be in the path or a tag; '#tag' an exact tag
+        /// (quoted: the shell takes '#' for a comment); filters bpm:120,
+        /// bpm:118-124, key:Am, loop:yes, type:kick
+        words: Vec<String>,
         /// Only keep the favorites
         #[arg(long)]
         fav: bool,
@@ -109,7 +109,7 @@ fn main() {
     let json = args.json;
     let result = match args.command {
         Command::Scan { folder } => scan(&folder, json),
-        Command::List => search(&[], None, false, json),
+        Command::List => search(&[], false, json),
         Command::Folders => list_folders(json),
         Command::RemoveFolder { folder } => remove_folder(&folder, json),
         Command::Watch => watch(json),
@@ -119,7 +119,7 @@ fn main() {
         Command::Unfav { files } => set_favorite(&files, false, json),
         Command::Untag { file, tags } => untag(&file, &tags, json),
         Command::Tags => list_tags(json),
-        Command::Search { tags, path, fav } => search(&tags, path.as_deref(), fav, json),
+        Command::Search { words, fav } => search(&words, fav, json),
         Command::Wave { file, width } => wave(&file, width, json),
         Command::Waveforms => compute_waveforms(json),
     };
@@ -264,16 +264,11 @@ fn remove_folder(folder: &Path, json: bool) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Shows the samples in the database carrying all the `tags` and whose path
-/// contains `path`; with no tag and no path, every sample.
-fn search(
-    tags: &[String],
-    path: Option<&str>,
-    favorites_only: bool,
-    json: bool,
-) -> Result<(), Box<dyn Error>> {
+/// Shows the samples matching `words`, read as the interface's search box
+/// reads them (see `samplr::query`); with no word, every sample.
+fn search(words: &[String], favorites_only: bool, json: bool) -> Result<(), Box<dyn Error>> {
     let db = db::open()?;
-    let samples = db::search(&db, tags, &[], path.unwrap_or(""), favorites_only, None)?;
+    let samples = samplr::query::search(&db, &words.join(" "), favorites_only, None)?;
     if json {
         return print_json(&samples);
     }

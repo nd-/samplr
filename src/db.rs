@@ -896,22 +896,18 @@ pub fn list_tags(db: &Connection) -> Result<Vec<(String, u32)>, Box<dyn Error>> 
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-/// The samples carrying **all** the given `tags`, whose path contains `text`,
-/// and where each of the `words` is found in the path or in one of the tags
-/// (case-insensitive), sorted by path. With no tag, no word and an empty
-/// text, every sample shown. Hidden samples (see `remove_folder`) are left
+/// The samples carrying **all** the given `tags`, and where each of the
+/// `words` is found in the path or in one of the tags (case-insensitive),
+/// sorted by path. With no tag and no word, every sample shown. Hidden samples (see `remove_folder`) are left
 /// out. `favorites_only`: only the favorites. `collection`: only the samples
 /// of that collection.
 pub fn search(
     db: &Connection,
     tags: &[String],
     words: &[&str],
-    text: &str,
     favorites_only: bool,
     collection: Option<i64>,
 ) -> Result<Vec<SampleInfo>, Box<dyn Error>> {
-    // `instr` looks for the text as is: with `LIKE`, a `_` in the text
-    // (common in sample names) would act as a wildcard.
     let mut sql = String::from(
         "SELECT f.path, f.duration_secs, f.sample_rate, f.channels, f.bits,
                 (SELECT group_concat(t.name, ' ' ORDER BY t.name)
@@ -929,13 +925,7 @@ pub fn search(
     if favorites_only {
         sql.push_str(" AND f.favorite = 1");
     }
-    // Lowercased here rather than by `unicode_lower` in SQL, the same Rust
-    // `to_lowercase`: once per search instead of once per row.
     let mut values = Vec::new();
-    if !text.is_empty() {
-        values.push(text.to_lowercase());
-        sql.push_str(" AND instr(unicode_lower(f.path), ?1) > 0");
-    }
     if let Some(collection) = collection {
         // Bound as text like the other values: compared with an INTEGER
         // column, SQLite turns it back into a number.
@@ -956,7 +946,10 @@ pub fn search(
             values.len()
         ));
     }
-    // Tags are stored lowercase: only the path needs `unicode_lower`.
+    // `instr` looks for the word as is: with `LIKE`, a `_` (common in sample
+    // names) would act as a wildcard. Tags are stored lowercase: only the
+    // path needs `unicode_lower`; the word is lowercased here, by the same
+    // Rust `to_lowercase`, once per search rather than once per row.
     for word in words {
         values.push(word.to_lowercase());
         let n = values.len();
@@ -1121,7 +1114,7 @@ mod tests {
 
     /// The paths a search finds, by words typed in the search box.
     fn found(db: &Connection, words: &[&str]) -> Vec<String> {
-        search(db, &[], words, "", false, None)
+        search(db, &[], words, false, None)
             .unwrap()
             .into_iter()
             .map(|sample| sample.path.display().to_string())
@@ -1303,7 +1296,7 @@ mod tests {
         tag(&db, both, &["drums", "dry"]);
         tag(&db, one, &["drums"]);
         let tags = ["Drums".to_string(), "dry".to_string()];
-        let samples = search(&db, &tags, &[], "", false, None).unwrap();
+        let samples = search(&db, &tags, &[], false, None).unwrap();
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].path, Path::new("/lib/a.wav"));
         assert_eq!(samples[0].tags, ["drums", "dry"]);
@@ -1318,10 +1311,10 @@ mod tests {
         let collection = create_collection(&db, "Set").unwrap();
         add_to_collection(&db, collection, &[b]).unwrap();
 
-        let favorites = search(&db, &[], &[], "", true, None).unwrap();
+        let favorites = search(&db, &[], &[], true, None).unwrap();
         assert_eq!(favorites.len(), 1);
         assert!(favorites[0].favorite);
-        let held = search(&db, &[], &[], "", false, Some(collection)).unwrap();
+        let held = search(&db, &[], &[], false, Some(collection)).unwrap();
         assert_eq!(held.len(), 1);
         assert_eq!(held[0].path, Path::new("/lib/b.wav"));
         assert_eq!(held[0].collections, [collection]);

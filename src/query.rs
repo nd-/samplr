@@ -105,7 +105,7 @@ pub fn search(
 ) -> Result<Vec<SampleInfo>, Box<dyn Error>> {
     let query = parse(text);
     let words: Vec<&str> = query.words.iter().map(String::as_str).collect();
-    let mut samples = db::search(db, &query.tags, &words, "", favorites_only, collection)?;
+    let mut samples = db::search(db, &query.tags, &words, favorites_only, collection)?;
     samples.retain(|sample| query.keeps(sample));
     Ok(samples)
 }

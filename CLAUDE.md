@@ -107,10 +107,12 @@ background waveforms); its page in `ui/` (`index.html`, `main.js`, `style.css`, 
   samples removed, new ones added), then follows the scanned folders live until Ctrl+C. A
   rename or a move, of a file or a folder, keeps the `id` hence the tags. A scanned folder
   inside another one is watched only once.
-- `samplr search [tag]... [--path <text>]`: samples carrying **all** the given tags, whose path
-  contains the text (case-insensitive, accents included, `_` taken literally). SQLite's `lower`
-  only knows ASCII: the search compares through `unicode_lower`, Rust's `to_lowercase`
-  registered in `db::open` (rusqlite feature `functions`).
+- `samplr search [word]... [--fav]`: the interface's search box (`samplr::query`, `src/query.rs`,
+  shared by both): each word must be in the path or in one of the tags (case-insensitive, accents
+  included, `_` taken literally), `#tag` an exact tag (quoted in a shell, where `#` starts a
+  comment), and the filters `bpm:`, `key:`, `loop:`, `type:`. SQLite's `lower` only knows ASCII:
+  the search compares through `unicode_lower`, Rust's `to_lowercase` registered in `db::open`
+  (rusqlite feature `functions`).
 - `--json` (any command, before or after it, `global` in clap): the result as one JSON document
   on stdout, for scripts. `list` and `search`: the samples as the interface gets them
   (`SampleInfo`: tempo and its origin, key, loop, type, LUFS…); `tags`, `folders`: arrays of
