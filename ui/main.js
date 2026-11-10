@@ -2072,8 +2072,8 @@ function dot(hex) {
   return span;
 }
 
-// The tempo of a row: as written in the name, or "≈ 100" when estimated from
-// the sample's length.
+// The tempo of a row: as written in the name or in the file's ACID chunk,
+// or "≈ 100" when estimated from the sample's length.
 function bpmCell(sample) {
   if (sample.bpm === null) return cell("", "number bpm");
   if (sample.bpm_source === "length") {
@@ -2081,7 +2081,9 @@ function bpmCell(sample) {
     td.title = "Estimated from the length (a whole number of bars)";
     return td;
   }
-  return cell(String(sample.bpm), "number bpm");
+  const td = cell(String(sample.bpm), "number bpm");
+  if (sample.bpm_source === "file") td.title = "From the file (its ACID chunk: beats and length)";
+  return td;
 }
 
 // Tempo and key by hand: a double-click on the cell edits it, for the whole

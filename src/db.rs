@@ -12,7 +12,7 @@ use rusqlite::{Connection, OptionalExtension, named_params, params, params_from_
 use serde::Serialize;
 
 use crate::waveform::{self, Peak};
-use crate::{SampleInfo, analysis};
+use crate::{SampleInfo, acid, analysis};
 
 /// Location of the database file: the system's data folder
 /// (`~/.local/share/samplr` on Linux, `~/Library/Application Support/samplr`
@@ -86,7 +86,7 @@ pub fn open() -> Result<Connection, Box<dyn Error>> {
 }
 
 /// The schema version `migrate` brings a database to: the last step's.
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 /// Brings a database created by an older samplr up to date. Its version is
 /// kept by SQLite (`user_version`, 0 for a new database); each step runs once.
@@ -162,6 +162,18 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
             "ALTER TABLE files ADD COLUMN bpm INTEGER;
              ALTER TABLE files ADD COLUMN key TEXT;
              PRAGMA user_version = 5;",
+        )?;
+    }
+    if version < 6 {
+        // The file's ACID chunk (see `acid`), read when the file is indexed:
+        // its length in beats, its root note, loop (1) or one-shot (0). NULL
+        // when the file has none. Filled for existing samples by the next
+        // catch-up, which reads every file again.
+        db.execute_batch(
+            "ALTER TABLE files ADD COLUMN acid_beats INTEGER;
+             ALTER TABLE files ADD COLUMN acid_root TEXT;
+             ALTER TABLE files ADD COLUMN acid_loop INTEGER;
+             PRAGMA user_version = 6;",
         )?;
     }
     db.execute_batch("COMMIT")?;
@@ -324,13 +336,17 @@ pub fn save(db: &Connection, info: &SampleInfo) -> Result<i64, Box<dyn Error>> {
     // that `id` in both cases, insert or update. A sample hidden with its
     // folder shows again when found again.
     let id = db.query_row(
-        "INSERT INTO files (path, duration_secs, sample_rate, channels, bits)
-         VALUES (?1, ?2, ?3, ?4, ?5)
+        "INSERT INTO files (path, duration_secs, sample_rate, channels, bits,
+                            acid_beats, acid_root, acid_loop)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
          ON CONFLICT (path) DO UPDATE SET
              duration_secs = excluded.duration_secs,
              sample_rate   = excluded.sample_rate,
              channels      = excluded.channels,
              bits          = excluded.bits,
+             acid_beats    = excluded.acid_beats,
+             acid_root     = excluded.acid_root,
+             acid_loop     = excluded.acid_loop,
              hidden        = 0
          RETURNING id",
         params![
@@ -338,7 +354,10 @@ pub fn save(db: &Connection, info: &SampleInfo) -> Result<i64, Box<dyn Error>> {
             info.duration_secs,
             info.sample_rate,
             info.channels,
-            info.bits
+            info.bits,
+            info.acid.as_ref().map(|a| a.beats),
+            info.acid.as_ref().and_then(|a| a.root.clone()),
+            info.acid.as_ref().map(|a| a.looped),
         ],
         |row| row.get(0),
     )?;
@@ -806,7 +825,7 @@ pub fn search(
                 f.favorite,
                 (SELECT group_concat(cf.collection_id) FROM collection_files cf
                  WHERE cf.file_id = f.id),
-                f.bpm, f.key
+                f.bpm, f.key, f.acid_beats, f.acid_root, f.acid_loop
          FROM files f
          WHERE f.hidden = 0 AND instr(unicode_lower(f.path), unicode_lower(?1)) > 0",
     );
@@ -851,18 +870,22 @@ pub fn search(
         let path = PathBuf::from(row.get::<_, String>(0)?);
         let tags: Option<String> = row.get(5)?;
         let duration_secs: Option<f64> = row.get(1)?;
-        // Worked out from the name and the length at each search, rather
-        // than stored: a renamed file needs nothing more.
+        // Worked out from the name, the ACID chunk and the length at each
+        // search, rather than stored: a renamed file needs nothing more.
+        // What was set by hand comes first, then the name, then the chunk.
         let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let acid_beats: Option<u32> = row.get(10)?;
+        let acid_root: Option<String> = row.get(11)?;
+        let acid_loop: Option<bool> = row.get(12)?;
         let tempo = match row.get::<_, Option<u32>>(8)? {
             Some(0) => None,
             Some(bpm) => Some((bpm, analysis::Source::Manual)),
-            None => analysis::tempo(stem, duration_secs),
+            None => analysis::tempo(stem, duration_secs, acid_beats),
         };
         let key = match row.get::<_, Option<String>>(9)? {
             Some(key) if key.is_empty() => None,
             Some(key) => Some(key),
-            None => analysis::key_from_name(stem),
+            None => analysis::key_from_name(stem).or(acid_root.clone()),
         };
         Ok(SampleInfo {
             duration_secs,
@@ -880,6 +903,11 @@ pub fn search(
             bpm: tempo.map(|(bpm, _)| bpm),
             bpm_source: tempo.map(|(_, source)| source),
             key,
+            acid: acid_loop.map(|looped| acid::Acid {
+                beats: acid_beats.unwrap_or(0),
+                root: acid_root,
+                looped,
+            }),
             path,
         })
     })?;

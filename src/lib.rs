@@ -1,6 +1,7 @@
 // samplr's shared code: what the command line and the graphical interface
 // both need (database, waveforms, reading audio files).
 
+pub mod acid;
 pub mod analysis;
 pub mod convert;
 pub mod db;
@@ -48,6 +49,10 @@ pub struct SampleInfo {
     pub bpm_source: Option<analysis::Source>,
     /// Key from the file name, in sharps ("A#m"); `None` when unknown.
     pub key: Option<String>,
+    /// The file's ACID chunk, read with the file (`read_info`) and kept in
+    /// the database; not sent to the page.
+    #[serde(skip)]
+    pub acid: Option<acid::Acid>,
 }
 
 /// Moves or renames a sample's file to `new` and its database row with it,
@@ -341,6 +346,7 @@ pub fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
         bpm: None,
         bpm_source: None,
         key: None,
+        acid: acid::read(path),
     })
 }
 

@@ -102,14 +102,15 @@ mixing macOS and Linux binaries in `target/`. Do not put this setting in the pro
 
 Database: `samplr.db` in the system data folder (`~/.local/share/samplr` on Linux,
 `~/Library/Application Support/samplr` on Mac). The `SAMPLR_DB` variable points to another
-database, for experiments. Tables `files` (with `hidden`, see `remove-folder`, and `favorite`),
+database, for experiments. Tables `files` (with `hidden`, see `remove-folder`, `favorite`, `bpm`
+and `key` set by hand, `acid_beats`, `acid_root` and `acid_loop` from the file's ACID chunk),
 `tags`, `file_tags`, `folders` (the folders given to `scan`, followed by `watch`), `waveforms`,
 `collections` and `collection_files` (samples gathered by hand; a sample forgotten by the database
 leaves its collections, a hidden one stays in them and comes back with its folder), `colors` (the
 palette: name, `#rrggbb`, position; filled with 10 colours by the migration to version 4). `tags`
 and `collections` have a `color_id` (`ON DELETE SET NULL`: deleting a colour leaves them without
 colour). A tag deleted because no sample carries it any more loses its colour. Schema changes go
-through `db::migrate`: SQLite keeps the schema version (`PRAGMA user_version`, 5 so far), each
+through `db::migrate`: SQLite keeps the schema version (`PRAGMA user_version`, 6 so far), each
 step runs once, under `BEGIN IMMEDIATE` so that the app and a command opening the database
 together do not both run it. A new database goes through every step too (the `CREATE TABLE`s are
 version 0): add a column with a migration step, not in the `CREATE TABLE`, and raise
@@ -505,12 +506,21 @@ Audio pitfalls met so far:
   (moving the input would take the focus from it).
 - Tempo and key (`src/analysis.rs`, unit-tested: `cargo test -p samplr --lib analysis`): from the
   file name, in the two conventions of sample packs ("Djembe 100BPM D#m", "YCE_120_Gm_Horns": a
-  bare number right before a key), else the tempo from the length when a loop's length gives a
-  whole tempo (60 × beats ÷ seconds for 4 to 128 beats, between 70 and 180, nearest 120). A lone
-  letter is a key only next to a tempo ("Kick_A" is not in A) or with a quality ("Cmaj", "F#m");
-  the note's letter must be upper case. Keys in sharps ("A#m" for "Bbm"). Worked out at each
-  search (`db::search` fills `SampleInfo::bpm`, `bpm_source` "name", "length" or "manual", `key`),
-  not stored: a renamed file needs nothing. Set by hand: a double-click on a BPM or Key cell edits
+  bare number right before a key), else from the file's ACID chunk (`src/acid.rs`, unit-tested:
+  its length in beats × 60 ÷ the length, shown without "≈", tooltip "From the file"; its root note
+  for the key, a note without major or minor), else the tempo from the length when a loop's length
+  gives a whole tempo (60 × beats ÷ seconds for 4 to 128 beats, between 70 and 180, nearest 120).
+  A lone letter is a key only next to a tempo ("Kick_A" is not in A) or with a quality ("Cmaj",
+  "F#m"); the note's letter must be upper case. Keys in sharps ("A#m" for "Bbm"). Worked out at
+  each search (`db::search` fills `SampleInfo::bpm`, `bpm_source` "name", "file", "length" or
+  "manual", `key`), not stored: a renamed file needs nothing; the ACID chunk is read with the file
+  (`read_info`, chunk headers only, never the sound) and kept in `files`. The chunk's own tempo
+  field is not used: 120 in 461 of the 466 files of the Linux library having one, whatever the
+  sample, while beats ÷ length gave the tempo of the name 348 times out of 348, and the root note
+  the key of the name 348 times out of 348; on that library it gives an exact tempo to 118 samples
+  more (113 of them were estimates from the length). Splice's samples carry no such chunk: their
+  tempo, key and tags stay in the Splice app. symphonia's tags were measured too: only 18 files
+  (music MP3 and FLAC, no WAV) have any. Set by hand: a double-click on a BPM or Key cell edits
   it, for the whole selection when the row is in it (Enter or leaving the box saves, Esc cancels;
   a value refused after Enter keeps the box open, outlined in `--error` red, the reason in its
   tooltip and the status line; refused on leaving the box, the old value comes back; empty goes

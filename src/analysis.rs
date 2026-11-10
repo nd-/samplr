@@ -19,6 +19,8 @@ pub enum Source {
     Length,
     /// Set by hand in the interface.
     Manual,
+    /// From the file's ACID chunk: its length in beats (see `acid`).
+    File,
 }
 
 /// The tempos a name may give: sample packs stay within this range.
@@ -136,9 +138,16 @@ pub fn tempo_from_length(seconds: f64) -> Option<u32> {
 }
 
 /// The tempo of a sample and where it comes from: its name, else its length.
-pub fn tempo(stem: &str, seconds: Option<f64>) -> Option<(u32, Source)> {
+pub fn tempo(stem: &str, seconds: Option<f64>, acid_beats: Option<u32>) -> Option<(u32, Source)> {
     if let Some(tempo) = tempo_from_name(stem) {
         return Some((tempo, Source::Name));
+    }
+    // The ACID chunk's beats give the exact tempo; the length alone only a
+    // guess.
+    if let (Some(beats), Some(seconds)) = (acid_beats, seconds)
+        && let Some(tempo) = crate::acid::tempo(beats, seconds)
+    {
+        return Some((tempo, Source::File));
     }
     seconds
         .and_then(tempo_from_length)
@@ -224,9 +233,27 @@ mod tests {
 
     #[test]
     fn name_before_length() {
-        assert_eq!(tempo("Loop 90bpm", Some(4.0)), Some((90, Source::Name)));
-        assert_eq!(tempo("Loop", Some(4.0)), Some((120, Source::Length)));
-        assert_eq!(tempo("Kick", Some(0.3)), None);
+        assert_eq!(
+            tempo("Loop 90bpm", Some(4.0), None),
+            Some((90, Source::Name))
+        );
+        assert_eq!(tempo("Loop", Some(4.0), None), Some((120, Source::Length)));
+        assert_eq!(tempo("Kick", Some(0.3), None), None);
+    }
+
+    #[test]
+    fn name_then_acid_then_length() {
+        // The name wins, then the ACID beats (8 beats in 5 s: 96), then the
+        // length (which would guess 96 too here, but as an estimate).
+        assert_eq!(
+            tempo("Loop 90bpm", Some(5.0), Some(8)),
+            Some((90, Source::Name))
+        );
+        assert_eq!(tempo("Loop", Some(5.0), Some(8)), Some((96, Source::File)));
+        assert_eq!(
+            tempo("Loop", Some(5.0), Some(0)),
+            Some((96, Source::Length))
+        );
     }
 
     #[test]
