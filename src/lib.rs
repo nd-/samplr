@@ -118,6 +118,36 @@ pub fn is_mac_metadata(path: &Path) -> bool {
         .is_some_and(|name| name.starts_with("._"))
 }
 
+/// True for a hidden file or folder (name starting with a dot).
+fn is_hidden(name: &std::ffi::OsStr) -> bool {
+    name.to_string_lossy().starts_with('.')
+}
+
+/// True when `path` is hidden, or inside a hidden folder, below one of the
+/// scanned `roots`. Such files are never samples of the library: the trash of
+/// a disk scanned at its root (`.Trash-1000` on Linux, `.Trashes` on Mac,
+/// where a sample moved to the trash would otherwise come back), the system
+/// folders of external disks (`.Spotlight-V100`, `.fseventsd`), a conversion
+/// being written (`.kick.wav.part`). A scanned folder may itself be hidden:
+/// only what lies below it counts.
+pub fn is_hidden_below(path: &Path, roots: &[PathBuf]) -> bool {
+    roots
+        .iter()
+        .filter_map(|root| path.strip_prefix(root).ok())
+        .any(|below| below.components().any(|part| is_hidden(part.as_os_str())))
+}
+
+/// The entries of a walk of `folder` that `index` looks at: hidden files and
+/// folders below it are skipped (see `is_hidden_below`).
+fn walk(folder: &Path) -> impl Iterator<Item = walkdir::DirEntry> {
+    WalkDir::new(folder)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_entry(|entry| entry.depth() == 0 || !is_hidden(entry.file_name()))
+        // An unreadable folder (missing permissions…) must not stop everything.
+        .filter_map(|entry| entry.ok())
+}
+
 /// True if the file has a known audio extension (case-insensitive).
 pub fn is_audio(path: &Path) -> bool {
     if is_mac_metadata(path) {
@@ -182,9 +212,7 @@ pub fn remove_folder(db: &mut Connection, folder: &Path) -> Result<usize, Box<dy
 /// The number of audio files in `folder` and its subfolders, without reading
 /// them: fast, used to show a scan's progress.
 pub fn count_audio_files(folder: &Path) -> usize {
-    WalkDir::new(folder)
-        .into_iter()
-        .filter_map(|entry| entry.ok())
+    walk(folder)
         .filter(|entry| entry.file_type().is_file() && is_audio(entry.path()))
         .count()
 }
@@ -209,9 +237,7 @@ pub fn index(
     // than once per sample.
     let mut batch = Vec::with_capacity(SAVE_BATCH);
 
-    for entry in WalkDir::new(folder).sort_by_file_name() {
-        // An unreadable folder (missing permissions…) must not stop everything.
-        let Ok(entry) = entry else { continue };
+    for entry in walk(folder) {
         let path = entry.path();
 
         if !entry.file_type().is_file() || !is_audio(path) {

@@ -60,7 +60,15 @@ mixing macOS and Linux binaries in `target/`. Do not put this setting in the pro
 - `samplr scan <folder>`: lists the audio files (wav, aif, aiff, flac, mp3, ogg, m4a) with
   length, sample rate, bits and channels, and saves them to the database (absolute path; a new
   scan updates without duplicates and keeps the `id`, hence the tags). Unreadable files are
-  counted, without crashing. AppleDouble `._*` files left by macOS are ignored.
+  counted, without crashing. AppleDouble `._*` files left by macOS are ignored, and so is
+  anything hidden below a scanned folder (`is_hidden_below`: a name starting with a dot, file or
+  folder), by the scan, the startup catch-up and the live following alike: the trash of a disk
+  scanned at its root (`.Trash-1000` on Linux, `.Trashes` on Mac) would otherwise bring back
+  every sample moved to the trash, and the disk's system folders (`.Spotlight-V100`,
+  `.fseventsd`) are not samples. A file moved into a hidden folder is forgotten like a deleted
+  one, what an older samplr imported from there is forgotten at the next catch-up, and "Move
+  file(s) to folder…" refuses a hidden folder. A scanned folder may itself be hidden: only what
+  lies below it counts.
 - `samplr list`: shows the samples in the database, with their tags between brackets. Output
   goes through `writeln!` rather than `println!`: `samplr list | head` stops without error when
   `head` closes the pipe ("broken pipe"), and `scan` runs to the end even if its output is cut

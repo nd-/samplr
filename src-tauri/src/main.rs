@@ -314,6 +314,12 @@ fn move_samples(paths: Vec<PathBuf>, folder: PathBuf) -> Result<Vec<PathBuf>, St
             folder.display()
         ));
     }
+    if samplr::is_hidden_below(&folder, &scanned) {
+        return Err(format!(
+            "{} is a hidden folder, whose files are not part of the library",
+            folder.display()
+        ));
+    }
     let mut moved = Vec::new();
     for path in &paths {
         file_id(&db, path)?;

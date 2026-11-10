@@ -14,7 +14,7 @@ use notify_debouncer_full::{
 };
 use rusqlite::Connection;
 
-use crate::{db, index, is_audio, read_info};
+use crate::{db, index, is_audio, is_hidden_below, read_info};
 
 pub use notify_debouncer_full::notify::RecursiveMode;
 
@@ -56,9 +56,12 @@ pub fn catch_up(
     // Which files vanished is found outside any transaction (one disk access
     // per sample); forgetting them is then quick. The folder is read again by
     // `index`, which saves in short transactions of its own.
+    // A file in a hidden folder counts as vanished: an older samplr may
+    // have imported a disk's trash (see `is_hidden_below`).
+    let roots = [root.to_path_buf()];
     let vanished: Vec<PathBuf> = db::files_under(db, root)?
         .into_iter()
-        .filter(|path| !path.exists())
+        .filter(|path| !path.exists() || is_hidden_below(path, &roots))
         .collect();
     let transaction = db.transaction()?;
     let mut removed = 0;
@@ -88,6 +91,11 @@ pub fn handle_event(
         // keep the tags.
         EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
             let (old, new) = (&event.paths[0], &event.paths[1]);
+            // Moved into a hidden folder (a disk's trash): gone from the
+            // library, as if deleted.
+            if is_hidden_below(new, roots) {
+                return sync(db, roots, old, false, report);
+            }
             let renamed = db::rename(db, old, new)?;
             if renamed > 0 {
                 report(format!("→ {} → {}", old.display(), new.display()));
@@ -127,6 +135,15 @@ fn sync(
     appeared: bool,
     report: &mut dyn FnMut(String),
 ) -> Result<(), Box<dyn Error>> {
+    // Hidden below a scanned folder (see `is_hidden_below`): never a sample.
+    // Anything recorded there by an older samplr is forgotten.
+    if is_hidden_below(path, roots) {
+        let forgotten = db::forget(db, path)?;
+        if forgotten > 0 {
+            report(format!("- {} ({forgotten} sample(s))", path.display()));
+        }
+        return Ok(());
+    }
     if !path.exists() {
         // Unplugged disk: everything disappears at once, but the samples
         // still exist. Forgetting them would lose their tags.
