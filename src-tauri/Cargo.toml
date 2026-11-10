@@ -29,3 +29,4 @@ tauri-plugin-dialog = "2"
 # The window's size, position and maximised state, saved on closing and
 # brought back at the next launch
 tauri-plugin-window-state = "2"
+ssstretch = "0.1.0"

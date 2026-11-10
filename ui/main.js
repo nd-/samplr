@@ -810,15 +810,16 @@ function renderPlayer(sample) {
   nowName.textContent = splitPath(sample.path).name;
   nowName.title = sample.path;
   const details = [];
-  // Pitched: the tempo and key heard, the file's own between brackets.
-  const shifted = semitones() !== 0;
+  // Pitched or played at another tempo: the tempo and key heard, the
+  // file's own between brackets.
+  const shape = shapeFor(sample);
   if (sample.bpm !== null) {
     const estimated = sample.bpm_source === "length" ? "≈ " : "";
-    const heard = shifted ? `${Math.round(sample.bpm * playSpeed() * 10) / 10} BPM (${sample.bpm})` : `${sample.bpm} BPM`;
-    details.push(estimated + heard);
+    const bpm = Math.round(sample.bpm * shape.speed * shape.tempo * 10) / 10;
+    details.push(estimated + (bpm === sample.bpm ? `${bpm} BPM` : `${bpm} BPM (${sample.bpm})`));
   }
   if (sample.key) {
-    const heard = transpose(sample.key, Math.round(semitones()));
+    const heard = transpose(sample.key, Math.round(heardSemitones(sample)));
     details.push(heard === sample.key ? heard : `${heard} (${sample.key})`);
   }
   if (sample.loop_source) details.push(sample.looped ? "Loop" : "One-shot");
@@ -1029,15 +1030,16 @@ let playingPath = null;
 // The sound playing is paused (Space): it resumes where it was.
 let paused = false;
 
-// Space: a loop pauses and resumes; a one-shot plays again from the start,
-// as a pad would; nothing playing, the selected sample plays.
+// Space: a loop, or any sample played with Loop on, pauses and resumes; a
+// one-shot played once plays again from the start, as a pad would; nothing
+// playing, the selected sample plays.
 function playOrPause() {
   const sample = samples[selected];
   if (playingPath === null || (sample && sample.path !== playingPath)) {
     play();
     return;
   }
-  if (sample && !sample.looped && !paused) {
+  if (sample && !sample.looped && !loopBox.checked && !paused) {
     play();
     return;
   }
@@ -1069,12 +1071,15 @@ function play(start = 0) {
   if (!sample) return;
   playId += 1;
   playingPath = sample.path;
+  playingSample = sample;
+  previousSpeed = playSpeed();
   paused = false;
   updatePlayButton();
   startPlayhead(sample.duration_secs, start);
   status.textContent = `▶ ${splitPath(sample.path).name}`;
   stopButton.disabled = false;
-  invoke("play", { path: sample.path, id: playId, looping: loopBox.checked, start }).catch((error) => {
+  const shape = shapeFor(sample);
+  invoke("play", { path: sample.path, id: playId, looping: loopBox.checked, start, ...shape }).catch((error) => {
     stopPlayhead();
     showError(error);
   });
@@ -1208,27 +1213,57 @@ try {
 volumeSlider.addEventListener("input", applyVolume);
 applyVolume();
 
-// The preview's pitch, as a tape: semitones and cents give a speed, the
-// tempo following. Not remembered: a library heard out of tune at the next
-// launch would mislead.
+// How the preview is played: Pitch and Fine transpose, BPM is the tempo the
+// samples whose tempo is known are played at. Tape changes pitch and tempo
+// together, as a varispeed (lighter, and sometimes the sound wanted);
+// otherwise one changes without the other (Signalsmith Stretch, see
+// `stretch.rs`). Only Tape is remembered: a library heard out of tune or out
+// of tempo at the next launch would mislead.
 const pitchSlider = document.getElementById("pitch");
 const fineSlider = document.getElementById("fine");
 const pitchValue = document.getElementById("pitch-value");
 const fineValue = document.getElementById("fine-value");
+const targetBox = document.getElementById("target-bpm");
+const tapeBox = document.getElementById("tape");
+// The sample whose sound is playing, for the playhead's speed.
+let playingSample = null;
 
 function semitones() {
   return Number(pitchSlider.value) + Number(fineSlider.value) / 100;
 }
 
+// The tempo factor that brings `sample` to the BPM asked; 1 without one.
+function tempoRatio(sample) {
+  const target = Number(targetBox.value);
+  if (!(target > 0) || !sample?.bpm) return 1;
+  return Math.min(4, Math.max(0.25, target / sample.bpm));
+}
+
+// What the audio thread is sent: `speed` changes both, as a tape; `tempo`
+// and `semitones` one without the other.
+function shapeFor(sample) {
+  const ratio = tempoRatio(sample);
+  if (tapeBox.checked) return { speed: ratio * 2 ** (semitones() / 12), tempo: 1, semitones: 0 };
+  return { speed: 1, tempo: ratio, semitones: semitones() };
+}
+
+// How much faster than the file the sound goes: the playhead's speed.
 function playSpeed() {
-  return 2 ** (semitones() / 12);
+  const shape = shapeFor(playingSample ?? samples[selected]);
+  return shape.speed * shape.tempo;
+}
+
+// The semitones heard: with Tape, the tempo's change moves the pitch too.
+function heardSemitones(sample) {
+  const shape = shapeFor(sample);
+  return shape.semitones + 12 * Math.log2(shape.speed);
 }
 
 function signed(value) {
   return value > 0 ? `+${value}` : String(value);
 }
 
-function applyPitch() {
+function applyPlayback() {
   // The playhead goes on from where it is at the old speed.
   if (lastPosition !== null && !paused) {
     const now = performance.now();
@@ -1242,19 +1277,40 @@ function applyPitch() {
   fineValue.textContent = `${signed(Number(fineSlider.value))} ct`;
   pitchValue.classList.toggle("shifted", pitchSlider.value !== "0");
   fineValue.classList.toggle("shifted", fineSlider.value !== "0");
-  invoke("set_speed", { speed: playSpeed() });
+  targetBox.classList.toggle("shifted", targetBox.value !== "");
+  invoke("set_playback", shapeFor(playingSample ?? samples[selected])).catch(showError);
   renderPlayer(samples[selected]);
 }
 
 let previousSpeed = 1;
 for (const slider of [pitchSlider, fineSlider]) {
-  slider.addEventListener("input", applyPitch);
+  slider.addEventListener("input", applyPlayback);
   slider.addEventListener("dblclick", () => {
     slider.value = 0;
-    applyPitch();
+    applyPlayback();
   });
 }
-applyPitch();
+targetBox.addEventListener("input", applyPlayback);
+targetBox.addEventListener("keydown", (event) => {
+  // The list's keys (arrows, Space, L) must not react while typing a tempo.
+  event.stopPropagation();
+  if (event.key === "Enter" || event.key === "Escape") targetBox.blur();
+});
+try {
+  tapeBox.checked = localStorage.getItem("tape") === "true";
+} catch {
+  // Storage unavailable: pitch and tempo independent.
+}
+tapeBox.addEventListener("change", () => {
+  try {
+    localStorage.setItem("tape", String(tapeBox.checked));
+  } catch {
+    // Storage unavailable: the choice is simply not remembered.
+  }
+  applyPlayback();
+  tapeBox.blur();
+});
+applyPlayback();
 
 // Autoplay off: a click on a row selects it without playing it, to tag it or
 // drag it in silence. The arrow keys, Enter and Play still play.
@@ -3071,7 +3127,7 @@ try {
 const shortcutList = [
   ["↑ ↓", "Browse the list and play"],
   ["Enter", "Play the selected sample again"],
-  ["Space", "Pause or resume a loop; play a one-shot again"],
+  ["Space", "Pause or resume a loop, or a sample played with Loop on; play a one-shot again"],
   ["L", "Play in a loop, or no longer (the Play loop box)"],
   ["Esc", "Stop"],
   ["Ctrl+click", "Add a sample to the selection, or take it out"],

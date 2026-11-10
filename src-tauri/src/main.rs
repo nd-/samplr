@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod library;
+mod stretch;
 
 use std::fs::File;
 use std::io::BufReader;
@@ -33,14 +34,36 @@ enum AudioRequest {
         id: u32,
         /// Where to start, in seconds from the beginning.
         start: f64,
+        /// Sent with the sound, so that it starts already shaped.
+        shape: Playback,
     },
     Stop,
     /// Pauses (`true`) or resumes the sound playing, where it was.
     Pause(bool),
     /// 0.0 is silence, 1.0 the file's own level.
     Volume(rodio::Float),
-    /// Playback speed, as a tape: 2.0 an octave up and twice as fast.
-    Speed(f32),
+    Shape(Playback),
+}
+
+/// How the preview is played: `speed` as a tape (2.0 an octave up and twice
+/// as fast), then a tempo factor and a transposition in semitones changed
+/// one without the other (see `stretch`).
+#[derive(Clone, Copy)]
+struct Playback {
+    speed: f32,
+    tempo: f32,
+    semitones: f32,
+}
+
+impl Playback {
+    /// Within what the page offers, whatever it sends.
+    fn new(speed: f32, tempo: f32, semitones: f32) -> Self {
+        Playback {
+            speed: speed.clamp(0.25, 4.0),
+            tempo: tempo.clamp(0.25, 4.0),
+            semitones: semitones.clamp(-24.0, 24.0),
+        }
+    }
 }
 
 /// Shared by every command through `State`: the way to talk to the audio thread.
@@ -769,11 +792,15 @@ fn file_id(db: &rusqlite::Connection, path: &Path) -> Result<i64, String> {
 /// receives a `playback-ended` event carrying `id`; a loop never ends by
 /// itself.
 #[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
 fn play(
     path: PathBuf,
     id: u32,
     looping: bool,
     start: f64,
+    speed: f32,
+    tempo: f32,
+    semitones: f32,
     audio: State<Audio>,
 ) -> Result<(), String> {
     // The file is opened here rather than in the audio thread, so that an
@@ -794,7 +821,16 @@ fn play(
     } else {
         Box::new(Decoder::try_from(file).map_err(|e| error(&e))?)
     };
-    send(&audio, AudioRequest::Play { sound, id, start })
+    let shape = Playback::new(speed, tempo, semitones);
+    send(
+        &audio,
+        AudioRequest::Play {
+            sound,
+            id,
+            start,
+            shape,
+        },
+    )
 }
 
 #[tauri::command]
@@ -814,11 +850,15 @@ fn set_volume(volume: rodio::Float, audio: State<Audio>) -> Result<(), String> {
     send(&audio, AudioRequest::Volume(volume.clamp(0.0, 1.0)))
 }
 
-/// Sets the preview speed, for the sound playing and the next ones: the
-/// pitch and the tempo change together, as on a tape.
+/// Sets how the preview is played, for the sound playing and the next ones:
+/// `speed` changes pitch and tempo together, as a tape; `tempo` (a factor)
+/// and `semitones` change one without the other.
 #[tauri::command]
-fn set_speed(speed: f32, audio: State<Audio>) -> Result<(), String> {
-    send(&audio, AudioRequest::Speed(speed.clamp(0.25, 4.0)))
+fn set_playback(speed: f32, tempo: f32, semitones: f32, audio: State<Audio>) -> Result<(), String> {
+    send(
+        &audio,
+        AudioRequest::Shape(Playback::new(speed, tempo, semitones)),
+    )
 }
 
 fn send(audio: &Audio, request: AudioRequest) -> Result<(), String> {
@@ -852,6 +892,7 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
     let mut playing_id: Option<u32> = None;
     let mut volume = 1.0;
     let mut speed = 1.0;
+    let shape = stretch::Shape::new();
     // Where the sound playing is in its file. `Player::get_pos` counts the
     // time played, which no longer matches the file once the speed changes
     // during the sound: the position is tracked under the speed instead.
@@ -860,7 +901,14 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
         // Waits for a request, but no more than 100 ms, to report the
         // position of the sound playing and notice its end.
         match requests.recv_timeout(Duration::from_millis(100)) {
-            Ok(AudioRequest::Play { sound, id, start }) => {
+            Ok(AudioRequest::Play {
+                sound,
+                id,
+                start,
+                shape: playback,
+            }) => {
+                speed = playback.speed;
+                shape.set(playback.tempo, playback.semitones);
                 let player = rodio::Player::connect_new(sink.mixer());
                 player.set_volume(volume);
                 player.set_speed(speed);
@@ -871,7 +919,10 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
                     .periodic_access(Duration::from_millis(20), move |source| {
                         *shared.lock().unwrap() = source.get_pos()
                     });
-                player.append(tracked);
+                player.append(stretch::Stretched::new(
+                    Box::new(tracked),
+                    Arc::clone(&shape),
+                ));
                 if start > 0.0 {
                     // The player's seek is in time played: at twice the
                     // speed, a second played is two of the file. A format
@@ -900,8 +951,9 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
                     player.set_volume(volume);
                 }
             }
-            Ok(AudioRequest::Speed(new_speed)) => {
-                speed = new_speed;
+            Ok(AudioRequest::Shape(playback)) => {
+                speed = playback.speed;
+                shape.set(playback.tempo, playback.semitones);
                 if let Some(player) = &current {
                     player.set_speed(speed);
                 }
@@ -997,7 +1049,7 @@ fn main() {
             stop,
             pause,
             set_volume,
-            set_speed,
+            set_playback,
             add_folder,
             folders,
             remove_folder

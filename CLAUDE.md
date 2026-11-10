@@ -42,7 +42,11 @@ musicians, alongside a DAW).
 - rusqlite's `functions` feature: `unicode_lower`, the search's case folding (see `samplr search`).
 - Interface (`src-tauri/Cargo.toml`): `tauri` 2, `tauri-plugin-drag` (native drag into a DAW,
   patched in `vendor/drag`), `tauri-plugin-dialog` (folder chooser, questions),
-  `tauri-plugin-window-state` (window size and position kept between launches).
+  `tauri-plugin-window-state` (window size and position kept between launches), `ssstretch`
+  (Signalsmith Stretch, MIT, C++ compiled with the app through `cxx`: tempo and pitch of the
+  preview changed one without the other). Not `signalsmith-stretch`, the other binding: it
+  generates its bindings with bindgen, which needs the `clang` program installed (libclang alone
+  does not find its own headers, "'stddef.h' file not found" on Fedora).
 - **ffmpeg**, an external program rather than a crate: sample conversion (`src/convert.rs`).
   Found through `SAMPLR_FFMPEG`, the `PATH`, then the Homebrew and MacPorts folders; to bundle
   as a Tauri sidecar at packaging (step 11).
@@ -285,10 +289,11 @@ Audio pitfalls met so far:
 - Preview controls, in the playback bar at the bottom of the window (`#player`, above the status
   line): the play / pause button (⏸ while a sound plays, as Space), the selected sample's name
   and, on one line, its tempo, key, loop, length and loudness (`renderPlayer`, called by
-  `renderInfo`), its waveform, then Stop (same as Esc), Space (`playOrPause`: a loop pauses and
-  resumes where it was, `pause` command → `AudioRequest::Pause`, `Player::pause` / `play`, the
-  playhead frozen meanwhile; a one-shot plays again from the start, like a pad; nothing playing,
-  the selected sample plays), L (switches the Play loop box, as a click on it would), the Loop and
+  `renderInfo`), its waveform, then Stop (same as Esc), Space (`playOrPause`: a loop, or any
+  sample played with Loop on, pauses and resumes where it was, `pause` command →
+  `AudioRequest::Pause`, `Player::pause` / `play`, the playhead frozen meanwhile; a one-shot
+  played once plays again from the start, like a pad; nothing playing, the selected sample
+  plays), L (switches the Play loop box, as a click on it would), the Loop and
   Autoplay checkboxes and the volume slider, the two checkboxes on one line and the slider under
   them (`#player-options`) in the header. Autoplay off: a click on a row selects it without
   playing (to tag or drag it in silence), and stops the sound playing if it was another sample's;
@@ -314,15 +319,28 @@ Audio pitfalls met so far:
   (`Player::get_pos` counts the time played, wrong once the speed changes during a sound). In loop
   mode the position is taken modulo the sample's length. No line when the length is unknown (some
   MP3s).
-- Pitch, as a tape (`#pitch-options` in the playback bar): Pitch in semitones (-24 to +24) and
+- Pitch and tempo (`#pitch-options` in the playback bar): Pitch in semitones (-24 to +24) and
   Fine in cents (±50), a double-click on a slider brings it back to 0, its value shown in
-  `--signal` when not 0. They give a speed, 2^(semitones / 12) (`set_speed` command →
-  `AudioRequest::Speed` → `Player::set_speed`, applied to the sound playing and the next ones):
-  pitch and tempo change together. A seek is divided by the speed, the player's seek being in
-  time played. The bar then shows the tempo and key heard, the file's own between brackets
-  ("133.5 BPM (120) · Bm (Am)"). Not remembered between launches: a library heard out of tune at
-  the next start would mislead. Pitch without tempo, and the reverse, need time stretching: not
-  done.
+  `--signal` when not 0; BPM, the tempo the samples whose tempo is known are played at (empty:
+  their own; a sample without a tempo is left alone); Tape. Off, pitch and tempo change one
+  without the other through Signalsmith Stretch (`src-tauri/src/stretch.rs`, unit-tested): a
+  rodio source around the decoder, reading `Shape` (tempo factor and semitones, atomics shared
+  with the audio thread) at each block of 512 frames, so that a change is heard at once; the
+  sound is still read as it plays. A sound starts untouched, and the stretcher only comes in
+  when the settings leave their neutral values, then stays for that sound; it is started with
+  its input latency's worth of sound (`seek`) and its output latency dropped, as Signalsmith's
+  own `exact` does, so that the sound starts on time instead of after a silence. It reports a
+  span per block (`current_span_len`): rodio reads a source's sample rate again only at a span's
+  start, and a span to the end made it ignore any later change of the player's speed (Tape turned
+  on during a stretched sound; `player_speed_changes_while_stretched` plays it through a real
+  `Player`). Tape on, both
+  change together as a varispeed (`Player::set_speed`, lighter, and sometimes the sound
+  wanted): speed = tempo factor × 2^(semitones / 12). The page works out the shape for each
+  sound (`shapeFor`, sent with `play` so that it starts already shaped, and by `set_playback`
+  on a change), and moves the playhead at speed × tempo. A seek is divided by the player's
+  speed, its seek being in time played. The bar shows the tempo and key heard, the file's own
+  between brackets ("100 BPM (120) · Bm (Am)"). Only Tape is remembered (`localStorage`): a
+  library heard out of tune or out of tempo at the next start would mislead.
 - A click on the waveform plays the sample from that point (`play` command's `start`, applied
   with `Player::try_seek` right after `append`), in the current mode (once or loop). Ignored
   when the length is unknown.

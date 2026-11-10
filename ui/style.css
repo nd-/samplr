@@ -862,8 +862,19 @@ header button:disabled,
 	display: contents;
 }
 
-#pitch, #fine {
+#pitch, #fine, #target-bpm {
 	width: 6rem;
+}
+
+#target-bpm {
+	padding: 0 var(--space-2);
+	font: inherit;
+}
+
+#tape-box {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
 }
 
 #pitch-options output {
@@ -872,7 +883,8 @@ header button:disabled,
 }
 
 /* Not at 0: the sound is not heard as it is in the file. */
-#pitch-options output.shifted {
+#pitch-options output.shifted,
+#target-bpm.shifted {
 	color: var(--signal);
 	font-weight: 600;
 }
