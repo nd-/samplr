@@ -840,6 +840,9 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_drag::init())
         .plugin(tauri_plugin_dialog::init())
+        // Saves the window's size, position and maximised state when the
+        // app closes, and restores them before the window shows.
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         // The audio thread starts once the app exists, to get the handle it
         // sends events to the page with. `move` gives it ownership of
         // `receiver`.

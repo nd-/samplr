@@ -26,3 +26,6 @@ tauri = { version = "2", features = [] }
 tauri-plugin-drag = "2"
 # The system's own "choose a folder" window, to add a sample folder
 tauri-plugin-dialog = "2"
+# The window's size, position and maximised state, saved on closing and
+# brought back at the next launch
+tauri-plugin-window-state = "2"

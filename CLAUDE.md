@@ -18,7 +18,8 @@ musicians, alongside a DAW).
 
 ## Current stack
 
-- Rust edition 2024, single `samplr` binary (command line for now).
+- Rust edition 2024, a Cargo workspace: the `samplr` library and command line (root), and the
+  `samplr-app` interface (Tauri 2, `src-tauri/`, see "Step 7 in progress").
 - `symphonia` 0.5 (feature `all`): file info and decoding. **Keep 0.5**, it is the version
   `rodio` uses; moving to 0.6 would compile two versions.
 - `rodio` 0.23 (feature `symphonia-all`): audio playback. API:
@@ -36,6 +37,14 @@ musicians, alongside a DAW).
   where FSEvents sends them separately.
 - `clap` 4 (feature `derive`): subcommands are described by the `enum Command` in `main.rs`;
   the `///` comments become the `samplr help` output.
+- `trash` 5: "Move file(s) to the trash" (freedesktop trash on Linux, the Finder's on Mac).
+- rusqlite's `functions` feature: `unicode_lower`, the search's case folding (see `samplr search`).
+- Interface (`src-tauri/Cargo.toml`): `tauri` 2, `tauri-plugin-drag` (native drag into a DAW,
+  patched in `vendor/drag`), `tauri-plugin-dialog` (folder chooser, questions),
+  `tauri-plugin-window-state` (window size and position kept between launches).
+- **ffmpeg**, an external program rather than a crate: sample conversion (`src/convert.rs`).
+  Found through `SAMPLR_FFMPEG`, the `PATH`, then the Homebrew and MacPorts folders; to bundle
+  as a Tauri sidecar at packaging (step 11).
 
 - Debug builds compile the **dependencies with optimisations** (`[profile.dev.package."*"]` in
   the root `Cargo.toml`): unoptimised, symphonia decoded an MP3 about 30 times slower (waveform
@@ -55,7 +64,11 @@ mixing macOS and Linux binaries in `target/`. Do not put this setting in the pro
 
 `src/main.rs` holds the commands, `src/lib.rs` the shared code (file reading and indexing),
 `src/db.rs` the database access, `src/waveform.rs` the waveform computation and drawing,
-`src/watch.rs` the folder following, `src/analysis.rs` the tempo and key of a sample:
+`src/watch.rs` the folder following, `src/analysis.rs` the tempo, key and loop or one-shot of a
+sample, `src/acid.rs` the ACID chunk of WAV files, `src/info.rs` a file's own metadata (Info
+panel), `src/convert.rs` the conversion through ffmpeg. The interface's Rust side is in
+`src-tauri/src/main.rs` (commands, audio thread) and `src-tauri/src/library.rs` (live following,
+background waveforms); its page in `ui/` (`index.html`, `main.js`, `style.css`, `theme.js`):
 
 - `samplr scan <folder>`: lists the audio files (wav, aif, aiff, flac, mp3, ogg, m4a) with
   length, sample rate, bits and channels, and saves them to the database (absolute path; a new
@@ -253,7 +266,11 @@ Audio pitfalls met so far:
 - Window: the page itself never scrolls (`overflow: hidden` on `body`); the list, the collections
   and the windows scroll inside, each on its own. The header wraps its buttons onto a second line
   in a narrow window (`flex-wrap`, search box at least 12rem): unwrapped they needed about 1020
-  px, and below that the whole page scrolled sideways with the last buttons out of the window.
+  px, and below that the whole page scrolled sideways with the last buttons out of the window. The
+  window's size, position and maximised state are saved when the app closes and restored before
+  the window shows, by the official `tauri-plugin-window-state` (in
+  `~/.config/fr.dataetic.samplr/.window-state.json` on Linux, the system's config folder on Mac);
+  it also copes with a screen unplugged meanwhile.
 - Preview controls: Play, Stop (same as Esc), Space (`playOrPause`: a loop pauses and resumes
   where it was, `pause` command → `AudioRequest::Pause`, `Player::pause` / `play`, the playhead
   frozen meanwhile; a one-shot plays again from the start, like a pad; nothing playing, the
