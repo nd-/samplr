@@ -215,10 +215,16 @@ tbody.addEventListener("click", (event) => {
   // Elsewhere, quick clicks on a row still retrigger the sound, like a pad.
   const editable = event.target.closest("td.bpm, td.key") !== null;
   if (editable && event.detail > 1) return;
+  const andPlay = autoplayBox.checked && !editable;
   // Cmd on a Mac, Ctrl elsewhere (Ctrl+click is a right-click on a Mac).
-  if (event.metaKey || event.ctrlKey) select(index, "toggle", !editable);
-  else if (event.shiftKey) select(index, "range", !editable);
-  else select(index, "single", !editable);
+  if (event.metaKey || event.ctrlKey) select(index, "toggle", andPlay);
+  else if (event.shiftKey) select(index, "range", andPlay);
+  else select(index, "single", andPlay);
+  // Autoplay off: moving to another sample silences the one playing, so that
+  // what is heard is never another sample than the one selected.
+  if (!autoplayBox.checked && playingPath !== null && samples[selected]?.path !== playingPath) {
+    stop();
+  }
 });
 
 tbody.addEventListener("mousedown", (event) => {
@@ -610,9 +616,6 @@ canvas.addEventListener("click", (event) => {
 // Each sound played gets a new number: the end of a sound already replaced
 // by another one may still be reported, and must then be ignored.
 let playId = 0;
-// Loop mode: set by "Play loop", kept when another sample is selected,
-// left only with "Play".
-let looping = false;
 
 // `start`: where to start, in seconds from the beginning of the sample.
 // The path of the sample playing, or `null`.
@@ -626,7 +629,7 @@ function play(start = 0) {
   startPlayhead(sample.duration_secs, start);
   status.textContent = `▶ ${splitPath(sample.path).name}`;
   stopButton.disabled = false;
-  invoke("play", { path: sample.path, id: playId, looping, start }).catch((error) => {
+  invoke("play", { path: sample.path, id: playId, looping: loopBox.checked, start }).catch((error) => {
     stopPlayhead();
     status.textContent = `Error: ${error}`;
   });
@@ -663,7 +666,7 @@ function movePlayhead() {
     return;
   }
   let seconds = lastPosition.seconds + (performance.now() - lastPosition.at) / 1000;
-  seconds = looping
+  seconds = loopBox.checked
     ? seconds % playheadDuration
     : Math.min(seconds, playheadDuration);
   playhead.style.left = `${(seconds / playheadDuration) * 100}%`;
@@ -693,21 +696,29 @@ window.__TAURI__.event.listen("playback-ended", (event) => {
 
 stopButton.addEventListener("click", stop);
 
-const playButton = document.getElementById("play");
-const loopButton = document.getElementById("play-loop");
+document.getElementById("play").addEventListener("click", () => play());
 
-function setLooping(on) {
-  looping = on;
-  loopButton.setAttribute("aria-pressed", String(on));
+// "Play loop": every sample played loops until the box is unchecked.
+// Remembered between sessions, like the volume.
+const loopBox = document.getElementById("loop");
+try {
+  loopBox.checked = localStorage.getItem("loop") === "true";
+} catch {
+  // Storage unavailable: no loop.
 }
-
-playButton.addEventListener("click", () => {
-  setLooping(false);
-  play();
-});
-loopButton.addEventListener("click", () => {
-  setLooping(true);
-  play();
+loopBox.addEventListener("change", () => {
+  try {
+    localStorage.setItem("loop", String(loopBox.checked));
+  } catch {
+    // Storage unavailable: the choice is simply not remembered.
+  }
+  // A sound already playing cannot change mode: the selected one starts
+  // again in the new mode; another one, no longer selected, stops.
+  if (playingPath !== null) {
+    if (playingPath === samples[selected]?.path) play();
+    else stop();
+  }
+  loopBox.blur();
 });
 
 // The slider's position is squared: the ear hears loudness roughly on a
@@ -733,6 +744,24 @@ try {
 }
 volumeSlider.addEventListener("input", applyVolume);
 applyVolume();
+
+// Autoplay off: a click on a row selects it without playing it, to tag it or
+// drag it in silence. The arrow keys, Enter and Play still play.
+const autoplayBox = document.getElementById("autoplay");
+try {
+  autoplayBox.checked = localStorage.getItem("autoplay") !== "false";
+} catch {
+  // Storage unavailable: autoplay stays on.
+}
+autoplayBox.addEventListener("change", () => {
+  try {
+    localStorage.setItem("autoplay", String(autoplayBox.checked));
+  } catch {
+    // Storage unavailable: the choice is simply not remembered.
+  }
+  // Back to the list, so that the arrow keys move in it again.
+  autoplayBox.blur();
+});
 
 // The web view would otherwise start its own drag (of the text under the
 // mouse) alongside the native one, and take its place.

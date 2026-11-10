@@ -10,9 +10,10 @@
   <header>
     <input id="search" type="search" placeholder="Search: words, #tag, bpm:120, key:Am" autofocus spellcheck="false">
     <button id="favorites-only" type="button" title="Show only the favorites" aria-pressed="false">★ Favorites</button>
-    <button id="play" type="button" title="Play once (Enter)">▶ Play</button>
-    <button id="play-loop" type="button" title="Play in a loop, this sample and the next ones selected" aria-pressed="false">↻ Play loop</button>
+    <button id="play" type="button" title="Play the selected sample (Enter)">▶ Play</button>
     <button id="stop" type="button" title="Stop playback (Esc)" disabled>■ Stop</button>
+    <label id="loop-box" title="Play in a loop, this sample and the next ones"><input id="loop" type="checkbox"> Play loop</label>
+    <label id="autoplay-box" title="Play a sample when its row is clicked; off, a click selects it in silence. The arrow keys always play"><input id="autoplay" type="checkbox" checked> Autoplay</label>
     <label id="volume-box" title="Preview volume">Vol. <input id="volume" type="range" min="0" max="100" value="80"></label>
     <button id="add-folder" type="button" title="Add a folder of samples">+ Folder</button>
     <button id="show-folders" type="button" title="The scanned folders">Folders…</button>

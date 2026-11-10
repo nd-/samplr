@@ -223,14 +223,13 @@ header button {
 	font: inherit;
 }
 
-/* Loop mode on: the button stays lit until Play is pressed. */
-#play-loop[aria-pressed="true"],
+/* The favorites filter on: the button stays lit. */
 #favorites-only[aria-pressed="true"] {
 	background: var(--signal-soft);
 	border-color: var(--signal);
 }
 
-#volume-box {
+#volume-box, #autoplay-box, #loop-box {
 	display: flex;
 	align-items: center;
 	gap: var(--space-4);
