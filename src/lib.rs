@@ -59,6 +59,8 @@ pub struct SampleInfo {
     /// dBFS; `None` until measured, or when it cannot be (too short, silent).
     pub lufs: Option<f64>,
     pub peak_db: Option<f64>,
+    /// The codec, as symphonia names it ("pcm_s24le", "flac", "mp3"…).
+    pub codec: Option<String>,
     /// The file's ACID chunk, read with the file (`read_info`) and kept in
     /// the database; not sent to the page.
     #[serde(skip)]
@@ -343,6 +345,10 @@ pub fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
         (Some(frames), Some(rate)) => Some(frames as f64 / rate as f64),
         _ => None,
     };
+    // symphonia's short name for it: "pcm_s24le", "flac", "mp3", "vorbis"…
+    let codec = symphonia::default::get_codecs()
+        .get_codec(params.codec)
+        .map(|descriptor| descriptor.short_name.to_string());
 
     Ok(SampleInfo {
         path: path.to_path_buf(),
@@ -360,6 +366,7 @@ pub fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
         loop_source: None,
         lufs: None,
         peak_db: None,
+        codec,
         acid: acid::read(path),
     })
 }

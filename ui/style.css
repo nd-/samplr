@@ -874,7 +874,7 @@ td.remove button:hover {
 	color: inherit;
 }
 
-.folder, .tags, .collections {
+.folder, .tags, .collections, .codec {
 	color: var(--muted);
 }
 

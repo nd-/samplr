@@ -155,6 +155,8 @@ function buildRow(index) {
     keyCell(sample),
     loopCell(sample),
     loudnessCell(sample),
+    cell(sample.channels === null ? "" : String(sample.channels), "number"),
+    cell(sample.codec ?? "", "codec"),
     collectionsCell(sample.collections),
     tagsCell(sample.tags),
     cell(folder, "folder"),
@@ -310,6 +312,8 @@ const defaultWidths = {
   key: 60,
   loop: 60,
   lufs: 60,
+  channels: 40,
+  codec: 90,
   collections: 160,
   tags: 200,
 };
@@ -408,6 +412,8 @@ const sortValues = {
   key: (sample) => sample.key,
   loop: (sample) => (sample.looped ? 1 : 0),
   lufs: (sample) => sample.lufs,
+  channels: (sample) => sample.channels,
+  codec: (sample) => sample.codec,
   tags: (sample) => sample.tags.join(" ") || null,
   collections: (sample) => collectionNames(sample.collections).join(" ") || null,
 };
@@ -647,10 +653,11 @@ function drawInfo(sample) {
   infoList.replaceChildren(...items);
 }
 
-// "WAV · 24 bit · 44.1 kHz · stereo".
+// "WAV · pcm_s24le · 24 bit · 44.1 kHz · stereo".
 function formatOf(sample) {
   const extension = sample.path.slice(sample.path.lastIndexOf(".") + 1).toUpperCase();
   const parts = [extension];
+  if (sample.codec) parts.push(sample.codec);
   if (sample.bits) parts.push(`${sample.bits} bit`);
   if (sample.sample_rate) parts.push(`${sample.sample_rate / 1000} kHz`);
   if (sample.channels) {

@@ -86,7 +86,7 @@ pub fn open() -> Result<Connection, Box<dyn Error>> {
 }
 
 /// The schema version `migrate` brings a database to: the last step's.
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 /// Brings a database created by an older samplr up to date. Its version is
 /// kept by SQLite (`user_version`, 0 for a new database); each step runs once.
@@ -194,6 +194,14 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
              ALTER TABLE waveforms ADD COLUMN peak_db REAL;
              ALTER TABLE waveforms ADD COLUMN measured INTEGER NOT NULL DEFAULT 0;
              PRAGMA user_version = 8;",
+        )?;
+    }
+    if version < 9 {
+        // The codec (`read_info`), filled for existing samples by the next
+        // catch-up, which reads every file again.
+        db.execute_batch(
+            "ALTER TABLE files ADD COLUMN codec TEXT;
+             PRAGMA user_version = 9;",
         )?;
     }
     db.execute_batch("COMMIT")?;
@@ -357,13 +365,14 @@ pub fn save(db: &Connection, info: &SampleInfo) -> Result<i64, Box<dyn Error>> {
     // folder shows again when found again.
     let id = db.query_row(
         "INSERT INTO files (path, duration_secs, sample_rate, channels, bits,
-                            acid_beats, acid_root, acid_loop)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                            acid_beats, acid_root, acid_loop, codec)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
          ON CONFLICT (path) DO UPDATE SET
              duration_secs = excluded.duration_secs,
              sample_rate   = excluded.sample_rate,
              channels      = excluded.channels,
              bits          = excluded.bits,
+             codec         = excluded.codec,
              acid_beats    = excluded.acid_beats,
              acid_root     = excluded.acid_root,
              acid_loop     = excluded.acid_loop,
@@ -378,6 +387,7 @@ pub fn save(db: &Connection, info: &SampleInfo) -> Result<i64, Box<dyn Error>> {
             info.acid.as_ref().map(|a| a.beats),
             info.acid.as_ref().and_then(|a| a.root.clone()),
             info.acid.as_ref().map(|a| a.looped),
+            info.codec,
         ],
         |row| row.get(0),
     )?;
@@ -860,7 +870,7 @@ pub fn search(
                 (SELECT group_concat(cf.collection_id) FROM collection_files cf
                  WHERE cf.file_id = f.id),
                 f.bpm, f.key, f.acid_beats, f.acid_root, f.acid_loop, f.looped,
-                w.lufs, w.peak_db
+                w.lufs, w.peak_db, f.codec
          FROM files f
          LEFT JOIN waveforms w ON w.file_id = f.id AND w.measured = 1
          WHERE f.hidden = 0 AND instr(unicode_lower(f.path), unicode_lower(?1)) > 0",
@@ -947,6 +957,7 @@ pub fn search(
             loop_source: Some(loop_source),
             lufs: row.get(14)?,
             peak_db: row.get(15)?,
+            codec: row.get(16)?,
             acid: acid_loop.map(|looped| acid::Acid {
                 beats: acid_beats.unwrap_or(0),
                 root: acid_root,

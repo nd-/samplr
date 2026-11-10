@@ -118,16 +118,17 @@ Database: `samplr.db` in the system data folder (`~/.local/share/samplr` on Linu
 `~/Library/Application Support/samplr` on Mac). The `SAMPLR_DB` variable points to another
 database, for experiments. Tables `files` (with `hidden`, see `remove-folder`, `favorite`, `bpm`,
 `key` and `looped` set by hand, `acid_beats`, `acid_root` and `acid_loop` from the file's ACID
-chunk), `tags`, `file_tags`, `folders` (the folders given to `scan`, followed by `watch`),
-`waveforms`, `collections` and `collection_files` (samples gathered by hand; a sample forgotten by
-the database leaves its collections, a hidden one stays in them and comes back with its folder),
-`colors` (the palette: name, `#rrggbb`, position; filled with 10 colours by the migration to
-version 4). `tags` and `collections` have a `color_id` (`ON DELETE SET NULL`: deleting a colour
-leaves them without colour). A tag deleted because no sample carries it any more loses its colour.
-Schema changes go through `db::migrate`: SQLite keeps the schema version (`PRAGMA user_version`, 8
-so far), each step runs once, under `BEGIN IMMEDIATE` so that the app and a command opening the
-database together do not both run it. A new database goes through every step too (the `CREATE
-TABLE`s are version 0): add a column with a migration step, not in the `CREATE TABLE`, and raise
+chunk, `codec` as symphonia names it: "pcm_s24le", "flac", "mp3"…), `tags`, `file_tags`, `folders`
+(the folders given to `scan`, followed by `watch`), `waveforms`, `collections` and
+`collection_files` (samples gathered by hand; a sample forgotten by the database leaves its
+collections, a hidden one stays in them and comes back with its folder), `colors` (the palette:
+name, `#rrggbb`, position; filled with 10 colours by the migration to version 4). `tags` and
+`collections` have a `color_id` (`ON DELETE SET NULL`: deleting a colour leaves them without
+colour). A tag deleted because no sample carries it any more loses its colour. Schema changes go
+through `db::migrate`: SQLite keeps the schema version (`PRAGMA user_version`, 9 so far), each
+step runs once, under `BEGIN IMMEDIATE` so that the app and a command opening the database
+together do not both run it. A new database goes through every step too (the `CREATE TABLE`s are
+version 0): add a column with a migration step, not in the `CREATE TABLE`, and raise
 `SCHEMA_VERSION` with it: an up-to-date database is opened without taking the write lock,
 otherwise every command, even a search, waited behind any process writing and failed after 5 s
 ("database is locked"). For the same reason `index` (scan, startup catch-up, a folder appearing)
@@ -374,14 +375,14 @@ Audio pitfalls met so far:
   order, case ignored (`Intl.Collator` with `numeric`): "kick 2" before "kick 10". Missing values
   (unknown length, no tag) stay last whichever the direction; equal values fall back to the path.
 - Column widths: the table has a fixed layout (`table-layout: fixed`), its widths come from the
-  `<col>` elements. Columns in this order: ★, Name, Length, BPM, Key, Loop, Collections, Tags,
-  Folder (last: the longest and least read), then the × in a collection. A handle on the right
-  edge of every header but Folder changes the width by dragging (pointer capture), a double-click
-  brings the default back (Tags: 200 px); Folder takes the rest, at least 120 px
-  (`minFolderWidth`), ★ and × have fixed widths. Tags is narrowed like any other column, its tags
-  then ending with an ellipsis (it used to take the rest and never be narrower than every sample's
-  tags, measured over the whole library at each change; dropped). When the chosen widths plus
-  Folder's minimum do not fit, the table grows wider than the list, which scrolls sideways.
+  `<col>` elements. Columns in this order: ★, Name, Length, BPM, Key, Loop, LUFS, Ch (channels),
+  Codec, Collections, Tags, Folder (last: the longest and least read), then the × in a collection.
+  A handle on the right edge of every header but Folder changes the width by dragging (pointer
+  capture), a double-click brings the default back (Tags: 200 px); Folder takes the rest, at least
+  120 px (`minFolderWidth`), ★ and × have fixed widths. Tags is narrowed like any other column,
+  its tags then ending with an ellipsis (it used to take the rest and never be narrower than every
+  sample's tags, measured over the whole library at each change; dropped). When the chosen widths
+  plus Folder's minimum do not fit, the table grows wider than the list, which scrolls sideways.
   `applyColumnWidths` sets the tables' `width` in pixels (the larger of the list's width and what
   the columns need), recomputed on window resize and folding: WebKit ignores `min-width` on a
   fixed-layout table. The virtual list's spacer rows span exactly the columns shown, counted on
