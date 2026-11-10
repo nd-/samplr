@@ -552,6 +552,17 @@ Audio pitfalls met so far:
   automatic. On the Linux library: 466 decided by the chunk, 2295 by the words, 540 guessed from
   the tempo; effects and fills were taken for loops when their length happened to give a whole
   tempo, hence their words.
+- Info panel (`#info`, on the right of the list, folds with its › button or Ctrl+I, remembered in
+  `localStorage`, `infoFolded`): the current sample's name, folder, format ("WAV · 24 bit · 44.1
+  kHz · stereo"), length, size and modification date, tempo, key and loop with where they come
+  from, its tags, then under "In the file" what the file says of itself (`file_info` command →
+  `samplr::info::file_tags`, read when the current sample changes, not stored: `renderInfo` is
+  called by `renderTags`, the file read again only for another sample). WAV: the `LIST/INFO`
+  chunk, read by samplr since symphonia does not (title, album = the pack, artist, album artist,
+  genre, comment, copyright, software, source…; 2092 of the 3198 WAV files of the Linux library
+  have one, Future Loops and Splice among them). Other formats: symphonia's tags (ID3 of MP3,
+  Vorbis comments of FLAC and OGG). symphonia 0.5 does not read the ID3 chunk of an AIFF (Splice's
+  KSHMR loops carry only a URL there): not read yet.
 - Errors: `showError` in `main.js` shows them in a red box above the status line (`#error-box`,
   `--error` the same red in every theme, closed by its × or after 10 s, not while the pointer is
   on it; its text can be selected and copied) and in the status line; every failure reported to

@@ -507,6 +507,31 @@ fn file_uri(path: &Path) -> String {
     uri
 }
 
+/// What the Info panel shows of a file besides what the list knows: its
+/// size, its modification date and its own metadata (`samplr::info`).
+#[derive(Serialize)]
+struct FileInfo {
+    size: u64,
+    /// Seconds since 1970, `None` when the system does not say.
+    modified: Option<u64>,
+    tags: Vec<(String, String)>,
+}
+
+#[tauri::command(async)]
+fn file_info(path: PathBuf) -> Result<FileInfo, String> {
+    let metadata = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|since| since.as_secs());
+    Ok(FileInfo {
+        size: metadata.len(),
+        modified,
+        tags: samplr::info::file_tags(&path),
+    })
+}
+
 /// The `playback-position` event: where the sound `id` is, in seconds from
 /// its start (a loop keeps counting from its first start).
 #[derive(Serialize, Clone)]
@@ -827,6 +852,7 @@ fn main() {
             ffmpeg_available,
             library_problems,
             reveal,
+            file_info,
             convert_samples,
             colors,
             add_color,

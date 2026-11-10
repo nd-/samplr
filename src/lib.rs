@@ -5,6 +5,7 @@ pub mod acid;
 pub mod analysis;
 pub mod convert;
 pub mod db;
+pub mod info;
 pub mod watch;
 pub mod waveform;
 

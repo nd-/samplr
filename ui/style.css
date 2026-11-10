@@ -334,6 +334,92 @@ header button:disabled {
 	min-height: 0;
 }
 
+/* The Info panel, on the right of the list. */
+#info {
+	width: 17rem;
+	flex-shrink: 0;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	border-left: 1px solid var(--border);
+	padding: var(--space-6);
+	overflow-y: auto;
+}
+
+#info h2 {
+	margin: 0;
+	font-size: 0.9rem;
+	color: var(--muted);
+}
+
+#info .aside-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+#toggle-info {
+	border: none;
+	background: none;
+	color: var(--muted);
+	font: inherit;
+	font-size: 1.1rem;
+	cursor: pointer;
+	padding: 0 var(--space-3);
+}
+
+#toggle-info:hover {
+	color: inherit;
+}
+
+#info.collapsed {
+	width: auto;
+	padding: var(--space-6) var(--space-2);
+}
+
+#info.collapsed h2,
+#info.collapsed #info-list {
+	display: none;
+}
+
+/* A label over its value, one after the other. */
+#info-list {
+	margin: 0;
+	font-size: 0.9em;
+}
+
+#info-list dt {
+	margin-top: var(--space-6);
+	color: var(--muted);
+	font-size: 0.85em;
+}
+
+#info-list dd {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+#info-list .origin {
+	color: var(--muted);
+	font-size: 0.85em;
+}
+
+#info-list h3 {
+	margin: var(--space-12) 0 0;
+	padding-top: var(--space-6);
+	border-top: 1px solid var(--border);
+	font-size: 0.8rem;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--muted);
+}
+
+#info-list .hint {
+	margin: 0;
+	color: var(--muted);
+}
+
 #workspace {
 	flex: 1;
 	display: flex;

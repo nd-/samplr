@@ -567,7 +567,143 @@ function renderTags() {
   // would take the focus from it while one is typing tags.
   for (const old of tagBar.querySelectorAll(".tag")) old.remove();
   tagInput.before(...chips);
+  renderInfo();
 }
+
+// The Info panel, on the right: the current sample's details, what the list
+// knows (format, tempo, key, loop and where they come from) and what the
+// file says of itself (`file_info`: size, date, its own metadata). Drawn
+// again whenever the selection or the samples change, with `renderTags`;
+// the file is read again only when the current sample is another one.
+const infoColumn = document.getElementById("info");
+const infoList = document.getElementById("info-list");
+let infoFor = null;
+let infoOfFile = null;
+
+const tempoOrigins = {
+  name: "from the name",
+  file: "from the file",
+  length: "estimated from the length",
+  manual: "set by hand",
+};
+
+async function renderInfo() {
+  const sample = samples[selected];
+  if (!sample) {
+    infoFor = null;
+    infoOfFile = null;
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = "Select a sample to see its details.";
+    infoList.replaceChildren(hint);
+    return;
+  }
+  if (infoFor !== sample.path) {
+    infoFor = sample.path;
+    infoOfFile = null;
+    drawInfo(sample);
+    try {
+      const found = await invoke("file_info", { path: sample.path });
+      // The selection may have moved on meanwhile.
+      if (infoFor !== sample.path) return;
+      infoOfFile = found;
+    } catch (error) {
+      if (infoFor === sample.path) infoOfFile = { error: String(error) };
+    }
+  }
+  drawInfo(samples[selected] ?? sample);
+}
+
+function drawInfo(sample) {
+  const items = [];
+  const add = (label, value, origin) => {
+    if (value === null || value === undefined || value === "") return;
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const description = document.createElement("dd");
+    description.textContent = value;
+    if (origin) {
+      const small = document.createElement("span");
+      small.className = "origin";
+      small.textContent = ` ${origin}`;
+      description.append(small);
+    }
+    items.push(term, description);
+  };
+  const heading = (text) => {
+    const title = document.createElement("h3");
+    title.textContent = text;
+    items.push(title);
+  };
+  const { folder, name } = splitPath(sample.path);
+  add("Name", name);
+  add("Folder", folder);
+  add("Format", formatOf(sample));
+  add("Length", sample.duration_secs === null ? null : formatDuration(sample.duration_secs));
+  if (infoOfFile && !infoOfFile.error) {
+    add("Size", formatSize(infoOfFile.size));
+    if (infoOfFile.modified !== null) {
+      add("Modified", new Date(infoOfFile.modified * 1000).toLocaleString());
+    }
+  }
+  add("Tempo", sample.bpm === null ? null : `${sample.bpm} BPM`, tempoOrigins[sample.bpm_source]);
+  add("Key", sample.key);
+  add(
+    "Loop",
+    sample.loop_source ? (sample.looped ? "Loop" : "One-shot") : null,
+    loopOrigins[sample.loop_source],
+  );
+  if (sample.tags.length > 0) add("Tags", sample.tags.join(", "));
+  if (selectedPaths.size > 1) add("Selection", `${selectedPaths.size} samples`);
+  if (infoOfFile?.error) {
+    heading("In the file");
+    add("Error", infoOfFile.error);
+  } else if (infoOfFile && infoOfFile.tags.length > 0) {
+    heading("In the file");
+    for (const [label, value] of infoOfFile.tags) add(label, value);
+  }
+  infoList.replaceChildren(...items);
+}
+
+// "WAV · 24 bit · 44.1 kHz · stereo".
+function formatOf(sample) {
+  const extension = sample.path.slice(sample.path.lastIndexOf(".") + 1).toUpperCase();
+  const parts = [extension];
+  if (sample.bits) parts.push(`${sample.bits} bit`);
+  if (sample.sample_rate) parts.push(`${sample.sample_rate / 1000} kHz`);
+  if (sample.channels) {
+    parts.push(sample.channels === 1 ? "mono" : sample.channels === 2 ? "stereo" : `${sample.channels} channels`);
+  }
+  return parts.join(" · ");
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} bytes`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+const infoToggle = document.getElementById("toggle-info");
+
+function setInfoFolded(folded) {
+  infoColumn.classList.toggle("collapsed", folded);
+  infoToggle.textContent = folded ? "‹" : "›";
+  infoToggle.title = shortcut(folded ? "Show the info (Ctrl+I)" : "Hide the info (Ctrl+I)");
+  // The waveform and the list take the width freed or taken.
+  drawWaveform();
+  applyColumnWidths({ remeasure: false });
+  try {
+    localStorage.setItem("infoFolded", String(folded));
+  } catch {
+    // Storage unavailable: the state is simply not remembered.
+  }
+}
+
+function toggleInfo() {
+  setInfoFolded(!infoColumn.classList.contains("collapsed"));
+}
+
+infoToggle.addEventListener("click", toggleInfo);
 
 // Called after a change with each sample's new tags (same order): the list
 // rows and the tag bar show them.
@@ -2017,6 +2153,12 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     return;
   }
+  // Ctrl+I, or Cmd+I on Mac, folds or unfolds the Info panel.
+  if ((event.ctrlKey || event.metaKey) && event.key === "i") {
+    toggleInfo();
+    event.preventDefault();
+    return;
+  }
   // Ctrl+B, or Cmd+B on Mac, folds or unfolds the collections column.
   if ((event.ctrlKey || event.metaKey) && event.key === "b") {
     toggleCollections();
@@ -2286,6 +2428,12 @@ function openColorMenu(x, y, current, choose) {
 const settingsDialog = document.getElementById("settings");
 const colorList = document.getElementById("color-list");
 
+try {
+  if (localStorage.getItem("infoFolded") === "true") setInfoFolded(true);
+} catch {
+  // Storage unavailable: the panel is shown.
+}
+
 // The Settings window's list of shortcuts: keys, then what they do.
 const shortcutList = [
   ["↑ ↓", "Browse the list and play"],
@@ -2297,6 +2445,7 @@ const shortcutList = [
   ["Ctrl+T", "Go to the tag box: Enter adds the tags typed, Backspace on an empty box removes the last one"],
   ["Ctrl+D", "Make the selection favorites, or no longer"],
   ["Ctrl+B", "Show or hide the collections"],
+  ["Ctrl+I", "Show or hide the Info panel"],
   ["Del", "Take the selection out of the open collection"],
   ["Double-click", "Edit the tempo or the key of a sample, or switch loop / one-shot"],
   ["Right-click", "Collections, rename, move, convert or trash the selection"],
