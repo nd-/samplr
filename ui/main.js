@@ -306,7 +306,7 @@ function saveColumnWidths() {
   }
 }
 
-for (const handle of document.querySelectorAll(".resizer")) {
+for (const handle of document.querySelectorAll("th .resizer")) {
   const name = handle.dataset.col;
   handle.addEventListener("pointerdown", (event) => {
     event.preventDefault();
@@ -1046,6 +1046,8 @@ function collectionItem(label, count, active, open, id, hex = null) {
   if (id !== undefined) item.dataset.id = id;
   const name = document.createElement("span");
   name.className = "name";
+  // The whole name, when the column is too narrow for it.
+  name.title = label;
   if (hex) name.append(dot(hex));
   name.append(label);
   name.addEventListener("click", open);
@@ -1200,6 +1202,62 @@ function setCollectionsFolded(folded) {
   } catch {
     // Storage unavailable: the state is simply not remembered.
   }
+}
+
+// The collections column's width, changed by dragging its right edge, so
+// that long names can be read; a double-click brings the default back.
+// Remembered between sessions, on this computer only.
+const collectionsResizer = document.getElementById("collections-resizer");
+
+function setCollectionsWidth(width) {
+  if (width === null) collectionsColumn.style.removeProperty("--collections-width");
+  else {
+    const widest = Math.max(160, window.innerWidth / 2);
+    width = Math.round(Math.min(Math.max(width, 120), widest));
+    collectionsColumn.style.setProperty("--collections-width", `${width}px`);
+  }
+  // The waveform and the list take the width freed or taken.
+  drawWaveform();
+  applyColumnWidths();
+}
+
+function saveCollectionsWidth(width) {
+  try {
+    if (width === null) localStorage.removeItem("collectionsWidth");
+    else localStorage.setItem("collectionsWidth", String(width));
+  } catch {
+    // Storage unavailable: the width is simply not remembered.
+  }
+}
+
+collectionsResizer.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  const startX = event.clientX;
+  const startWidth = collectionsColumn.getBoundingClientRect().width;
+  collectionsResizer.setPointerCapture(event.pointerId);
+  collectionsResizer.classList.add("dragging");
+  const resize = (move) => setCollectionsWidth(startWidth + move.clientX - startX);
+  collectionsResizer.addEventListener("pointermove", resize);
+  collectionsResizer.addEventListener(
+    "pointerup",
+    () => {
+      collectionsResizer.removeEventListener("pointermove", resize);
+      collectionsResizer.classList.remove("dragging");
+      saveCollectionsWidth(collectionsColumn.getBoundingClientRect().width);
+    },
+    { once: true },
+  );
+});
+collectionsResizer.addEventListener("dblclick", () => {
+  setCollectionsWidth(null);
+  saveCollectionsWidth(null);
+});
+
+try {
+  const saved = localStorage.getItem("collectionsWidth");
+  if (saved !== null) setCollectionsWidth(Number(saved));
+} catch {
+  // Storage unavailable: the default width.
 }
 
 function toggleCollections() {

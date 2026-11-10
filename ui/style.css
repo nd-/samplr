@@ -290,7 +290,12 @@ header button {
 }
 
 #collections {
-	width: 13rem;
+	position: relative;
+	/* Changed by dragging its right edge (`--collections-width`, set by the
+	   page). */
+	width: var(--collections-width, 13rem);
+	flex-shrink: 0;
+	box-sizing: border-box;
 	display: flex;
 	flex-direction: column;
 	border-right: 1px solid var(--border);
@@ -332,7 +337,8 @@ header button {
 
 #collections.collapsed h2,
 #collections.collapsed #collection-list,
-#collections.collapsed #new-collection {
+#collections.collapsed #new-collection,
+#collections.collapsed #collections-resizer {
 	display: none;
 }
 
