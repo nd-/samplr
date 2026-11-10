@@ -1533,4 +1533,126 @@ mod tests {
             (Some("bass".to_string()), Some(analysis::Source::Name))
         );
     }
+
+    #[test]
+    fn a_new_colour_goes_at_the_end_of_the_palette() {
+        let db = new_db();
+        let id = add_color(&db, "  Lime ", " #A0E040 ").unwrap();
+        let palette = colors(&db).unwrap();
+        assert_eq!(palette.len(), 11);
+        let last = palette.last().unwrap();
+        assert_eq!(
+            (last.id, last.name.as_str(), last.hex.as_str()),
+            (id, "Lime", "#a0e040")
+        );
+    }
+
+    #[test]
+    fn a_colour_must_be_rrggbb() {
+        let db = new_db();
+        for refused in ["red", "a0e040", "#a0e04", "#a0e0400", "#g0e040", ""] {
+            assert!(add_color(&db, "Bad", refused).is_err(), "{refused:?}");
+        }
+        assert_eq!(colors(&db).unwrap().len(), 10);
+    }
+
+    #[test]
+    fn a_colour_is_renamed_and_changed() {
+        let db = new_db();
+        let id = colors(&db).unwrap()[0].id;
+        update_color(&db, id, "Brick", "#B03020").unwrap();
+        let first = &colors(&db).unwrap()[0];
+        assert_eq!(
+            (first.name.as_str(), first.hex.as_str()),
+            ("Brick", "#b03020")
+        );
+        // A refused value changes nothing.
+        assert!(update_color(&db, id, "Other", "brick").is_err());
+        assert_eq!(colors(&db).unwrap()[0].name, "Brick");
+    }
+
+    #[test]
+    fn a_colour_s_use_is_counted_before_deleting_it() {
+        let db = new_db();
+        let color = colors(&db).unwrap()[0].id;
+        let id = add(&db, "/lib/a.wav");
+        tag(&db, id, &["drums", "dry"]);
+        set_tag_color(&db, "drums", Some(color)).unwrap();
+        set_tag_color(&db, "dry", Some(color)).unwrap();
+        let collection = create_collection(&db, "Set").unwrap();
+        set_collection_color(&db, collection, Some(color)).unwrap();
+        assert_eq!(collections(&db).unwrap()[0].color_id, Some(color));
+        assert_eq!(color_usage(&db, color).unwrap(), (2, 1));
+
+        delete_color(&db, color).unwrap();
+        assert_eq!(collections(&db).unwrap()[0].color_id, None);
+        assert_eq!(color_usage(&db, color).unwrap(), (0, 0));
+        // Taken off by hand too.
+        let other = colors(&db).unwrap()[0].id;
+        set_collection_color(&db, collection, Some(other)).unwrap();
+        set_collection_color(&db, collection, None).unwrap();
+        assert_eq!(collections(&db).unwrap()[0].color_id, None);
+    }
+
+    #[test]
+    fn collection_names() {
+        let db = new_db();
+        create_collection(&db, "  drums ").unwrap();
+        create_collection(&db, "Ambient").unwrap();
+        assert!(create_collection(&db, "   ").is_err());
+        assert!(create_collection(&db, "drums").is_err());
+        // Sorted by name, case ignored.
+        let names: Vec<String> = collections(&db)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        assert_eq!(names, ["Ambient", "drums"]);
+    }
+
+    #[test]
+    fn deleting_a_collection_keeps_its_samples() {
+        let db = new_db();
+        let id = add(&db, "/lib/a.wav");
+        tag(&db, id, &["drums"]);
+        let collection = create_collection(&db, "Set").unwrap();
+        add_to_collection(&db, collection, &[id]).unwrap();
+
+        delete_collection(&db, collection).unwrap();
+        assert!(collections(&db).unwrap().is_empty());
+        assert!(collections_holding(&db, &[id]).unwrap().is_empty());
+        assert_eq!(found(&db, &[]), ["/lib/a.wav"]);
+        assert_eq!(tags_of(&db, id).unwrap(), ["drums"]);
+    }
+
+    #[test]
+    fn taking_samples_out_of_a_collection() {
+        let db = new_db();
+        let a = add(&db, "/lib/a.wav");
+        let b = add(&db, "/lib/b.wav");
+        let collection = create_collection(&db, "Set").unwrap();
+        add_to_collection(&db, collection, &[a, b]).unwrap();
+
+        assert_eq!(remove_from_collection(&db, collection, &[a]).unwrap(), 1);
+        // Not in it any more: nothing to take out.
+        assert_eq!(remove_from_collection(&db, collection, &[a]).unwrap(), 0);
+        assert_eq!(collections(&db).unwrap()[0].samples, 1);
+        assert_eq!(found(&db, &[]).len(), 2);
+    }
+
+    #[test]
+    fn a_hidden_sample_stays_in_its_collections() {
+        let db = new_db();
+        add_folder(&db, Path::new("/lib")).unwrap();
+        let id = add(&db, "/lib/a.wav");
+        let collection = create_collection(&db, "Set").unwrap();
+        add_to_collection(&db, collection, &[id]).unwrap();
+
+        remove_folder(&db, Path::new("/lib")).unwrap();
+        // Not counted while hidden, but still there.
+        assert_eq!(collections(&db).unwrap()[0].samples, 0);
+        add_folder(&db, Path::new("/lib")).unwrap();
+        add(&db, "/lib/a.wav");
+        assert_eq!(collections(&db).unwrap()[0].samples, 1);
+    }
 }
