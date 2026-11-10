@@ -373,7 +373,13 @@ pub(crate) fn probe(path: &Path) -> Result<ProbeResult, Box<dyn Error>> {
     Ok(symphonia::default::get_probe().format(
         &hint,
         stream,
-        &FormatOptions::default(),
+        // Without it, an MP3 or an OGG is a few tens of milliseconds too long
+        // (the encoder's delay and padding): enough to miss a loop's tempo
+        // from its length, which allows 2 %.
+        &FormatOptions {
+            enable_gapless: true,
+            ..Default::default()
+        },
         &MetadataOptions::default(),
     )?)
 }
@@ -840,14 +846,9 @@ mod tests {
                 "{name}"
             );
             let seconds = info.duration_secs.unwrap();
-            // A lossy file is read with its encoder's delay and padding, a
-            // few tens of milliseconds (symphonia's gapless reading is off);
-            // symphonia counts one frame too many in an AIFF.
-            let slack = if bits.is_some() { 0.001 } else { 0.06 };
-            assert!(
-                (1.0..=1.0 + slack).contains(&seconds),
-                "{name}: {seconds} s"
-            );
+            // Lossy too, without the encoder's delay and padding; symphonia
+            // counts one frame too many in an AIFF.
+            assert!((1.0..=1.001).contains(&seconds), "{name}: {seconds} s");
         }
     }
 }

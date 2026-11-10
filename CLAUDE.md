@@ -195,6 +195,10 @@ Audio pitfalls met so far:
   are not decoded by symphonia 0.5: length found, channels unknown, no sample. The same sound
   re-encoded by `afconvert` (AAC or WAV) plays fine: AAC is supported, the structure of these
   files is the problem.
+- MP3 and OGG lengths: read with the encoder's delay and padding, a one-second sound lasted 1.045 s
+  (MP3) or 1.012 s (OGG), enough to miss a loop's tempo from its length. `probe` turns on
+  symphonia's `enable_gapless`: exact lengths (checked by `every_format_read_without_decoding`).
+  Playback and waveforms go through rodio and are not concerned.
 - When the decoder produces no sample, `play` reports it ("no sound decoded"): it checks this
   on a throwaway decoder before opening the audio output.
 
