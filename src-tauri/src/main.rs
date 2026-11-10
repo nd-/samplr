@@ -457,6 +457,19 @@ struct Added {
 #[tauri::command(async)]
 fn add_folder(folder: PathBuf, library: State<Library>, app: AppHandle) -> Result<Added, String> {
     let mut db = db::open().map_err(|e| e.to_string())?;
+    // Watched before it is scanned, like at startup: a file added or renamed
+    // in a part the scan has already gone through is seen by the watcher. The
+    // folder must be in the database for `update_watched` to watch it.
+    let canonical = dunce::canonicalize(&folder).map_err(|e| e.to_string())?;
+    if !canonical.is_dir() {
+        return Err(format!("\"{}\" is not a folder", folder.display()));
+    }
+    db::add_folder(&db, &canonical).map_err(|e| e.to_string())?;
+    // A folder that cannot be watched is kept as a problem for the page by
+    // `update_watched`; the samples are saved all the same.
+    if let Err(error) = library.update_watched() {
+        eprintln!("{}: not watched: {error}", canonical.display());
+    }
     // At most one event every 100 ms: one per file would flood the page.
     let mut last_report = Instant::now();
     let mut progress = |done: usize, total: usize| {
@@ -466,11 +479,7 @@ fn add_folder(folder: PathBuf, library: State<Library>, app: AppHandle) -> Resul
             let _ = app.emit("scan-progress", ScanProgress { done, total });
         }
     };
-    let scan = samplr::scan(&mut db, &folder, &mut progress).map_err(|e| e.to_string())?;
-    // The samples are saved even if the folder cannot be watched.
-    if let Err(error) = library.update_watched() {
-        eprintln!("{}: not watched: {error}", scan.folder.display());
-    }
+    let scan = samplr::scan(&mut db, &canonical, &mut progress).map_err(|e| e.to_string())?;
     library.update_waveforms();
     Ok(Added {
         samples: scan.samples.len(),

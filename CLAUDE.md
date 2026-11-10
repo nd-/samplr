@@ -277,8 +277,9 @@ Audio pitfalls met so far:
   (`count_audio_files`, a walk that reads no file), then `index` calls a callback after each
   audio file, readable or not; `add_folder` turns it into `scan-progress` events (`done`,
   `total`), at most one every 100 ms, shown as a `<progress>` in the status line. Until the
-  first event the bar shows an activity without a value. The folder is followed live from then
-  on.
+  first event the bar shows an activity without a value. The folder is saved and watched
+  before the scan starts (like at startup, watching comes before catching up): a file added or
+  renamed during a long scan, in a part already gone through, is seen by the watcher.
 - Live following: while the app is open, the scanned folders are followed like `samplr watch`
   (catch-up at startup, then live changes; renames keep the tags; an unplugged disk is left
   alone). The code is shared: `src/watch.rs` in the library (`roots`, `new_watcher`,
