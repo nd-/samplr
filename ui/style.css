@@ -389,6 +389,16 @@ header button:disabled {
 	font-size: 0.9em;
 }
 
+/* When the panel overflows, WebKitGTK draws it on a scrolling layer of its
+   own, where text without a background of its own is smoothed otherwise and
+   looks bold (the same as the list's rows, see `tbody tr`). */
+#info-list dt,
+#info-list dd,
+#info-list h3,
+#info-list .hint {
+	background: var(--bg);
+}
+
 #info-list dt {
 	margin-top: var(--space-6);
 	color: var(--muted);

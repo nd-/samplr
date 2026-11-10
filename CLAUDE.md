@@ -593,7 +593,10 @@ Audio pitfalls met so far:
   genre, comment, copyright, software, source…; 2092 of the 3198 WAV files of the Linux library
   have one, Future Loops and Splice among them). Other formats: symphonia's tags (ID3 of MP3,
   Vorbis comments of FLAC and OGG). symphonia 0.5 does not read the ID3 chunk of an AIFF (Splice's
-  KSHMR loops carry only a URL there): not read yet.
+  KSHMR loops carry only a URL there): not read yet. Its labels and values have a background of
+  their own (`--bg`): when the panel overflows, WebKitGTK draws it on a scrolling layer of its
+  own, where text on no background looked bold (a background on the panel itself did not help;
+  checked in MiniBrowser).
 - Errors: `showError` in `main.js` shows them in a red box above the status line (`#error-box`,
   `--error` the same red in every theme, closed by its × or after 10 s, not while the pointer is
   on it; its text can be selected and copied) and in the status line; every failure reported to
