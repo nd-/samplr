@@ -89,6 +89,11 @@ impl Onsets {
         // What stands above the mean: the attacks.
         let mean = self.envelope.iter().sum::<f32>() / self.envelope.len() as f32;
         let attacks: Vec<f32> = self.envelope.iter().map(|v| (v - mean).max(0.0)).collect();
+        // No attack (silence, a steady drone): every tempo would score 0, and
+        // the first candidate would win for nothing.
+        if attacks.iter().all(|&attack| attack == 0.0) {
+            return None;
+        }
         let steps_per_second = self.sample_rate / HOP as f64;
         let mut best: Option<(f32, f64)> = None;
         for beats in 1..=64u32 {
@@ -195,6 +200,15 @@ mod tests {
         assert_eq!(clicks(120.0, 8).tempo(), Some(120));
         assert_eq!(clicks(95.0, 8).tempo(), Some(95));
         assert_eq!(clicks(140.0, 16).tempo(), Some(140));
+    }
+
+    #[test]
+    fn silence_has_no_tempo() {
+        let mut onsets = Onsets::new(44_100);
+        for _ in 0..105_840 {
+            onsets.push(0.0);
+        }
+        assert_eq!(onsets.tempo(), None);
     }
 
     #[test]
