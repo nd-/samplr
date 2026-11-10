@@ -649,6 +649,10 @@ Audio pitfalls met so far:
   under 4 s), the right key for 13 % of 974 (mostly a fifth off), 158 ms and up to 600 MB per file
   for two minutes of sound: not used. Never decode a whole file into memory for an analysis: a
   3-hour recording took the machine's memory.
+- Bars (`barsText`): a loop's length in bars of four beats, tempo × length ÷ 240, shown after the
+  length in the Info panel, in the playback bar ("2.00 s (1 bar)") and in the Length cell's
+  tooltip: "4 bars", "1 bar", "2 beats" under a bar, "≈ 4.5 bars" when not whole (a tail of
+  reverb, a tempo estimated wrong). Nothing for a one-shot or without a tempo; not stored.
 - Loop or one-shot (`analysis::looped`, unit-tested): set by hand first (`files.looped`), else the
   ACID chunk's flag, else the words of the file name then of its folders from the deepest up, the
   first that says it winning (`loop_from_words`: "loop", "loops"; "one shot", "oneshot", "hit",

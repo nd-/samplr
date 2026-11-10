@@ -153,7 +153,11 @@ function buildRow(index) {
       return star;
     },
     name: () => cell(name),
-    length: () => cell(formatDuration(sample.duration_secs), "number"),
+    length: () => {
+      const td = cell(formatDuration(sample.duration_secs), "number");
+      td.title = barsText(sample);
+      return td;
+    },
     bpm: () => bpmCell(sample),
     key: () => keyCell(sample),
     loop: () => loopCell(sample),
@@ -784,7 +788,12 @@ function drawInfo(sample) {
   add("Name", name);
   add("Folder", folder);
   add("Format", formatOf(sample));
-  add("Length", sample.duration_secs === null ? null : formatDuration(sample.duration_secs));
+  add(
+    "Length",
+    sample.duration_secs === null
+      ? null
+      : [formatDuration(sample.duration_secs), barsText(sample)].filter(Boolean).join(" · "),
+  );
   if (infoOfFile && !infoOfFile.error) {
     add("Size", formatSize(infoOfFile.size));
     if (infoOfFile.modified !== null) {
@@ -839,7 +848,10 @@ function renderPlayer(sample) {
     details.push(heard === sample.key ? heard : `${heard} (${sample.key})`);
   }
   if (sample.loop_source) details.push(sample.looped ? "Loop" : "One-shot");
-  if (sample.duration_secs !== null) details.push(formatDuration(sample.duration_secs));
+  if (sample.duration_secs !== null) {
+    const bars = barsText(sample);
+    details.push(formatDuration(sample.duration_secs) + (bars ? ` (${bars})` : ""));
+  }
   if (sample.lufs !== null) details.push(`${sample.lufs.toFixed(1)} LUFS`);
   nowDetails.textContent = details.join(" · ");
 }
@@ -852,6 +864,25 @@ function transpose(key, steps) {
   if (!match || steps === 0) return key;
   const index = notes.indexOf(match[1]);
   return notes[(((index + steps) % 12) + 12) % 12] + match[2];
+}
+
+// A loop's length in bars of four beats, from its tempo: "4 bars", "1 bar",
+// "2 beats" under a bar, "≈ 4.5 bars" when it is not a whole number (a tail
+// of reverb, a tempo estimated wrong). Empty for a one-shot or without a
+// tempo.
+function barsText(sample) {
+  if (!sample.looped || !sample.bpm || !(sample.duration_secs > 0)) return "";
+  const beats = (sample.bpm * sample.duration_secs) / 60;
+  if (beats < 3.9) {
+    const whole = Math.round(beats);
+    return Math.abs(beats - whole) < 0.1 && whole > 0
+      ? `${whole} beat${whole === 1 ? "" : "s"}`
+      : `≈ ${beats.toFixed(1)} beats`;
+  }
+  const bars = beats / 4;
+  const whole = Math.round(bars);
+  if (Math.abs(bars - whole) < 0.05) return `${whole} bar${whole === 1 ? "" : "s"}`;
+  return `≈ ${bars.toFixed(1)} bars`;
 }
 
 // "WAV · pcm_s24le · 24 bit · 44.1 kHz · stereo".
