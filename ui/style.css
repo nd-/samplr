@@ -874,6 +874,20 @@ th, td {
 	text-overflow: ellipsis;
 }
 
+/* A line between the columns, fainter in the list. Same width in both
+   tables, so that the header stays aligned with the rows. */
+th, td {
+	border-right: 1px solid var(--border);
+}
+
+td {
+	border-right-color: color-mix(in srgb, var(--border) 45%, transparent);
+}
+
+th:last-child, td:last-child {
+	border-right: none;
+}
+
 th[data-sort] {
 	cursor: pointer;
 }
