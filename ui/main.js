@@ -1511,6 +1511,7 @@ async function openContextMenu(x, y) {
   // The files themselves: a DAW project pointing to the old path will no
   // longer find them, hence the explicit wording.
   items.push(document.createElement("hr"));
+  items.push(menuButton(isMac ? "Show in Finder" : "Show in file manager", revealChosen));
   if (chosenPaths().length === 1) items.push(renameButton());
   items.push(menuButton("Move file(s) to folder…", moveChosen));
   const convert = menuButton("Convert file(s)…", openConvert);
@@ -1585,6 +1586,15 @@ async function moveChosen() {
   } catch (error) {
     // Some may have moved before the failure: the list shows where they are.
     await refresh({ stopIfGone: false });
+    showError(error);
+  }
+}
+
+// The selected samples' files, selected in the system's file manager.
+async function revealChosen() {
+  try {
+    await invoke("reveal", { paths: chosenPaths() });
+  } catch (error) {
     showError(error);
   }
 }

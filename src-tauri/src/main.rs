@@ -400,6 +400,80 @@ fn library_problems(library: State<Library>) -> Vec<String> {
     library.take_problems()
 }
 
+/// Shows samples' files in the system's file manager, selected: the Finder
+/// on Mac (`open -R`); on Linux the file manager answering the freedesktop
+/// `FileManager1` D-Bus interface (Nautilus, Dolphin, Nemo…), through
+/// `gdbus`, which comes with GLib, already needed by Tauri; failing that,
+/// the folder of the first file is opened.
+#[tauri::command(async)]
+fn reveal(paths: Vec<PathBuf>) -> Result<(), String> {
+    let first = paths.first().ok_or("no file to show")?;
+    if let Some(missing) = paths.iter().find(|path| !path.exists()) {
+        return Err(format!("{} is not on disk", missing.display()));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("open")
+            .arg("-R")
+            .args(&paths)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err(format!("the Finder could not show {}", first.display()));
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let uris: Vec<String> = paths
+            .iter()
+            .map(|path| format!("'{}'", file_uri(path)))
+            .collect();
+        let shown = std::process::Command::new("gdbus")
+            .args([
+                "call",
+                "--session",
+                "--dest",
+                "org.freedesktop.FileManager1",
+                "--object-path",
+                "/org/freedesktop/FileManager1",
+                "--method",
+                "org.freedesktop.FileManager1.ShowItems",
+                &format!("[{}]", uris.join(", ")),
+                "",
+            ])
+            .output()
+            .is_ok_and(|output| output.status.success());
+        if !shown {
+            let folder = first.parent().unwrap_or(first);
+            let status = std::process::Command::new("xdg-open")
+                .arg(folder)
+                .status()
+                .map_err(|e| e.to_string())?;
+            if !status.success() {
+                return Err(format!("no file manager could show {}", folder.display()));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `file:///home/me/kick%20%231.wav`: every byte but letters, digits, `-._~`
+/// and `/` percent-encoded, so that a space, a `#` or a quote in a name
+/// cannot break the URI nor the D-Bus argument holding it.
+#[cfg(not(target_os = "macos"))]
+fn file_uri(path: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    let mut uri = String::from("file://");
+    for &byte in path.as_os_str().as_bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~/".contains(&byte) {
+            uri.push(byte as char);
+        } else {
+            uri.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    uri
+}
+
 /// The `playback-position` event: where the sound `id` is, in seconds from
 /// its start (a loop keeps counting from its first start).
 #[derive(Serialize, Clone)]
@@ -718,6 +792,7 @@ fn main() {
             trash_samples,
             ffmpeg_available,
             library_problems,
+            reveal,
             convert_samples,
             colors,
             add_color,
@@ -747,6 +822,15 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn file_uris() {
+        assert_eq!(
+            file_uri(Path::new("/home/me/Été kick #1 'x'.wav")),
+            "file:///home/me/%C3%89t%C3%A9%20kick%20%231%20%27x%27.wav"
+        );
+    }
 
     #[test]
     fn tempo_filters() {

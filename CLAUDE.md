@@ -420,6 +420,11 @@ Audio pitfalls met so far:
   window, double-click for the default 13rem), remembered in `localStorage` (`collectionsWidth`),
   so that long names can be read; a name too long still ends with an ellipsis and shows whole in
   its tooltip.
+- Show in Finder / file manager (row menu, the selection; `reveal`): `open -R` on Mac; on Linux
+  the freedesktop `org.freedesktop.FileManager1.ShowItems` D-Bus method through `gdbus` (part of
+  GLib, which Tauri needs anyway; Nautilus, Dolphin, Nemo answer it), with the files as `file://`
+  URIs percent-encoded byte by byte (`file_uri`, unit-tested), and the first file's folder opened
+  with `xdg-open` when nothing answers. No crate added: `tauri-plugin-opener` would do the same.
 - Conversion: "Convert file(s)…" in the row menu (the selection; greyed when ffmpeg is not
   found, `ffmpeg_available`) opens a window (`#convert`) asking the format (WAV, AIFF, FLAC,
   MP3, OGG Vorbis), its settings (bit depth 16, 24 or as the original for the lossless ones, MP3
