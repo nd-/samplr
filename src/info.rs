@@ -32,14 +32,15 @@ pub fn file_tags(path: &Path) -> Vec<(String, String)> {
     } else {
         symphonia_tags(path)
     };
-    let mut seen = Vec::new();
-    tags.retain(|(label, value)| {
-        let keep = !value.is_empty() && !seen.contains(&(label.clone(), value.clone()));
-        seen.push((label.clone(), value.clone()));
-        keep
-    });
+    let mut seen = std::collections::HashSet::new();
+    tags.retain(|(label, value)| !value.is_empty() && seen.insert((label.clone(), value.clone())));
+    tags.truncate(MAX_FIELDS);
     tags
 }
+
+/// At most this many fields are read from a file: a real one has a dozen,
+/// and a damaged or crafted file could hold hundreds of thousands.
+const MAX_FIELDS: usize = 256;
 
 /// The `LIST/INFO` chunk of a RIFF file: four-letter fields of text.
 fn riff_info<R: Read + Seek>(file: &mut R) -> Vec<(String, String)> {
@@ -47,7 +48,6 @@ fn riff_info<R: Read + Seek>(file: &mut R) -> Vec<(String, String)> {
     if file.read_exact(&mut header).is_err() || &header[0..4] != b"RIFF" {
         return Vec::new();
     }
-    let mut tags = Vec::new();
     let mut chunk = [0u8; 8];
     while file.read_exact(&mut chunk).is_ok() {
         let size = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]) as usize;
@@ -57,8 +57,9 @@ fn riff_info<R: Read + Seek>(file: &mut R) -> Vec<(String, String)> {
             if file.read_exact(&mut body).is_err() {
                 break;
             }
+            // The first INFO list only: a file has one.
             if body.starts_with(b"INFO") {
-                tags.extend(info_fields(&body[4..]));
+                return info_fields(&body[4..]);
             }
             if size % 2 == 1 && file.seek(SeekFrom::Current(1)).is_err() {
                 break;
@@ -70,13 +71,13 @@ fn riff_info<R: Read + Seek>(file: &mut R) -> Vec<(String, String)> {
             break;
         }
     }
-    tags
+    Vec::new()
 }
 
 /// The fields of an INFO list: id (4 bytes), size, text ended by a zero.
 fn info_fields(mut body: &[u8]) -> Vec<(String, String)> {
     let mut fields = Vec::new();
-    while body.len() >= 8 {
+    while body.len() >= 8 && fields.len() < MAX_FIELDS {
         let id = String::from_utf8_lossy(&body[0..4]).to_string();
         let size = u32::from_le_bytes([body[4], body[5], body[6], body[7]]) as usize;
         let end = (8 + size).min(body.len());
@@ -141,7 +142,7 @@ fn symphonia_tags(path: &Path) -> Vec<(String, String)> {
     };
     let mut tags = Vec::new();
     let mut take = |revision: &MetadataRevision| {
-        for tag in revision.tags() {
+        for tag in revision.tags().iter().take(MAX_FIELDS) {
             let label = tag
                 .std_key
                 .map(standard_label)
@@ -225,6 +226,18 @@ mod tests {
                 ("XYZW".to_string(), "other".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn capped() {
+        // An INFO list of 100 000 empty-ish fields, as a crafted file could
+        // hold: read quickly, at most MAX_FIELDS kept.
+        let mut list = b"INFO".to_vec();
+        for i in 0..100_000u32 {
+            list.extend(field(b"ICMT", format!("{i}\0").as_bytes()));
+        }
+        let fields = info_fields(&list[4..]);
+        assert_eq!(fields.len(), MAX_FIELDS);
     }
 
     #[test]
