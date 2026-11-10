@@ -241,7 +241,9 @@ Audio pitfalls met so far:
   ignored.
 - 7d: a tag bar under the waveform shows the selected sample's tags, each with a × to remove
   it. Ctrl+T (Cmd+T on Mac) moves to the tag box; there, Enter adds the tags typed (separated
-  by spaces), Backspace on an empty box removes the last tag, Esc goes back to the search box.
+  by spaces), Backspace on an empty box removes the last tag shown in the bar (`commonTags`:
+  with several samples selected, the last tag they all carry, never one of the current row
+  only), Esc goes back to the search box.
   The `add_tags` and `remove_tag` commands return the sample's tags after the change.
 - Preview controls: Play, Stop (same as Esc), the Play loop and Autoplay checkboxes and a
   volume slider in the header. Autoplay off: a click on a row selects it without playing (to

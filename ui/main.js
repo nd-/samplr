@@ -474,13 +474,17 @@ function select(index, mode = "single", andPlay = true) {
 
 // The tags of the selection, each with a button to remove it: with several
 // samples, the tags they all carry.
+// The tags all the given samples carry: those the tag bar shows.
+function commonTags(chosen) {
+  if (chosen.length === 0) return [];
+  return chosen[0].tags.filter((tag) => chosen.every((sample) => sample.tags.includes(tag)));
+}
+
 function renderTags() {
   const chosen = selectedSamples();
   tagInput.disabled = chosen.length === 0;
   tagInput.placeholder = chosen.length > 1 ? `Add tags to ${chosen.length} samples` : "Add tags";
-  const common = chosen.length === 0
-    ? []
-    : chosen[0].tags.filter((tag) => chosen.every((sample) => sample.tags.includes(tag)));
+  const common = commonTags(chosen);
   const chips = common.map((tag) => {
     const chip = document.createElement("span");
     chip.className = "tag";
@@ -1749,7 +1753,9 @@ document.addEventListener("keydown", (event) => {
       return;
     }
     if (event.key === "Backspace" && tagInput.value === "") {
-      const tags = samples[selected]?.tags ?? [];
+      // The last chip of the bar: a tag of the whole selection, not one of
+      // the current row only (which may not even be selected any more).
+      const tags = commonTags(selectedSamples());
       if (tags.length > 0) removeTag(tags[tags.length - 1]);
       event.preventDefault();
       return;
