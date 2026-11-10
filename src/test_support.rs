@@ -15,6 +15,34 @@ pub fn memory_db() -> Connection {
     db
 }
 
+/// Saves a sample at `path` as a scan would, with nothing read from a file
+/// (one second, stereo). Returns its `id`.
+pub fn save_sample(db: &Connection, path: &str) -> i64 {
+    let info = crate::SampleInfo {
+        path: PathBuf::from(path),
+        duration_secs: Some(1.0),
+        sample_rate: Some(44_100),
+        channels: Some(2),
+        bits: Some(16),
+        tags: Vec::new(),
+        favorite: false,
+        collections: Vec::new(),
+        bpm: None,
+        bpm_source: None,
+        bpm_fixed: false,
+        key: None,
+        looped: false,
+        loop_source: None,
+        sound_type: None,
+        type_source: None,
+        lufs: None,
+        peak_db: None,
+        codec: None,
+        acid: None,
+    };
+    db::save(db, &info).unwrap()
+}
+
 /// A folder of its own in the system's temporary folder, deleted with
 /// everything inside when the test ends, even when it fails.
 pub struct TempDir(PathBuf);

@@ -86,84 +86,11 @@ fn search(
     favorites: bool,
     collection: Option<i64>,
 ) -> Result<Vec<SampleInfo>, String> {
-    let mut tags = Vec::new();
-    let mut words = Vec::new();
-    let mut tempos = None;
-    let mut key = None;
-    let mut looped = None;
-    let mut sound_type = None;
-    for word in query.split_whitespace() {
-        // `bpm:` and `key:` filters; one still being typed and not valid
-        // yet (`bpm:1`, `key:`) filters nothing.
-        let lower = word.to_lowercase();
-        if let Some(value) = lower.strip_prefix("bpm:") {
-            tempos = tempo_range(value).or(tempos);
-            continue;
-        }
-        if let Some(value) = word.get(4..).filter(|_| lower.starts_with("key:")) {
-            key = analysis::normalize_key(value).or(key);
-            continue;
-        }
-        if let Some(value) = lower.strip_prefix("loop:") {
-            looped = match value {
-                "yes" | "y" | "true" | "1" => Some(true),
-                "no" | "n" | "false" | "0" => Some(false),
-                // Still being typed: no filter.
-                _ => looped,
-            };
-            continue;
-        }
-        if let Some(value) = lower.strip_prefix("type:") {
-            if samplr::sound_type::is_known(value) {
-                sound_type = Some(value.to_string());
-            }
-            continue;
-        }
-        match word.strip_prefix('#') {
-            Some("") => {} // a lone `#` while the user is still typing
-            Some(tag) => tags.push(tag.to_string()),
-            None => words.push(word),
-        }
-    }
-
     let db = db::open().map_err(|e| e.to_string())?;
-    let mut samples =
-        db::search(&db, &tags, &words, "", favorites, collection).map_err(|e| e.to_string())?;
-    // Tempo and key are worked out from the name and the length, not stored:
-    // they are filtered here rather than in SQL.
-    if let Some(tempos) = tempos {
-        samples.retain(|sample| sample.bpm.is_some_and(|bpm| tempos.contains(&bpm)));
-    }
-    if let Some(key) = key {
-        samples.retain(|sample| sample.key.as_ref() == Some(&key));
-    }
-    if let Some(looped) = looped {
-        samples.retain(|sample| sample.looped == looped);
-    }
-    // `type:drums` keeps the whole family, `type:kick` the kicks only,
-    // `type:electric` electric guitars and basses.
-    if let Some(wanted) = sound_type {
-        samples.retain(|sample| {
-            sample
-                .sound_type
-                .as_deref()
-                .is_some_and(|found| samplr::sound_type::matches(found, &wanted))
-        });
-    }
-    Ok(samples)
+    samplr::query::search(&db, &query, favorites, collection).map_err(|e| e.to_string())
 }
 
-/// `120` or `118-124`, within the tempos samples have.
-fn tempo_range(value: &str) -> Option<std::ops::RangeInclusive<u32>> {
-    let (low, high) = value.split_once('-').unwrap_or((value, value));
-    let (low, high): (u32, u32) = (low.parse().ok()?, high.parse().ok()?);
-    // In either order: `bpm:150-120` is 120 to 150.
-    let (low, high) = (low.min(high), low.max(high));
-    // A number still being typed (`bpm:1` on the way to `bpm:120`) filters
-    // nothing rather than everything.
-    (TEMPOS.contains(&low) && TEMPOS.contains(&high)).then_some(low..=high)
-}
-
+/// The tempos a sample can be given by hand.
 const TEMPOS: std::ops::RangeInclusive<u32> = samplr::analysis::MANUAL_TEMPOS;
 
 /// The palette, in its order.
@@ -1066,19 +993,5 @@ mod tests {
             file_uri(Path::new("/home/me/Été kick #1 'x'.wav")),
             "file:///home/me/%C3%89t%C3%A9%20kick%20%231%20%27x%27.wav"
         );
-    }
-
-    #[test]
-    fn tempo_filters() {
-        assert_eq!(tempo_range("120"), Some(120..=120));
-        assert_eq!(tempo_range("118-124"), Some(118..=124));
-        assert_eq!(tempo_range("150-120"), Some(120..=150));
-        // Tempos set by hand outside the old 40 to 300.
-        assert_eq!(tempo_range("30"), Some(30..=30));
-        assert_eq!(tempo_range("350"), Some(350..=350));
-        // Still being typed: no filter.
-        assert_eq!(tempo_range("1"), None);
-        assert_eq!(tempo_range("118-"), None);
-        assert_eq!(tempo_range("12-130"), None);
     }
 }

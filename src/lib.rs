@@ -7,6 +7,7 @@ pub mod convert;
 pub mod db;
 pub mod info;
 pub mod pulse;
+pub mod query;
 pub mod sound_type;
 pub mod watch;
 pub mod waveform;
