@@ -17,15 +17,40 @@ for (const element of document.querySelectorAll('[title*="Ctrl+"]')) {
   element.title = shortcut(element.title);
 }
 
+// The page's choices kept on this computer. `localStorage` throws when the
+// storage is unavailable: nothing is then remembered, and each choice keeps
+// its default.
+function stored(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+// `null` forgets the key.
+function store(key, value) {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, String(value));
+  } catch {
+    // Not remembered: the choice lasts until the app closes.
+  }
+}
+
+// A value stored as JSON, or `fallback` when missing or unreadable.
+function storedJson(key, fallback) {
+  try {
+    return JSON.parse(stored(key)) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 // Settings > Confirmations: ask before deleting a collection, removing a
 // folder or deleting a colour (on unless turned off). Remembered on
 // this computer, like the theme.
-let askBeforeDeleting = true;
-try {
-  askBeforeDeleting = localStorage.getItem("askBeforeDeleting") !== "false";
-} catch {
-  // Storage unavailable: ask.
-}
+let askBeforeDeleting = stored("askBeforeDeleting") !== "false";
 
 // Returns true when the action may go ahead: confirmed, or no question asked.
 async function confirmAction(message, title) {
@@ -335,12 +360,7 @@ const columnLabels = {
   tags: "Tags",
   folder: "Folder",
 };
-let hiddenColumns = new Set();
-try {
-  hiddenColumns = new Set(JSON.parse(localStorage.getItem("hiddenColumns") ?? "[]"));
-} catch {
-  // Storage unavailable or unreadable: every column.
-}
+const hiddenColumns = new Set(storedJson("hiddenColumns", []));
 hiddenColumns.delete("name");
 
 // The column taking the width left: Folder, or Name when Folder is hidden.
@@ -379,11 +399,7 @@ function toggleColumn(key) {
 }
 
 function hiddenColumnsChanged() {
-  try {
-    localStorage.setItem("hiddenColumns", JSON.stringify([...hiddenColumns]));
-  } catch {
-    // Storage unavailable: the choice lasts until the app closes.
-  }
+  store("hiddenColumns", JSON.stringify([...hiddenColumns]));
   render();
 }
 
@@ -393,10 +409,7 @@ function openColumnMenu(x, y) {
   // Shares the menu with the rows: a row's menu still waiting for its
   // answer must not replace this one.
   menuOpening += 1;
-  const label = document.createElement("div");
-  label.className = "label";
-  label.textContent = "Columns";
-  const items = [label];
+  const items = [menuLabel("Columns")];
   const choose = (action) => () => {
     action();
     openColumnMenu(x, y);
@@ -427,11 +440,7 @@ function openColumnMenu(x, y) {
     }),
   );
   items.push(all);
-  contextMenu.replaceChildren(...items);
-  contextMenu.hidden = false;
-  const { width, height } = contextMenu.getBoundingClientRect();
-  contextMenu.style.left = `${Math.min(x, window.innerWidth - width - 4)}px`;
-  contextMenu.style.top = `${Math.min(y, window.innerHeight - height - 4)}px`;
+  showMenu(items, x, y);
 }
 
 listHead.addEventListener("contextmenu", (event) => {
@@ -456,12 +465,7 @@ const defaultWidths = {
   collections: 160,
   tags: 200,
 };
-let columnWidths = { ...defaultWidths };
-try {
-  columnWidths = { ...defaultWidths, ...JSON.parse(localStorage.getItem("columnWidths") ?? "{}") };
-} catch {
-  // Storage unavailable or unreadable: the default widths.
-}
+const columnWidths = { ...defaultWidths, ...storedJson("columnWidths", {}) };
 // Folder had a width of its own before it took the rest.
 delete columnWidths.folder;
 
@@ -492,36 +496,44 @@ function applyColumnWidths() {
 window.addEventListener("resize", applyColumnWidths);
 
 function saveColumnWidths() {
-  try {
-    localStorage.setItem("columnWidths", JSON.stringify(columnWidths));
-  } catch {
-    // Storage unavailable: the widths are simply not remembered.
-  }
+  store("columnWidths", JSON.stringify(columnWidths));
 }
 
-for (const handle of document.querySelectorAll("th .resizer")) {
-  const name = handle.dataset.col;
+// A handle dragged with the mouse: `begin()` is called when it is pressed
+// and returns `move(dx, dy)`, called with the distance from the press, and
+// `end()`, called when it is released.
+function dragHandle(handle, begin) {
   handle.addEventListener("pointerdown", (event) => {
     event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = columnWidths[name];
-    // The pointer stays with the handle even when it leaves the header.
+    const { move, end } = begin();
+    // The pointer stays with the handle even when it leaves it.
     handle.setPointerCapture(event.pointerId);
     handle.classList.add("dragging");
-    const resize = (move) => {
-      columnWidths[name] = Math.max(40, startWidth + move.clientX - startX);
-      applyColumnWidths();
-    };
+    const resize = (moved) => move(moved.clientX - event.clientX, moved.clientY - event.clientY);
     handle.addEventListener("pointermove", resize);
     handle.addEventListener(
       "pointerup",
       () => {
         handle.removeEventListener("pointermove", resize);
         handle.classList.remove("dragging");
-        saveColumnWidths();
+        end();
       },
       { once: true },
     );
+  });
+}
+
+for (const handle of document.querySelectorAll("th .resizer")) {
+  const name = handle.dataset.col;
+  dragHandle(handle, () => {
+    const startWidth = columnWidths[name];
+    return {
+      move: (dx) => {
+        columnWidths[name] = Math.max(40, startWidth + dx);
+        applyColumnWidths();
+      },
+      end: saveColumnWidths,
+    };
   });
   handle.addEventListener("dblclick", () => {
     columnWidths[name] = defaultWidths[name];
@@ -571,17 +583,21 @@ function compareValues(x, y) {
 function sortSamples() {
   if (sortKey === null) return;
   const value = sortValues[sortKey];
-  samples.sort((a, b) => {
-    const x = value(a);
-    const y = value(b);
+  // Each sample's value worked out once, rather than at each of the many
+  // comparisons: some (name, folder, type, collections) are not free.
+  const keyed = samples.map((sample) => [value(sample), sample]);
+  keyed.sort(([x, a], [y, b]) => {
     if ((x === null) !== (y === null)) return x === null ? 1 : -1;
     const order = compareValues(x, y);
     // Equal values: by path, so that the order stays the same every time.
     return (sortAscending ? order : -order) || collator.compare(a.path, b.path);
   });
+  keyed.forEach(([, sample], i) => {
+    samples[i] = sample;
+  });
 }
 
-for (const header of document.querySelectorAll("th[data-sort]")) {
+for (const header of sortHeaders) {
   header.addEventListener("click", () => {
     if (sortKey === header.dataset.sort) {
       sortAscending = !sortAscending;
@@ -589,10 +605,10 @@ for (const header of document.querySelectorAll("th[data-sort]")) {
       sortKey = header.dataset.sort;
       sortAscending = true;
     }
-    for (const other of document.querySelectorAll("th[data-sort]")) {
-      other.classList.remove("sorted-ascending", "sorted-descending");
+    for (const other of sortHeaders) {
+      other.classList.toggle("sorted-ascending", other === header && sortAscending);
+      other.classList.toggle("sorted-descending", other === header && !sortAscending);
     }
-    header.classList.add(sortAscending ? "sorted-ascending" : "sorted-descending");
     // The selection and the current sample follow their rows.
     const currentPath = samples[selected]?.path;
     sortSamples();
@@ -661,8 +677,6 @@ function select(index, mode = "single", andPlay = true) {
   renderTags();
 }
 
-// The tags of the selection, each with a button to remove it: with several
-// samples, the tags they all carry.
 // The tags all the given samples carry: those the tag bar shows.
 function commonTags(chosen) {
   if (chosen.length === 0) return [];
@@ -680,13 +694,7 @@ function renderTags() {
     chip.textContent = tag;
     paint(chip, tagColor(tag));
     chip.title = "Right-click to give it a colour";
-    chip.addEventListener("contextmenu", (event) => {
-      event.preventDefault();
-      openColorMenu(event.clientX, event.clientY, tagColorIds.get(tag) ?? null, async (color) => {
-        await invoke("set_tag_color", { tag, color });
-        await loadColors();
-      });
-    });
+    chip.addEventListener("contextmenu", (event) => openTagColorMenu(event, tag));
     const remove = document.createElement("button");
     remove.textContent = "×";
     remove.title = `Remove ${tag}`;
@@ -738,6 +746,11 @@ function tempoOrigin(sample) {
 async function renderInfo() {
   const sample = samples[selected];
   renderPlayer(sample);
+  // Folded, the file is not read: it is when the panel opens again.
+  if (infoColumn.classList.contains("collapsed")) {
+    infoFor = null;
+    return;
+  }
   if (!sample) {
     infoFor = null;
     infoOfFile = null;
@@ -913,11 +926,8 @@ function setInfoFolded(folded) {
   // The waveform and the list take the width freed or taken.
   drawWaveform();
   applyColumnWidths();
-  try {
-    localStorage.setItem("infoFolded", String(folded));
-  } catch {
-    // Storage unavailable: the state is simply not remembered.
-  }
+  store("infoFolded", folded);
+  if (!folded) renderInfo();
 }
 
 function toggleInfo() {
@@ -941,12 +951,12 @@ function showTags(changed, allTags) {
 
 // A short light on what just changed, so that one sees the action took.
 function flash(elements) {
-  for (const element of elements) {
-    if (!element) continue;
-    element.classList.remove("flash");
-    // Reading the size makes the browser apply the removal now: the
-    // animation then starts again even if it was still running.
-    void element.offsetWidth;
+  const shown = elements.filter(Boolean);
+  for (const element of shown) element.classList.remove("flash");
+  // Reading a size makes the browser apply the removals now: the animation
+  // then starts again even if it was still running. Once for all of them.
+  void document.body.offsetWidth;
+  for (const element of shown) {
     element.classList.add("flash");
     element.addEventListener("animationend", () => element.classList.remove("flash"), {
       once: true,
@@ -972,7 +982,7 @@ async function addTags() {
     const paths = chosen.map((sample) => sample.path);
     showTags(chosen, await invoke("add_tags", { paths, tags }));
     tagInput.value = "";
-    flash([...rowsOf(paths), document.getElementById("tagbar")]);
+    flash([...rowsOf(paths), tagBar]);
   } catch (error) {
     showError(error);
   }
@@ -1071,7 +1081,6 @@ canvas.addEventListener("click", (event) => {
 // by another one may still be reported, and must then be ignored.
 let playId = 0;
 
-// `start`: where to start, in seconds from the beginning of the sample.
 // The path of the sample playing, or `null`.
 let playingPath = null;
 // The sound playing is paused (Space): it resumes where it was.
@@ -1113,6 +1122,7 @@ function playOrPause() {
   status.textContent = `${paused ? "⏸" : "▶"} ${name}`;
 }
 
+// `start`: where to start, in seconds from the beginning of the sample.
 function play(start = 0) {
   const sample = samples[selected];
   if (!sample) return;
@@ -1216,17 +1226,9 @@ function updatePlayButton() {
 // "Play loop": every sample played loops until the box is unchecked.
 // Remembered between sessions, like the volume.
 const loopBox = document.getElementById("loop");
-try {
-  loopBox.checked = localStorage.getItem("loop") === "true";
-} catch {
-  // Storage unavailable: no loop.
-}
+loopBox.checked = stored("loop") === "true";
 loopBox.addEventListener("change", () => {
-  try {
-    localStorage.setItem("loop", String(loopBox.checked));
-  } catch {
-    // Storage unavailable: the choice is simply not remembered.
-  }
+  store("loop", loopBox.checked);
   // A sound already playing cannot change mode: the selected one starts
   // again in the new mode; another one, no longer selected, stops.
   if (playingPath !== null) {
@@ -1244,19 +1246,11 @@ const volumeSlider = document.getElementById("volume");
 function applyVolume() {
   const position = volumeSlider.value / 100;
   invoke("set_volume", { volume: position * position });
-  try {
-    localStorage.setItem("volume", volumeSlider.value);
-  } catch {
-    // Storage unavailable: the volume is simply not remembered.
-  }
+  store("volume", volumeSlider.value);
 }
 
-try {
-  const saved = localStorage.getItem("volume");
-  if (saved !== null) volumeSlider.value = saved;
-} catch {
-  // Storage unavailable: keep the default position.
-}
+const savedVolume = stored("volume");
+if (savedVolume !== null) volumeSlider.value = savedVolume;
 volumeSlider.addEventListener("input", applyVolume);
 applyVolume();
 
@@ -1343,17 +1337,9 @@ targetBox.addEventListener("keydown", (event) => {
   event.stopPropagation();
   if (event.key === "Enter" || event.key === "Escape") targetBox.blur();
 });
-try {
-  tapeBox.checked = localStorage.getItem("tape") === "true";
-} catch {
-  // Storage unavailable: pitch and tempo independent.
-}
+tapeBox.checked = stored("tape") === "true";
 tapeBox.addEventListener("change", () => {
-  try {
-    localStorage.setItem("tape", String(tapeBox.checked));
-  } catch {
-    // Storage unavailable: the choice is simply not remembered.
-  }
+  store("tape", tapeBox.checked);
   applyPlayback();
   tapeBox.blur();
 });
@@ -1362,17 +1348,9 @@ applyPlayback();
 // Autoplay off: a click on a row selects it without playing it, to tag it or
 // drag it in silence. The arrow keys, Enter and Play still play.
 const autoplayBox = document.getElementById("autoplay");
-try {
-  autoplayBox.checked = localStorage.getItem("autoplay") !== "false";
-} catch {
-  // Storage unavailable: autoplay stays on.
-}
+autoplayBox.checked = stored("autoplay") !== "false";
 autoplayBox.addEventListener("change", () => {
-  try {
-    localStorage.setItem("autoplay", String(autoplayBox.checked));
-  } catch {
-    // Storage unavailable: the choice is simply not remembered.
-  }
+  store("autoplay", autoplayBox.checked);
   // Back to the list, so that the arrow keys move in it again.
   autoplayBox.blur();
 });
@@ -1406,9 +1384,7 @@ function watchForDrag(event, sample) {
 // files are offered as copies, so the receiving app never moves the
 // originals. Dragging a selected row takes the whole selection along.
 async function startDrag(sample) {
-  const paths = selectedPaths.has(sample.path)
-    ? selectedSamples().map((chosen) => chosen.path)
-    : [sample.path];
+  const paths = pathsFor(sample);
   const label = paths.length > 1 ? `${paths.length} samples` : splitPath(sample.path).name;
   try {
     await window.__TAURI__.drag.startDrag({
@@ -1508,11 +1484,7 @@ async function offerSpliceFolders() {
     return;
   }
   if (found.length === 0) return;
-  try {
-    localStorage.setItem("spliceOffered", "true");
-  } catch {
-    // Storage unavailable: asked again at the next launch.
-  }
+  store("spliceOffered", true);
   for (const folder of found) {
     const add = await window.__TAURI__.dialog.ask(
       `samplr found the folder where Splice keeps your sounds:\n${folder}\n\nAdd it to the library? Its samples stay where they are. The tempo, key and tags Splice shows stay in the Splice app: samplr works them out from the names.`,
@@ -1689,9 +1661,10 @@ async function setFavorite(chosen, favorite) {
     showError(error);
     return;
   }
+  const indexes = new Map(samples.map((sample, index) => [sample, index]));
   for (const sample of chosen) {
     sample.favorite = favorite;
-    const star = rowElement(samples.indexOf(sample))?.querySelector(".star");
+    const star = rowElement(indexes.get(sample) ?? -1)?.querySelector(".star");
     if (star) {
       star.textContent = favorite ? "★" : "☆";
       star.classList.toggle("off", !favorite);
@@ -1750,22 +1723,13 @@ function searchedTags() {
 
 // The Tags box's order: "name", or "count" (most used first, then by name).
 // Remembered on this computer.
-let tagSortOrder = "name";
-try {
-  if (localStorage.getItem("tagSort") === "count") tagSortOrder = "count";
-} catch {
-  // Storage unavailable: by name.
-}
+let tagSortOrder = stored("tagSort") === "count" ? "count" : "name";
 const tagSortButtons = document.querySelectorAll("#tag-sort button");
 
 for (const button of tagSortButtons) {
   button.addEventListener("click", () => {
     tagSortOrder = button.dataset.sort;
-    try {
-      localStorage.setItem("tagSort", tagSortOrder);
-    } catch {
-      // Storage unavailable: the order is simply not remembered.
-    }
+    store("tagSort", tagSortOrder);
     renderTagList();
   });
 }
@@ -1789,13 +1753,7 @@ function renderTagList() {
       undefined,
       tagColor(name) ?? "",
     );
-    item.addEventListener("contextmenu", (event) => {
-      event.preventDefault();
-      openColorMenu(event.clientX, event.clientY, tagColorIds.get(name) ?? null, async (color) => {
-        await invoke("set_tag_color", { tag: name, color });
-        await loadColors();
-      });
-    });
+    item.addEventListener("contextmenu", (event) => openTagColorMenu(event, name));
     return item;
   });
   if (items.length === 0) {
@@ -1925,6 +1883,16 @@ function chosenPaths() {
   return selectedSamples().map((sample) => sample.path);
 }
 
+// What an action on a row acts on: the whole selection when the row is in
+// it, otherwise that row alone.
+function samplesFor(sample) {
+  return selectedPaths.has(sample.path) ? selectedSamples() : [sample];
+}
+
+function pathsFor(sample) {
+  return samplesFor(sample).map((chosen) => chosen.path);
+}
+
 // `paths`: by default the selection; the dropped files for a drop.
 async function addToCollection(collection, paths = chosenPaths()) {
   if (paths.length === 0) return;
@@ -1978,11 +1946,7 @@ function setCollectionsFolded(folded) {
   // The waveform and the list take the width freed or taken.
   drawWaveform();
   applyColumnWidths();
-  try {
-    localStorage.setItem("collectionsFolded", String(folded));
-  } catch {
-    // Storage unavailable: the state is simply not remembered.
-  }
+  store("collectionsFolded", folded);
 }
 
 // The collections column's width, changed by dragging its right edge, so
@@ -2003,12 +1967,7 @@ function setCollectionsWidth(width) {
 }
 
 function saveCollectionsWidth(width) {
-  try {
-    if (width === null) localStorage.removeItem("collectionsWidth");
-    else localStorage.setItem("collectionsWidth", String(width));
-  } catch {
-    // Storage unavailable: the width is simply not remembered.
-  }
+  store("collectionsWidth", width);
 }
 
 // The height shared between the collections and the tags, changed by
@@ -2033,73 +1992,38 @@ function setCollectionsHeight(height) {
 }
 
 function saveCollectionsHeight(height) {
-  try {
-    if (height === null) localStorage.removeItem("collectionsHeight");
-    else localStorage.setItem("collectionsHeight", String(Math.round(height)));
-  } catch {
-    // Storage unavailable: the height is simply not remembered.
-  }
+  store("collectionsHeight", height === null ? null : Math.round(height));
 }
 
-listsResizer.addEventListener("pointerdown", (event) => {
-  event.preventDefault();
-  const startY = event.clientY;
+dragHandle(listsResizer, () => {
   const startHeight = collectionList.getBoundingClientRect().height;
-  listsResizer.setPointerCapture(event.pointerId);
-  listsResizer.classList.add("dragging");
-  const resize = (move) => setCollectionsHeight(startHeight + move.clientY - startY);
-  listsResizer.addEventListener("pointermove", resize);
-  listsResizer.addEventListener(
-    "pointerup",
-    () => {
-      listsResizer.removeEventListener("pointermove", resize);
-      listsResizer.classList.remove("dragging");
-      saveCollectionsHeight(collectionList.getBoundingClientRect().height);
-    },
-    { once: true },
-  );
+  return {
+    move: (dx, dy) => setCollectionsHeight(startHeight + dy),
+    end: () => saveCollectionsHeight(collectionList.getBoundingClientRect().height),
+  };
 });
 listsResizer.addEventListener("dblclick", () => {
   setCollectionsHeight(null);
   saveCollectionsHeight(null);
 });
 
-try {
-  const saved = localStorage.getItem("collectionsHeight");
-  if (saved !== null) setCollectionsHeight(Number(saved));
-} catch {
-  // Storage unavailable: shared equally.
-}
+const savedHeight = stored("collectionsHeight");
+if (savedHeight !== null) setCollectionsHeight(Number(savedHeight));
 
-collectionsResizer.addEventListener("pointerdown", (event) => {
-  event.preventDefault();
-  const startX = event.clientX;
+dragHandle(collectionsResizer, () => {
   const startWidth = collectionsColumn.getBoundingClientRect().width;
-  collectionsResizer.setPointerCapture(event.pointerId);
-  collectionsResizer.classList.add("dragging");
-  const resize = (move) => setCollectionsWidth(startWidth + move.clientX - startX);
-  collectionsResizer.addEventListener("pointermove", resize);
-  collectionsResizer.addEventListener(
-    "pointerup",
-    () => {
-      collectionsResizer.removeEventListener("pointermove", resize);
-      collectionsResizer.classList.remove("dragging");
-      saveCollectionsWidth(collectionsColumn.getBoundingClientRect().width);
-    },
-    { once: true },
-  );
+  return {
+    move: (dx) => setCollectionsWidth(startWidth + dx),
+    end: () => saveCollectionsWidth(collectionsColumn.getBoundingClientRect().width),
+  };
 });
 collectionsResizer.addEventListener("dblclick", () => {
   setCollectionsWidth(null);
   saveCollectionsWidth(null);
 });
 
-try {
-  const saved = localStorage.getItem("collectionsWidth");
-  if (saved !== null) setCollectionsWidth(Number(saved));
-} catch {
-  // Storage unavailable: the default width.
-}
+const savedWidth = stored("collectionsWidth");
+if (savedWidth !== null) setCollectionsWidth(Number(savedWidth));
 
 function toggleCollections() {
   setCollectionsFolded(!collectionsColumn.classList.contains("collapsed"));
@@ -2107,11 +2031,7 @@ function toggleCollections() {
 
 collectionsToggle.addEventListener("click", toggleCollections);
 
-try {
-  if (localStorage.getItem("collectionsFolded") === "true") setCollectionsFolded(true);
-} catch {
-  // Storage unavailable: the column starts unfolded.
-}
+if (stored("collectionsFolded") === "true") setCollectionsFolded(true);
 
 // Rows dragged out of the list, or files from a file manager, dropped on a
 // collection of the left column are added to it. The drag goes through the
@@ -2198,10 +2118,7 @@ async function openContextMenu(x, y) {
     return;
   }
   if (opening !== menuOpening) return;
-  const label = document.createElement("div");
-  label.className = "label";
-  label.textContent = "Add to collection";
-  const items = [label];
+  const items = [menuLabel("Add to collection")];
   for (const collection of collections) {
     if (holding.includes(collection.id)) {
       // Already there: the name cannot be clicked, a × next to it takes the
@@ -2274,12 +2191,7 @@ async function openContextMenu(x, y) {
   }
   items.push(convert);
   items.push(menuButton("Move file(s) to the trash…", trashChosen));
-  contextMenu.replaceChildren(...items);
-  contextMenu.hidden = false;
-  // Kept inside the window.
-  const { width, height } = contextMenu.getBoundingClientRect();
-  contextMenu.style.left = `${Math.min(x, window.innerWidth - width - 4)}px`;
-  contextMenu.style.top = `${Math.min(y, window.innerHeight - height - 4)}px`;
+  showMenu(items, x, y);
 }
 
 // "Detect BPM…": the button opens the methods in the menu; with a single
@@ -2315,9 +2227,7 @@ function detectButton() {
       if (method === "sound") choice.title = "Decodes the file again";
       return choice;
     });
-    const label = document.createElement("div");
-    label.className = "label";
-    label.textContent = "Detect BPM";
+    const label = menuLabel("Detect BPM");
     const automatic = menuButton("Automatic", () => setChosen("set_tempo", "auto"));
     automatic.classList.add("method");
     automatic.title = "Back to the tempo worked out: name, file, then the sound for a loop";
@@ -2363,6 +2273,27 @@ async function detectChosen(method) {
     }[method];
     showError(`No tempo found for ${result.failed} sample(s): ${why}`);
   }
+}
+
+// Shows the shared menu with `items` at (x, y), kept inside the window.
+function showMenu(items, x, y) {
+  contextMenu.replaceChildren(...items);
+  contextMenu.hidden = false;
+  placeInWindow(contextMenu, x, y);
+}
+
+function placeInWindow(element, x, y) {
+  const { width, height } = element.getBoundingClientRect();
+  element.style.left = `${Math.max(4, Math.min(x, window.innerWidth - width - 4))}px`;
+  element.style.top = `${Math.max(4, Math.min(y, window.innerHeight - height - 4))}px`;
+}
+
+// A heading inside a menu.
+function menuLabel(text, tag = "div") {
+  const label = document.createElement(tag);
+  label.className = "label";
+  label.textContent = text;
+  return label;
 }
 
 function closeContextMenu() {
@@ -2450,12 +2381,14 @@ invoke("ffmpeg_available").then((found) => {
   ffmpegFound = found;
 });
 
-let convertOptions = { format: "wav", bits: null, mp3Bitrate: 320, oggQuality: 8, mono: false };
-try {
-  convertOptions = { ...convertOptions, ...JSON.parse(localStorage.getItem("convertOptions") ?? "{}") };
-} catch {
-  // Storage unavailable: the defaults.
-}
+let convertOptions = {
+  format: "wav",
+  bits: null,
+  mp3Bitrate: 320,
+  oggQuality: 8,
+  mono: false,
+  ...storedJson("convertOptions", {}),
+};
 // The paths to convert, kept while the window is open.
 let convertPaths = [];
 
@@ -2499,11 +2432,7 @@ convertDialog.addEventListener("close", async () => {
     oggQuality: Number(convertFields.oggQuality.value),
     mono: convertFields.mono.checked,
   };
-  try {
-    localStorage.setItem("convertOptions", JSON.stringify(convertOptions));
-  } catch {
-    // Storage unavailable: the choices are simply not remembered.
-  }
+  store("convertOptions", JSON.stringify(convertOptions));
   const paths = convertPaths;
   status.textContent = `Converting ${paths.length} file(s)…`;
   let copies = [];
@@ -2575,7 +2504,7 @@ document.addEventListener("mousedown", (event) => {
   if (!contextMenu.contains(event.target)) closeContextMenu();
 });
 window.addEventListener("blur", closeContextMenu);
-document.getElementById("list").addEventListener("scroll", closeContextMenu);
+listBox.addEventListener("scroll", closeContextMenu);
 
 // The samples for the search box, the Favorites filter and the open
 // collection as they are now; `null` when a newer request was made while
@@ -2798,10 +2727,6 @@ function bpmCell(sample) {
   return td;
 }
 
-// Tempo and key by hand: a double-click on the cell edits it, for the whole
-// selection when the row is in it. Enter or leaving the box saves, Esc
-// cancels; empty goes back to the value worked out from the name or the
-// length, "-" means none (a wrong guess).
 // Loudness in LUFS, one decimal; the peak in the tooltip. Empty until the
 // waveform (which measures it) is computed.
 function loudnessCell(sample) {
@@ -2839,7 +2764,7 @@ function loopCell(sample) {
 async function switchLoop(index) {
   const sample = samples[index];
   const wanted = !sample.looped;
-  const chosen = selectedPaths.has(sample.path) ? selectedSamples() : [sample];
+  const chosen = samplesFor(sample);
   // Worked out by itself: the value shown, unless it was set by hand, in
   // which case it is the other one (only a value differing from it is kept).
   const automatic = (s) => (s.loop_source === "manual" ? !s.looped : s.looped);
@@ -2870,6 +2795,10 @@ tbody.addEventListener("dblclick", (event) => {
   editCell(index, td, td.classList.contains("bpm") ? "set_tempo" : "set_key");
 });
 
+// Tempo and key by hand: a double-click on the cell edits it, for the whole
+// selection when the row is in it. Enter or leaving the box saves, Esc
+// cancels; empty or "-" means none (a wrong guess). Back to the value worked
+// out through the row menu.
 function editCell(index, td, command) {
   const sample = samples[index];
   const initial = String((command === "set_tempo" ? sample.bpm : sample.key) ?? "");
@@ -2897,9 +2826,7 @@ function editCell(index, td, command) {
       refreshIfWaiting();
       return;
     }
-    const paths = selectedPaths.has(sample.path)
-      ? selectedSamples().map((s) => s.path)
-      : [sample.path];
+    const paths = pathsFor(sample);
     try {
       await invoke(command, { paths, value });
     } catch (error) {
@@ -2976,21 +2903,13 @@ const typeResults = document.getElementById("type-results");
 let picker = null;
 
 function recentTypes() {
-  try {
-    const saved = JSON.parse(localStorage.getItem("recentTypes") ?? "[]");
-    return Array.isArray(saved) ? saved.filter((value) => typeName(value) !== value) : [];
-  } catch {
-    return [];
-  }
+  const saved = storedJson("recentTypes", []);
+  return Array.isArray(saved) ? saved.filter((value) => typeName(value) !== value) : [];
 }
 
 function rememberType(value) {
   const recent = [value, ...recentTypes().filter((v) => v !== value)].slice(0, 5);
-  try {
-    localStorage.setItem("recentTypes", JSON.stringify(recent));
-  } catch {
-    // Storage unavailable: no recent types.
-  }
+  store("recentTypes", JSON.stringify(recent));
 }
 
 // Case and accents ignored.
@@ -3012,9 +2931,7 @@ function openTypePicker(x, y, { current, extra, choose }) {
   typeSearch.value = "";
   typePicker.hidden = false;
   renderTypePicker();
-  const { width, height } = typePicker.getBoundingClientRect();
-  typePicker.style.left = `${Math.max(4, Math.min(x, window.innerWidth - width - 4))}px`;
-  typePicker.style.top = `${Math.max(4, Math.min(y, window.innerHeight - height - 4))}px`;
+  placeInWindow(typePicker, x, y);
   typeSearch.focus();
 }
 
@@ -3074,10 +2991,7 @@ function renderTypePicker() {
       ...found.map((value, i) => pickerButton(typeName(value), value, i === picker.index)),
     );
     if (found.length === 0) {
-      const none = document.createElement("div");
-      none.className = "label";
-      none.textContent = "No type matches";
-      typeResults.append(none);
+      typeResults.append(menuLabel("No type matches"));
     }
     typeResults.querySelector(".active")?.scrollIntoView({ block: "nearest" });
     return;
@@ -3089,10 +3003,7 @@ function renderTypePicker() {
   const recent = recentTypes();
   typeRecent.replaceChildren();
   if (recent.length > 0) {
-    const label = document.createElement("span");
-    label.className = "label";
-    label.textContent = "Recent";
-    typeRecent.append(label, ...recent.map((value) => pickerButton(typeName(value), value, false)));
+    typeRecent.append(menuLabel("Recent", "span"), ...recent.map((value) => pickerButton(typeName(value), value, false)));
   }
   typeRecent.hidden = recent.length === 0;
   const left = leftEntries().map((entry, i) => {
@@ -3184,7 +3095,7 @@ document.addEventListener("mousedown", (event) => {
 // of the whole selection when the row is in it.
 function editType(x, y, index) {
   const sample = samples[index];
-  const paths = selectedPaths.has(sample.path) ? selectedSamples().map((s) => s.path) : [sample.path];
+  const paths = pathsFor(sample);
   const current = sample.type_source === "manual" ? (sample.sound_type ?? "-") : "";
   openTypePicker(x, y, {
     current,
@@ -3281,8 +3192,9 @@ function tagsCell(tags) {
 
 async function loadColors() {
   try {
-    palette = await invoke("colors");
-    tagColorIds = new Map(await invoke("tag_colors"));
+    const [colors, tagColors] = await Promise.all([invoke("colors"), invoke("tag_colors")]);
+    palette = colors;
+    tagColorIds = new Map(tagColors);
   } catch (error) {
     showError(error);
     return;
@@ -3306,22 +3218,23 @@ function openColorMenu(x, y, current, choose) {
     const label = color.id === current ? `✓ ${color.name}` : color.name;
     items.push(menuButton(label, () => choose(color.id), false, color.hex));
   }
-  contextMenu.replaceChildren(...items);
-  contextMenu.hidden = false;
-  const { width, height } = contextMenu.getBoundingClientRect();
-  contextMenu.style.left = `${Math.min(x, window.innerWidth - width - 4)}px`;
-  contextMenu.style.top = `${Math.min(y, window.innerHeight - height - 4)}px`;
+  showMenu(items, x, y);
+}
+
+// The colour menu of a tag, in the tag bar or the Tags box.
+function openTagColorMenu(event, tag) {
+  event.preventDefault();
+  openColorMenu(event.clientX, event.clientY, tagColorIds.get(tag) ?? null, async (color) => {
+    await invoke("set_tag_color", { tag, color });
+    await loadColors();
+  });
 }
 
 // The Settings window: for now, the palette. Each change is saved at once.
 const settingsDialog = document.getElementById("settings");
 const colorList = document.getElementById("color-list");
 
-try {
-  if (localStorage.getItem("infoFolded") === "true") setInfoFolded(true);
-} catch {
-  // Storage unavailable: the panel is shown.
-}
+if (stored("infoFolded") === "true") setInfoFolded(true);
 
 // The Settings window's list of shortcuts: keys, then what they do.
 const shortcutList = [
@@ -3558,11 +3471,7 @@ themeSelect.addEventListener("change", () => {
   const theme = themeSelect.value;
   if (theme === "system") delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = theme;
-  try {
-    localStorage.setItem("theme", theme);
-  } catch {
-    // Storage unavailable: the theme is simply not remembered.
-  }
+  store("theme", theme);
   // The waveform is drawn in the accent colour.
   drawWaveform();
 });
@@ -3571,11 +3480,7 @@ const askCheckbox = document.getElementById("ask-before-deleting");
 askCheckbox.checked = askBeforeDeleting;
 askCheckbox.addEventListener("change", () => {
   askBeforeDeleting = askCheckbox.checked;
-  try {
-    localStorage.setItem("askBeforeDeleting", String(askBeforeDeleting));
-  } catch {
-    // Storage unavailable: the choice holds until the app closes.
-  }
+  store("askBeforeDeleting", askBeforeDeleting);
 });
 
 // A press outside a window (Settings, Folders) closes it. Only the press
