@@ -1597,16 +1597,16 @@ convertDialog.addEventListener("close", async () => {
 });
 closeOnPressOutside(convertDialog);
 
-// Sends the selected samples' files to the system's trash, after asking
-// (unless turned off in Settings): their tags and collections are lost, even
-// if a file is put back.
+// Sends the selected samples' files to the system's trash, after asking,
+// always: these are files, not links, and their tags and collections are
+// lost, even if a file is put back. The Settings checkbox does not apply.
 async function trashChosen() {
   const paths = chosenPaths();
   const what = paths.length === 1 ? splitPath(paths[0]).name : `${paths.length} files`;
-  const confirmed = await confirmAction(
+  const confirmed = await window.__TAURI__.dialog.ask(
     `Move ${what} to the trash?\n\n` +
       "Their tags, collections and favorite are lost, even if put back from the trash.",
-    "Move to the trash",
+    { title: "Move to the trash", kind: "warning", okLabel: "Move to the trash", cancelLabel: "Cancel" },
   );
   if (!confirmed) return;
   try {
