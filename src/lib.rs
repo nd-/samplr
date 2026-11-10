@@ -55,8 +55,8 @@ pub struct SampleInfo {
 /// overwrites a file already at `new`. Between two disks, where the system
 /// cannot rename, the file is copied then the original removed.
 ///
-/// The folder watcher will also see the change: it then finds the row
-/// already moved, which changes nothing.
+/// The folder watcher will also see the change: it finds nothing recorded
+/// at the old path (see `db::rename`) and leaves the moved row as it is.
 pub fn move_sample(db: &Connection, old: &Path, new: &Path) -> Result<(), Box<dyn Error>> {
     if new.exists() {
         return Err(format!("{} already exists", new.display()).into());

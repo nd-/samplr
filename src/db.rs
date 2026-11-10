@@ -244,12 +244,25 @@ pub fn forget(db: &Connection, path: &Path) -> Result<usize, Box<dyn Error>> {
 /// the folder) changes path but keeps its `id`, hence its tags. Returns the
 /// number of samples renamed.
 pub fn rename(db: &Connection, old: &Path, new: &Path) -> Result<usize, Box<dyn Error>> {
+    let old = path_as_text(old)?;
+    // Nothing recorded at the old path: nothing to rename. This is the case
+    // when the move was already applied (`move_sample`, then the watcher
+    // reporting the same rename) or for a file coming from outside (a
+    // converted copy renamed from its `.part`): the row already at the new
+    // path is the right one, and must not be forgotten below.
+    let recorded: u32 = db.query_row(
+        &format!("SELECT COUNT(*) FROM files WHERE {UNDER_PATH}"),
+        named_params! { ":path": old, ":prefix": folder_prefix(old) },
+        |row| row.get(0),
+    )?;
+    if recorded == 0 {
+        return Ok(0);
+    }
     // If a sample already sat at the new path (overwritten file), it is
     // replaced: otherwise the UNIQUE constraint would make the update fail.
     forget(db, new)?;
     // Replaces the start of the path: `/a/kick.wav` becomes `/b/kick.wav`,
     // `/a/drums/kick.wav` becomes `/b/drums/kick.wav`.
-    let old = path_as_text(old)?;
     let renamed = db.execute(
         &format!(
             "UPDATE files SET path = :new || substr(path, length(:path) + 1) WHERE {UNDER_PATH}"
