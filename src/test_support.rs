@@ -46,22 +46,29 @@ impl Drop for TempDir {
 /// Writes a short WAV (16 bit, mono, 44.1 kHz, 0.1 s of silence) at `path`,
 /// creating its folders: a file `read_info` accepts.
 pub fn write_wav(path: &Path) {
-    let frames: u32 = 4410;
-    let data = frames * 2;
+    write_sound(path, 1, &[0; 4410]);
+}
+
+/// Writes a 16-bit, 44.1 kHz WAV of `channels` channels at `path`, creating
+/// its folders. `samples` are interleaved: left, right, left…
+pub fn write_sound(path: &Path, channels: u16, samples: &[i16]) {
+    let data = (samples.len() * 2) as u32;
     let mut bytes = Vec::new();
     bytes.extend(b"RIFF");
     bytes.extend((36 + data).to_le_bytes());
     bytes.extend(b"WAVEfmt ");
     bytes.extend(16u32.to_le_bytes());
     bytes.extend(1u16.to_le_bytes()); // PCM
-    bytes.extend(1u16.to_le_bytes()); // mono
+    bytes.extend(channels.to_le_bytes());
     bytes.extend(44_100u32.to_le_bytes());
-    bytes.extend((44_100u32 * 2).to_le_bytes());
-    bytes.extend(2u16.to_le_bytes());
+    bytes.extend((44_100 * 2 * u32::from(channels)).to_le_bytes());
+    bytes.extend((2 * channels).to_le_bytes());
     bytes.extend(16u16.to_le_bytes());
     bytes.extend(b"data");
     bytes.extend(data.to_le_bytes());
-    bytes.resize(bytes.len() + data as usize, 0);
+    for sample in samples {
+        bytes.extend(sample.to_le_bytes());
+    }
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, bytes).unwrap();
 }

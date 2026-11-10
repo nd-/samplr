@@ -202,3 +202,127 @@ pub fn draw(peaks: &[Peak], width: usize, rows: usize) -> String {
     }
     drawing
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{TempDir, write_sound};
+
+    /// Half of full scale, as a 16-bit sample: 0.5 once decoded.
+    const HALF: i16 = 16_384;
+
+    /// `frames` frames swinging between +HALF and -HALF at every sample:
+    /// each stretch of the waveform reaches both.
+    fn swing(frames: usize) -> Vec<i16> {
+        (0..frames)
+            .map(|i| if i % 2 == 0 { HALF } else { -HALF })
+            .collect()
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 0.01
+    }
+
+    #[test]
+    fn bytes_give_the_peaks_back() {
+        let peaks = [(-1.0, 1.0), (-0.5, 0.5), (0.0, 0.0), (-0.25, 0.75)];
+        let bytes = to_bytes(&peaks);
+        assert_eq!(bytes.len(), 2 * peaks.len());
+        for ((low, high), (l, h)) in from_bytes(&bytes).into_iter().zip(peaks) {
+            // A byte keeps the value within 1/254.
+            assert!((low - l).abs() <= 1.0 / 254.0 && (high - h).abs() <= 1.0 / 254.0);
+        }
+    }
+
+    #[test]
+    fn values_beyond_full_scale_are_clamped() {
+        assert_eq!(from_bytes(&to_bytes(&[(-3.0, 2.0)])), [(-1.0, 1.0)]);
+    }
+
+    #[test]
+    fn merging_keeps_the_extremes() {
+        let peaks = [(-0.1, 0.2), (-0.5, 0.1), (0.0, 0.9)];
+        assert_eq!(merge(&peaks), (-0.5, 0.9));
+        // An odd number: the last peak is kept alone.
+        assert_eq!(merge_pairs(&peaks), [(-0.5, 0.2), (0.0, 0.9)]);
+    }
+
+    #[test]
+    fn resampling_gives_exactly_the_count_asked() {
+        let peaks: Vec<Peak> = (0..3000).map(|i| (-(i as f32) / 3000.0, 0.0)).collect();
+        let fewer = resample(&peaks, POINTS);
+        assert_eq!(fewer.len(), POINTS);
+        assert_eq!(merge(&fewer), merge(&peaks));
+        // Fewer peaks than asked: returned as they are.
+        assert_eq!(resample(&peaks[..10], POINTS), &peaks[..10]);
+    }
+
+    #[test]
+    fn drawing_fills_the_bars_to_their_height() {
+        let drawing = draw(&[(0.0, 0.0), (-1.0, 1.0), (-0.5, 0.25)], 3, 2);
+        assert_eq!(drawing, " █ \n ██\n");
+    }
+
+    #[test]
+    fn a_long_sound_gives_every_point_its_peaks() {
+        let dir = TempDir::new();
+        let path = dir.path().join("swing.wav");
+        // One second: far more frames than points, merged on the way.
+        write_sound(&path, 1, &swing(44_100));
+        let (peaks, measures) = compute(&path).unwrap();
+        assert_eq!(peaks.len(), POINTS);
+        assert!(
+            peaks
+                .iter()
+                .all(|&(low, high)| close(low, -0.5) && close(high, 0.5))
+        );
+        // Half of full scale: -6 dBFS.
+        assert!((measures.peak_db.unwrap() + 6.02).abs() < 0.05);
+        assert!(measures.lufs.is_some());
+    }
+
+    #[test]
+    fn every_channel_goes_into_the_peaks() {
+        let dir = TempDir::new();
+        let path = dir.path().join("right.wav");
+        // Left silent, right swinging.
+        let samples: Vec<i16> = swing(44_100).into_iter().flat_map(|s| [0, s]).collect();
+        write_sound(&path, 2, &samples);
+        let (peaks, _) = compute(&path).unwrap();
+        assert!(
+            peaks
+                .iter()
+                .all(|&(low, high)| close(low, -0.5) && close(high, 0.5))
+        );
+    }
+
+    #[test]
+    fn a_very_short_sound_keeps_one_peak_per_frame_and_no_loudness() {
+        let dir = TempDir::new();
+        let path = dir.path().join("click.wav");
+        write_sound(&path, 1, &swing(100));
+        let (peaks, measures) = compute(&path).unwrap();
+        assert_eq!(peaks.len(), 100);
+        // Under 0.4 s, the EBU R128 block: no LUFS, but a peak.
+        assert_eq!(measures.lufs, None);
+        assert!(measures.peak_db.is_some());
+    }
+
+    #[test]
+    fn silence_has_no_loudness() {
+        let dir = TempDir::new();
+        let path = dir.path().join("silence.wav");
+        write_sound(&path, 1, &[0; 44_100]);
+        let (peaks, measures) = compute(&path).unwrap();
+        assert!(peaks.iter().all(|&peak| peak == (0.0, 0.0)));
+        assert_eq!((measures.lufs, measures.peak_db), (None, None));
+    }
+
+    #[test]
+    fn a_file_that_is_not_sound_is_refused() {
+        let dir = TempDir::new();
+        let path = dir.path().join("text.wav");
+        std::fs::write(&path, "not a sound").unwrap();
+        assert!(compute(&path).is_err());
+    }
+}
