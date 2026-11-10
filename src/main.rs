@@ -4,6 +4,7 @@
 //   cargo run -- scan ~/Samples              → adds the folder's samples to the database
 //   cargo run -- tag ~/Samples/kick.wav 808  → adds the "808" tag to a sample
 //   cargo run -- search 808 --path kick      → samples tagged 808 whose path contains "kick"
+//   cargo run -- search 808 --json           → the same, as JSON, for scripts
 //   cargo run -- help                        → every command
 
 use std::error::Error;
@@ -16,6 +17,8 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use rusqlite::Connection;
+use serde::Serialize;
+use serde_json::json;
 // The shared code lives in the `samplr` library (src/lib.rs), which the
 // graphical interface will use too.
 use samplr::db;
@@ -31,6 +34,9 @@ use samplr::{SampleInfo, WaveformUpdate, is_audio, is_mac_metadata, read_info, w
 struct Args {
     #[command(subcommand)]
     command: Command,
+    /// Prints the result as JSON, for scripts (`watch`: one line per change)
+    #[arg(long, global = true)]
+    json: bool,
 }
 
 #[derive(Subcommand)]
@@ -100,21 +106,22 @@ fn main() {
 
     // `match` compares a value against several patterns, a bit like a switch.
     // Each pattern "opens" the variant and names its fields.
+    let json = args.json;
     let result = match args.command {
-        Command::Scan { folder } => scan(&folder),
-        Command::List => search(&[], None, false),
-        Command::Folders => list_folders(),
-        Command::RemoveFolder { folder } => remove_folder(&folder),
-        Command::Watch => watch(),
-        Command::Play { file } => play(&file),
-        Command::Tag { file, tags } => tag(&file, &tags),
-        Command::Fav { files } => set_favorite(&files, true),
-        Command::Unfav { files } => set_favorite(&files, false),
-        Command::Untag { file, tags } => untag(&file, &tags),
-        Command::Tags => list_tags(),
-        Command::Search { tags, path, fav } => search(&tags, path.as_deref(), fav),
-        Command::Wave { file, width } => wave(&file, width),
-        Command::Waveforms => compute_waveforms(),
+        Command::Scan { folder } => scan(&folder, json),
+        Command::List => search(&[], None, false, json),
+        Command::Folders => list_folders(json),
+        Command::RemoveFolder { folder } => remove_folder(&folder, json),
+        Command::Watch => watch(json),
+        Command::Play { file } => play(&file, json),
+        Command::Tag { file, tags } => tag(&file, &tags, json),
+        Command::Fav { files } => set_favorite(&files, true, json),
+        Command::Unfav { files } => set_favorite(&files, false, json),
+        Command::Untag { file, tags } => untag(&file, &tags, json),
+        Command::Tags => list_tags(json),
+        Command::Search { tags, path, fav } => search(&tags, path.as_deref(), fav, json),
+        Command::Wave { file, width } => wave(&file, width, json),
+        Command::Waveforms => compute_waveforms(json),
     };
 
     // If a function returned an error, print it cleanly.
@@ -135,13 +142,20 @@ fn main() {
 
 /// Saves the folder and the samples it contains to the database, then shows
 /// them as a table.
-fn scan(folder: &Path) -> Result<(), Box<dyn Error>> {
+fn scan(folder: &Path, json: bool) -> Result<(), Box<dyn Error>> {
     let mut db = db::open()?;
     let samplr::Scan {
         folder,
         samples,
         unreadable,
     } = samplr::scan(&mut db, folder, &mut |_, _| {})?;
+    if json {
+        return print_json(&json!({
+            "folder": folder,
+            "samples": samples,
+            "unreadable": unreadable,
+        }));
+    }
 
     // The output is only a report: if it is closed (`samplr scan … | head`),
     // write failures are ignored (`let _ =`).
@@ -162,7 +176,7 @@ fn scan(folder: &Path) -> Result<(), Box<dyn Error>> {
 
 /// Catches up with the changes made while samplr was not running, then
 /// follows the scanned folders live until Ctrl+C.
-fn watch() -> Result<(), Box<dyn Error>> {
+fn watch(json: bool) -> Result<(), Box<dyn Error>> {
     let mut db = db::open()?;
     let roots = samplr::watch::roots(&db::folders(&db)?);
     if roots.is_empty() {
@@ -170,7 +184,14 @@ fn watch() -> Result<(), Box<dyn Error>> {
     }
 
     let (mut watcher, receiver) = samplr::watch::new_watcher()?;
-    let mut print = |message: String| println!("{message}");
+    // As JSON, one object per line, so that a script reads them as they come.
+    let mut print = |message: String| {
+        if json {
+            println!("{}", json!({ "change": message }));
+        } else {
+            println!("{message}");
+        }
+    };
     let mut watched = 0;
     for root in &roots {
         if !root.is_dir() {
@@ -190,7 +211,9 @@ fn watch() -> Result<(), Box<dyn Error>> {
         return Err("none of the scanned folders is available".into());
     }
 
-    println!("Watching. Ctrl+C to stop.");
+    if !json {
+        println!("Watching. Ctrl+C to stop.");
+    }
     // The loop waits for the next batch of events; it never ends on its
     // own, Ctrl+C stops the program.
     for batch in receiver {
@@ -213,8 +236,19 @@ fn watch() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn list_folders() -> Result<(), Box<dyn Error>> {
+fn list_folders(json: bool) -> Result<(), Box<dyn Error>> {
     let db = db::open()?;
+    if json {
+        let mut folders = Vec::new();
+        for folder in db::folders(&db)? {
+            folders.push(json!({
+                "path": folder,
+                "samples": db::count_under(&db, &folder)?,
+                "found": folder.is_dir(),
+            }));
+        }
+        return print_json(&folders);
+    }
     let mut out = io::stdout().lock();
     for folder in db::folders(&db)? {
         let missing = if folder.is_dir() { "" } else { "  (not found)" };
@@ -228,18 +262,29 @@ fn list_folders() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn remove_folder(folder: &Path) -> Result<(), Box<dyn Error>> {
+fn remove_folder(folder: &Path, json: bool) -> Result<(), Box<dyn Error>> {
     let mut db = db::open()?;
     let hidden = samplr::remove_folder(&mut db, folder)?;
+    if json {
+        return print_json(&json!({ "folder": folder, "hidden": hidden }));
+    }
     println!("Folder removed, {hidden} sample(s) hidden (tags kept).");
     Ok(())
 }
 
 /// Shows the samples in the database carrying all the `tags` and whose path
 /// contains `path`; with no tag and no path, every sample.
-fn search(tags: &[String], path: Option<&str>, favorites_only: bool) -> Result<(), Box<dyn Error>> {
+fn search(
+    tags: &[String],
+    path: Option<&str>,
+    favorites_only: bool,
+    json: bool,
+) -> Result<(), Box<dyn Error>> {
     let db = db::open()?;
     let samples = db::search(&db, tags, &[], path.unwrap_or(""), favorites_only, None)?;
+    if json {
+        return print_json(&samples);
+    }
 
     let mut out = io::stdout().lock();
     print_header(&mut out)?;
@@ -252,10 +297,13 @@ fn search(tags: &[String], path: Option<&str>, favorites_only: bool) -> Result<(
 
 /// Adds tags to a sample. The file is read again every time: if it was not in
 /// the database yet, it gets added; otherwise its info is refreshed.
-fn tag(file: &Path, tags: &[String]) -> Result<(), Box<dyn Error>> {
+fn tag(file: &Path, tags: &[String], json: bool) -> Result<(), Box<dyn Error>> {
     let db = db::open()?;
     let (file, file_id) = ensure_saved(&db, file)?;
     let added = db::add_tags(&db, file_id, tags)?;
+    if json {
+        return print_json(&json!({ "file": file, "added": added }));
+    }
 
     println!("{added} tag(s) added to {}", file.display());
     Ok(())
@@ -263,8 +311,9 @@ fn tag(file: &Path, tags: &[String]) -> Result<(), Box<dyn Error>> {
 
 /// Marks samples as favorites, or no longer. Like `tag`, adds a file to the
 /// database if it was not there yet; `unfav` only needs it to be there.
-fn set_favorite(files: &[PathBuf], favorite: bool) -> Result<(), Box<dyn Error>> {
+fn set_favorite(files: &[PathBuf], favorite: bool, json: bool) -> Result<(), Box<dyn Error>> {
     let db = db::open()?;
+    let mut changed = Vec::new();
     for file in files {
         let (file, file_id) = if favorite {
             ensure_saved(&db, file)?
@@ -275,12 +324,19 @@ fn set_favorite(files: &[PathBuf], favorite: bool) -> Result<(), Box<dyn Error>>
             (file, file_id)
         };
         db::set_favorite(&db, file_id, favorite)?;
+        if json {
+            changed.push(json!({ "file": file, "favorite": favorite }));
+            continue;
+        }
         let state = if favorite {
             "★"
         } else {
             "no longer a favorite:"
         };
         println!("{state} {}", file.display());
+    }
+    if json {
+        return print_json(&changed);
     }
     Ok(())
 }
@@ -300,10 +356,15 @@ fn ensure_saved(db: &Connection, file: &Path) -> Result<(PathBuf, i64), Box<dyn 
 
 /// Draws a sample's waveform in the terminal, computing it first if it is
 /// not in the database or out of date.
-fn wave(file: &Path, width: usize) -> Result<(), Box<dyn Error>> {
+fn wave(file: &Path, width: usize, json: bool) -> Result<(), Box<dyn Error>> {
     let db = db::open()?;
     let (file, file_id) = ensure_saved(&db, file)?;
     let peaks = samplr::peaks(&db, file_id, &file)?;
+    if json {
+        // The cached peaks, lowest and highest value (-1 to 1) of each slice
+        // of the file; `--width` only concerns the drawing.
+        return print_json(&json!({ "file": file, "peaks": peaks }));
+    }
 
     print!("{}", waveform::draw(&peaks, width, 6));
     println!("{}", file.display());
@@ -311,9 +372,10 @@ fn wave(file: &Path, width: usize) -> Result<(), Box<dyn Error>> {
 }
 
 /// Computes every waveform missing from the database or out of date.
-fn compute_waveforms() -> Result<(), Box<dyn Error>> {
+fn compute_waveforms(json: bool) -> Result<(), Box<dyn Error>> {
     let db = db::open()?;
     let (mut computed, mut up_to_date, mut unreadable, mut missing) = (0, 0, 0, 0);
+    let mut errors = Vec::new();
 
     // No transaction here, unlike `scan`: decoding takes far longer than
     // writing, and each waveform saved right away is kept even if the
@@ -322,15 +384,30 @@ fn compute_waveforms() -> Result<(), Box<dyn Error>> {
         match samplr::update_waveform(&db, file_id, &path)? {
             WaveformUpdate::Computed => {
                 computed += 1;
-                println!("+ {}", path.display());
+                if !json {
+                    println!("+ {}", path.display());
+                }
             }
             WaveformUpdate::UpToDate => up_to_date += 1,
             WaveformUpdate::Missing => missing += 1,
             WaveformUpdate::Unreadable(error) => {
-                eprintln!("{}: {error}", path.display());
+                if json {
+                    errors.push(json!({ "file": path, "error": error }));
+                } else {
+                    eprintln!("{}: {error}", path.display());
+                }
                 unreadable += 1;
             }
         }
+    }
+    if json {
+        return print_json(&json!({
+            "computed": computed,
+            "up_to_date": up_to_date,
+            "unreadable": unreadable,
+            "missing": missing,
+            "errors": errors,
+        }));
     }
 
     println!(
@@ -339,27 +416,46 @@ fn compute_waveforms() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn untag(file: &Path, tags: &[String]) -> Result<(), Box<dyn Error>> {
+fn untag(file: &Path, tags: &[String], json: bool) -> Result<(), Box<dyn Error>> {
     let file = dunce::canonicalize(file)?;
 
     let db = db::open()?;
     let file_id = db::file_id(&db, &file)?
         .ok_or_else(|| format!("{} is not in the database", file.display()))?;
     let removed = db::remove_tags(&db, file_id, tags)?;
+    if json {
+        return print_json(&json!({ "file": file, "removed": removed }));
+    }
 
     println!("{removed} tag(s) removed from {}", file.display());
     Ok(())
 }
 
-fn list_tags() -> Result<(), Box<dyn Error>> {
+fn list_tags(json: bool) -> Result<(), Box<dyn Error>> {
     let db = db::open()?;
     let tags = db::list_tags(&db)?;
+    if json {
+        let tags: Vec<_> = tags
+            .iter()
+            .map(|(name, count)| json!({ "name": name, "count": count }))
+            .collect();
+        return print_json(&tags);
+    }
 
     let mut out = io::stdout().lock();
     for (name, count) in &tags {
         writeln!(out, "{count:>5}  {name}")?;
     }
     writeln!(out, "\n{} tag(s).", tags.len())?;
+    Ok(())
+}
+
+/// Prints a value as JSON on its own line. Written through `writeln!` like
+/// the tables, so that a closed pipe (`samplr list --json | head`) is an
+/// I/O error, which `main` ignores.
+fn print_json(value: &impl Serialize) -> Result<(), Box<dyn Error>> {
+    let text = serde_json::to_string_pretty(value)?;
+    writeln!(io::stdout().lock(), "{text}")?;
     Ok(())
 }
 
@@ -407,7 +503,7 @@ fn format_duration(duration: Option<f64>) -> String {
 }
 
 /// Plays a file on the default audio output and waits until it ends.
-fn play(path: &Path) -> Result<(), Box<dyn Error>> {
+fn play(path: &Path, json: bool) -> Result<(), Box<dyn Error>> {
     if is_mac_metadata(path) {
         return Err(format!("{}: macOS metadata, not an audio file", path.display()).into());
     }
@@ -429,12 +525,17 @@ fn play(path: &Path) -> Result<(), Box<dyn Error>> {
     let file = File::open(path)?;
     player.append(rodio::Decoder::try_from(file)?);
 
-    println!("▶ Playing {}", path.display());
+    if !json {
+        println!("▶ Playing {}", path.display());
+    }
     player.sleep_until_end();
     // `sleep_until_end` returns once rodio has handed over every sample, not
     // once they have left the speakers: some are still in the sound card's
     // buffer. Closing the output right away would drop them, and a very
     // short sample (a 75 ms kick) would vanish entirely.
     thread::sleep(Duration::from_millis(300));
+    if json {
+        return print_json(&json!({ "played": path }));
+    }
     Ok(())
 }

@@ -3284,6 +3284,7 @@ dependencies = [
  "rodio",
  "rusqlite",
  "serde",
+ "serde_json",
  "symphonia",
  "trash",
  "walkdir",

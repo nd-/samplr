@@ -111,6 +111,14 @@ background waveforms); its page in `ui/` (`index.html`, `main.js`, `style.css`, 
   contains the text (case-insensitive, accents included, `_` taken literally). SQLite's `lower`
   only knows ASCII: the search compares through `unicode_lower`, Rust's `to_lowercase`
   registered in `db::open` (rusqlite feature `functions`).
+- `--json` (any command, before or after it, `global` in clap): the result as one JSON document
+  on stdout, for scripts. `list` and `search`: the samples as the interface gets them
+  (`SampleInfo`: tempo and its origin, key, loop, type, LUFS…); `tags`, `folders`: arrays of
+  objects; `scan`, `remove-folder`, `tag`, `untag`, `fav`, `unfav`, `waveforms`, `play`: what they
+  did; `wave`: the 1024 cached peaks (`--width` only concerns the drawing); `watch`: one object
+  per line and per change (`{"change": …}`), so that a script reads them as they come. Errors stay
+  text on stderr, exit code 1. Written through `writeln!` (`print_json`), so that `| head` ends
+  quietly like the tables.
 - `samplr play <file>`: plays a file on the default output.
 - `samplr wave <file> [--width N]`: draws the waveform in the terminal, computing and caching
   it first if needed.
