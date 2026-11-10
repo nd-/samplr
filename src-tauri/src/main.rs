@@ -235,19 +235,25 @@ fn set_favorite(paths: Vec<PathBuf>, favorite: bool) -> Result<(), String> {
 /// tempo, which looked like the box refusing to be emptied.
 #[tauri::command(async)]
 fn set_tempo(paths: Vec<PathBuf>, value: String) -> Result<(), String> {
+    let bpm = tempo_value(&value)?;
+    for_each_sample(&paths, |db, _, file_id| db::set_tempo(db, file_id, bpm))
+}
+
+/// The tempo `set_tempo` stores for `value`: `None` automatic, `Some(0)`
+/// none.
+fn tempo_value(value: &str) -> Result<Option<u32>, String> {
     let value = value.trim();
-    let bpm = match value {
-        "auto" => None,
-        "" | "-" => Some(0),
+    match value {
+        "auto" => Ok(None),
+        "" | "-" => Ok(Some(0)),
         _ => match value.parse::<u32>() {
-            Ok(bpm) if TEMPOS.contains(&bpm) => Some(bpm),
+            Ok(bpm) if TEMPOS.contains(&bpm) => Ok(Some(bpm)),
             _ => {
                 let (low, high) = (TEMPOS.start(), TEMPOS.end());
-                return Err(format!("“{value}” is not a tempo between {low} and {high}"));
+                Err(format!("“{value}” is not a tempo between {low} and {high}"))
             }
         },
-    };
-    for_each_sample(&paths, |db, _, file_id| db::set_tempo(db, file_id, bpm))
+    }
 }
 
 /// What `detect_tempo` did: how many samples got a tempo, and how many gave
@@ -300,17 +306,28 @@ fn set_loop(paths: Vec<PathBuf>, looped: Option<bool>) -> Result<(), String> {
 /// kept as set by hand, so that the sample follows a later rename.
 #[tauri::command(async)]
 fn set_sound_type(paths: Vec<PathBuf>, value: String) -> Result<(), String> {
-    let chosen = match value.trim() {
-        "" => None,
-        "-" => Some(""),
-        text if samplr::sound_type::parse(text).is_some() => Some(text),
-        text => return Err(format!("“{text}” is not a type of sound")),
-    };
+    let chosen = sound_type_value(&value)?;
     for_each_sample(&paths, |db, path, file_id| {
-        let worked_out = samplr::sound_type::from_path(path).unwrap_or_default();
-        let kept = chosen.filter(|chosen| *chosen != worked_out);
-        db::set_sound_type(db, file_id, kept)
+        db::set_sound_type(db, file_id, type_kept(chosen, path))
     })
+}
+
+/// The type `set_sound_type` was asked for: `None` automatic, `Some("")`
+/// none.
+fn sound_type_value(value: &str) -> Result<Option<&str>, String> {
+    match value.trim() {
+        "" => Ok(None),
+        "-" => Ok(Some("")),
+        text if samplr::sound_type::parse(text).is_some() => Ok(Some(text)),
+        text => Err(format!("“{text}” is not a type of sound")),
+    }
+}
+
+/// What is stored for the sample at `path`: a type equal to the one worked
+/// out from its path is not kept as set by hand.
+fn type_kept<'a>(chosen: Option<&'a str>, path: &Path) -> Option<&'a str> {
+    let worked_out = samplr::sound_type::from_path(path).unwrap_or_default();
+    chosen.filter(|chosen| *chosen != worked_out)
 }
 
 /// The families and their subtypes, for the page's type picker.
@@ -324,24 +341,42 @@ fn sound_types() -> &'static [samplr::sound_type::Family] {
 /// or the file, as for the tempo.
 #[tauri::command(async)]
 fn set_key(paths: Vec<PathBuf>, value: String) -> Result<(), String> {
-    let value = value.trim();
-    let key = match value {
-        "auto" => None,
-        "" | "-" => Some(String::new()),
-        _ => match analysis::normalize_key(value) {
-            Some(key) => Some(key),
-            None => return Err(format!("“{value}” is not a key (e.g. Am, F#, Bbm)")),
-        },
-    };
+    let key = key_value(&value)?;
     for_each_sample(&paths, |db, _, file_id| {
         db::set_key(db, file_id, key.as_deref())
     })
+}
+
+/// The key `set_key` stores for `value`: `None` automatic, `Some("")` none,
+/// otherwise in sharps.
+fn key_value(value: &str) -> Result<Option<String>, String> {
+    let value = value.trim();
+    match value {
+        "auto" => Ok(None),
+        "" | "-" => Ok(Some(String::new())),
+        _ => match analysis::normalize_key(value) {
+            Some(key) => Ok(Some(key)),
+            None => Err(format!("“{value}” is not a key (e.g. Am, F#, Bbm)")),
+        },
+    }
 }
 
 /// Renames a sample's file, in its folder, keeping its extension: `name` is
 /// the new name without it. Returns the new path.
 #[tauri::command(async)]
 fn rename_sample(path: PathBuf, name: String) -> Result<PathBuf, String> {
+    let new = renamed_path(&path, &name)?;
+    if new == path {
+        return Ok(path);
+    }
+    let db = db::open().map_err(|e| e.to_string())?;
+    file_id(&db, &path)?;
+    samplr::move_sample(&db, &path, &new).map_err(|e| e.to_string())?;
+    Ok(new)
+}
+
+/// The path of the sample at `path` named `name`, its extension kept.
+fn renamed_path(path: &Path, name: &str) -> Result<PathBuf, String> {
     let name = name.trim();
     // A name, not a path: no separator, nothing that would leave the folder.
     if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
@@ -351,14 +386,7 @@ fn rename_sample(path: PathBuf, name: String) -> Result<PathBuf, String> {
     if let Some(extension) = path.extension().and_then(|e| e.to_str()) {
         file_name = format!("{file_name}.{extension}");
     }
-    let new = path.with_file_name(file_name);
-    if new == path {
-        return Ok(path);
-    }
-    let db = db::open().map_err(|e| e.to_string())?;
-    file_id(&db, &path)?;
-    samplr::move_sample(&db, &path, &new).map_err(|e| e.to_string())?;
-    Ok(new)
+    Ok(path.with_file_name(file_name))
 }
 
 /// Moves samples into `folder`, which must be inside a scanned folder: moved
@@ -370,18 +398,7 @@ fn move_samples(paths: Vec<PathBuf>, folder: PathBuf) -> Result<Vec<PathBuf>, St
     let db = db::open().map_err(|e| e.to_string())?;
     let folder = dunce::canonicalize(&folder).map_err(|e| e.to_string())?;
     let scanned = db::folders(&db).map_err(|e| e.to_string())?;
-    if !scanned.iter().any(|root| folder.starts_with(root)) {
-        return Err(format!(
-            "{} is not in a scanned folder: add it with + Folder first",
-            folder.display()
-        ));
-    }
-    if samplr::is_hidden_below(&folder, &scanned) {
-        return Err(format!(
-            "{} is a hidden folder, whose files are not part of the library",
-            folder.display()
-        ));
-    }
+    check_destination(&folder, &scanned)?;
     let mut moved = Vec::new();
     for path in &paths {
         file_id(&db, path)?;
@@ -394,6 +411,23 @@ fn move_samples(paths: Vec<PathBuf>, folder: PathBuf) -> Result<Vec<PathBuf>, St
         moved.push(new);
     }
     Ok(moved)
+}
+
+/// Refuses a destination outside the scanned folders, or hidden below one.
+fn check_destination(folder: &Path, scanned: &[PathBuf]) -> Result<(), String> {
+    if !scanned.iter().any(|root| folder.starts_with(root)) {
+        return Err(format!(
+            "{} is not in a scanned folder: add it with + Folder first",
+            folder.display()
+        ));
+    }
+    if samplr::is_hidden_below(folder, scanned) {
+        return Err(format!(
+            "{} is a hidden folder, whose files are not part of the library",
+            folder.display()
+        ));
+    }
+    Ok(())
 }
 
 /// Sends samples' files to the system's trash. Stops at the first failure;
@@ -993,5 +1027,99 @@ mod tests {
             file_uri(Path::new("/home/me/Été kick #1 'x'.wav")),
             "file:///home/me/%C3%89t%C3%A9%20kick%20%231%20%27x%27.wav"
         );
+    }
+
+    #[test]
+    fn tempos_typed_by_hand() {
+        assert_eq!(tempo_value(" 120 "), Ok(Some(120)));
+        assert_eq!(tempo_value("20"), Ok(Some(20)));
+        assert_eq!(tempo_value("400"), Ok(Some(400)));
+        // Empty or "-": none, to silence a wrong guess; "auto": worked out.
+        assert_eq!(tempo_value(""), Ok(Some(0)));
+        assert_eq!(tempo_value("-"), Ok(Some(0)));
+        assert_eq!(tempo_value("auto"), Ok(None));
+        for refused in ["19", "401", "0", "12.5", "fast", "-120"] {
+            assert!(tempo_value(refused).is_err(), "{refused}");
+        }
+    }
+
+    #[test]
+    fn keys_typed_by_hand() {
+        assert_eq!(key_value("Bbm"), Ok(Some("A#m".to_string())));
+        assert_eq!(key_value(" f# "), Ok(Some("F#".to_string())));
+        assert_eq!(key_value(""), Ok(Some(String::new())));
+        assert_eq!(key_value("-"), Ok(Some(String::new())));
+        assert_eq!(key_value("auto"), Ok(None));
+        assert!(key_value("H").is_err());
+        assert!(key_value("Am7 loop").is_err());
+    }
+
+    #[test]
+    fn types_chosen_by_hand() {
+        assert_eq!(sound_type_value("drums/kick"), Ok(Some("drums/kick")));
+        assert_eq!(sound_type_value("bass"), Ok(Some("bass")));
+        assert_eq!(sound_type_value("-"), Ok(Some("")));
+        assert_eq!(sound_type_value(" "), Ok(None));
+        assert!(sound_type_value("drums/flute-of-nothing").is_err());
+        assert!(sound_type_value("nothing").is_err());
+    }
+
+    #[test]
+    fn a_type_equal_to_the_one_worked_out_is_not_kept() {
+        let kick = Path::new("/lib/Drums/Kick_01.wav");
+        assert_eq!(type_kept(Some("drums/kick"), kick), None);
+        assert_eq!(type_kept(Some("drums/snare"), kick), Some("drums/snare"));
+        // "None" chosen differs from any type worked out: kept.
+        assert_eq!(type_kept(Some(""), kick), Some(""));
+        assert_eq!(type_kept(None, kick), None);
+    }
+
+    #[test]
+    fn renaming_keeps_the_folder_and_extension() {
+        let path = Path::new("/lib/drums/Kick 01.WAV");
+        assert_eq!(
+            renamed_path(path, " Kick dry "),
+            Ok(PathBuf::from("/lib/drums/Kick dry.WAV"))
+        );
+        // A dot inside the name stays: only the old extension is added.
+        assert_eq!(
+            renamed_path(path, "kick.v2"),
+            Ok(PathBuf::from("/lib/drums/kick.v2.WAV"))
+        );
+        assert_eq!(
+            renamed_path(Path::new("/lib/README"), "notes"),
+            Ok(PathBuf::from("/lib/notes"))
+        );
+    }
+
+    #[test]
+    fn a_new_name_never_leaves_the_folder() {
+        let path = Path::new("/lib/drums/kick.wav");
+        for refused in [
+            "",
+            "  ",
+            ".",
+            "..",
+            "../kick",
+            "sub/kick",
+            "sub\\kick",
+            "/kick",
+        ] {
+            assert!(renamed_path(path, refused).is_err(), "{refused:?}");
+        }
+    }
+
+    #[test]
+    fn samples_move_only_inside_the_library() {
+        let scanned = [PathBuf::from("/lib"), PathBuf::from("/disk/.hidden root")];
+        assert!(check_destination(Path::new("/lib"), &scanned).is_ok());
+        assert!(check_destination(Path::new("/lib/drums/deep"), &scanned).is_ok());
+        assert!(check_destination(Path::new("/elsewhere"), &scanned).is_err());
+        // A namesake of a scanned folder is not inside it.
+        assert!(check_destination(Path::new("/library"), &scanned).is_err());
+        assert!(check_destination(Path::new("/lib/.Trash-1000"), &scanned).is_err());
+        assert!(check_destination(Path::new("/lib/drums/.cache"), &scanned).is_err());
+        // A scanned folder may itself be hidden: only what lies below counts.
+        assert!(check_destination(Path::new("/disk/.hidden root/pads"), &scanned).is_ok());
     }
 }
