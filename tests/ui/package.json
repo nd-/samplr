@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "description": "Tests of samplr's interface in a browser, the Tauri API faked (fake-tauri.js)",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
+  }
+}

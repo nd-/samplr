@@ -14,6 +14,11 @@ Desktop audio sample manager for **macOS, Linux and Windows**: listen to, tag an
 - Keep the code simple and readable rather than advanced-idiomatic. No premature abstraction.
 - When a compiler error is pasted, explain it before fixing it.
 - Before handing back: `cargo build`, `cargo clippy` and `cargo fmt` without warnings.
+- Tests: `cargo test --workspace` (unit tests, and `tests/cli.rs`, which runs the `samplr` binary
+  on generated WAV files and a throwaway `SAMPLR_DB`). Interface: `cd tests/ui && npm install &&
+  npx playwright test`, in Chromium, the page opened from `ui/index.html` with the Tauri API faked
+  by `tests/ui/fake-tauri.js` (a library of 50 samples; `window.__calls` records the commands).
+  Node is for these tests only: the interface itself still has no build tool.
 - Think Mac, Linux **and** Windows for every choice (paths, audio, drag and drop, packaging). Code
   for one system goes under `#[cfg(target_os = "…")]` for each of the three: `not(target_os =
   "macos")` is not Linux, it is Windows too.

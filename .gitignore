@@ -7,3 +7,8 @@
 ._*
 .DS_Store
 /src-tauri/gen
+
+# Interface tests (tests/ui)
+/tests/ui/node_modules/
+/tests/ui/test-results/
+/tests/ui/playwright-report/
