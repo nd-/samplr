@@ -26,7 +26,8 @@ pub struct Options {
 }
 
 /// The ffmpeg program: `SAMPLR_FFMPEG` if set, otherwise the first `ffmpeg`
-/// found in the `PATH`. `None` when there is none.
+/// found in the `PATH`, then in the usual install folders. `None` when there
+/// is none.
 pub fn ffmpeg() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("SAMPLR_FFMPEG") {
         return Some(PathBuf::from(path));
@@ -36,10 +37,19 @@ pub fn ffmpeg() -> Option<PathBuf> {
     } else {
         "ffmpeg"
     };
-    std::env::split_paths(&std::env::var_os("PATH")?)
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    std::env::split_paths(&path)
+        .chain(INSTALL_FOLDERS.iter().map(PathBuf::from))
         .map(|folder| folder.join(name))
         .find(|path| path.is_file())
 }
+
+/// Where package managers install ffmpeg, looked at after the `PATH`: an app
+/// opened from the Finder or the Dock gets a minimal one
+/// (`/usr/bin:/bin:/usr/sbin:/sbin`), without them, unlike one launched from
+/// a terminal. Homebrew on Apple silicon, Homebrew on Intel (and manual
+/// installs), MacPorts.
+const INSTALL_FOLDERS: [&str; 3] = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"];
 
 /// Writes `source` converted after `options`, next to it, and returns the
 /// new path: same name, the new extension, " mono" added when mixed down.

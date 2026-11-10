@@ -406,12 +406,14 @@ Audio pitfalls met so far:
   `samplr::convert_sample` writes a copy next to each original, which is kept (same name, the
   new extension, " mono" when mixed down; never overwrites), and adds it to the library with
   the original's tags and collections. The encoding is done by **ffmpeg**, run as a separate
-  program (`src/convert.rs`: `SAMPLR_FFMPEG`, else `ffmpeg` in the `PATH`; written to a hidden
-  `.name.ext.part` the folder watcher ignores, then renamed): every format, and no sound held
-  in samplr's memory. A pure-Rust encoder (`hound`, `flacenc`) was tried and dropped: two
-  formats only, and streaming FLAC needed care ffmpeg already takes. Packaging (step 11) will
-  have to bundle an LGPL, audio-only ffmpeg as a Tauri sidecar (`externalBin`), signed with
-  the app on Mac.
+  program (`src/convert.rs`: `SAMPLR_FFMPEG`, else `ffmpeg` in the `PATH`, then in
+  `/opt/homebrew/bin`, `/usr/local/bin` and `/opt/local/bin`, since an app opened from the
+  Finder or the Dock gets a minimal `PATH` without them, unlike one launched from a terminal;
+  written to a hidden `.name.ext.part` the folder watcher ignores, then renamed): every format,
+  and no sound held in samplr's memory. A pure-Rust encoder (`hound`, `flacenc`) was tried and
+  dropped: two formats only, and streaming FLAC needed care ffmpeg already takes. Packaging
+  (step 11) will have to bundle an LGPL, audio-only ffmpeg as a Tauri sidecar (`externalBin`),
+  signed with the app on Mac.
 - Colours: the Settings window lists the palette (colour picker, name, ✎, ×; "+ Add colour"); a
   name is read only until its ✎ is pressed (`editColorName`: Enter or leaving the box saves,
   Esc puts it back without closing the window), a new colour's name opens ready to edit; each
