@@ -10,6 +10,9 @@ clap = { version = "4.6", features = ["derive"] }
 dirs = "7.0"
 # `canonicalize` without Windows' `\\?\C:\…` prefix (same as std on Mac and Linux)
 dunce = "1.0"
+# Loudness of a sample (EBU R128, the broadcast standard), measured while
+# its waveform is computed; pure Rust port of the reference libebur128
+ebur128 = "0.1"
 # Folder watching (inotify on Linux, FSEvents on Mac), with event grouping
 # and matching of both ends of a rename
 notify-debouncer-full = "0.7"

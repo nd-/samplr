@@ -55,6 +55,10 @@ pub struct SampleInfo {
     /// from the database.
     pub looped: bool,
     pub loop_source: Option<analysis::Source>,
+    /// Loudness, measured with the waveform: integrated LUFS and peak in
+    /// dBFS; `None` until measured, or when it cannot be (too short, silent).
+    pub lufs: Option<f64>,
+    pub peak_db: Option<f64>,
     /// The file's ACID chunk, read with the file (`read_info`) and kept in
     /// the database; not sent to the page.
     #[serde(skip)]
@@ -354,6 +358,8 @@ pub fn read_info(path: &Path) -> Result<SampleInfo, Box<dyn Error>> {
         key: None,
         looped: false,
         loop_source: None,
+        lufs: None,
+        peak_db: None,
         acid: acid::read(path),
     })
 }
@@ -385,8 +391,8 @@ pub fn update_waveform(
         return Ok(WaveformUpdate::UpToDate);
     }
     match waveform::compute(path) {
-        Ok(peaks) => {
-            db::save_waveform(db, file_id, stamp, &peaks)?;
+        Ok((peaks, loudness)) => {
+            db::save_waveform(db, file_id, stamp, &peaks, loudness)?;
             Ok(WaveformUpdate::Computed)
         }
         Err(error) => Ok(WaveformUpdate::Unreadable(error.to_string())),
@@ -404,7 +410,7 @@ pub fn peaks(
     if let Some(peaks) = db::waveform(db, file_id, stamp)? {
         return Ok(peaks);
     }
-    let peaks = waveform::compute(path)?;
-    db::save_waveform(db, file_id, stamp, &peaks)?;
+    let (peaks, loudness) = waveform::compute(path)?;
+    db::save_waveform(db, file_id, stamp, &peaks, loudness)?;
     Ok(peaks)
 }

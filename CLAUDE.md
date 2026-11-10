@@ -38,6 +38,7 @@ musicians, alongside a DAW).
 - `clap` 4 (feature `derive`): subcommands are described by the `enum Command` in `main.rs`;
   the `///` comments become the `samplr help` output.
 - `trash` 5: "Move file(s) to the trash" (freedesktop trash on Linux, the Finder's on Mac).
+- `ebur128` 0.1: a sample's loudness (LUFS, peak), measured with its waveform.
 - rusqlite's `functions` feature: `unicode_lower`, the search's case folding (see `samplr search`).
 - Interface (`src-tauri/Cargo.toml`): `tauri` 2, `tauri-plugin-drag` (native drag into a DAW,
   patched in `vendor/drag`), `tauri-plugin-dialog` (folder chooser, questions),
@@ -123,7 +124,7 @@ the database leaves its collections, a hidden one stays in them and comes back w
 `colors` (the palette: name, `#rrggbb`, position; filled with 10 colours by the migration to
 version 4). `tags` and `collections` have a `color_id` (`ON DELETE SET NULL`: deleting a colour
 leaves them without colour). A tag deleted because no sample carries it any more loses its colour.
-Schema changes go through `db::migrate`: SQLite keeps the schema version (`PRAGMA user_version`, 7
+Schema changes go through `db::migrate`: SQLite keeps the schema version (`PRAGMA user_version`, 8
 so far), each step runs once, under `BEGIN IMMEDIATE` so that the app and a command opening the
 database together do not both run it. A new database goes through every step too (the `CREATE
 TABLE`s are version 0): add a column with a migration step, not in the `CREATE TABLE`, and raise
@@ -134,11 +135,18 @@ reads the files outside any transaction and saves them by batches of 200, each i
 transaction: the lock is never held for the whole walk, which can take minutes on a slow disk or a
 network share. A waveform is 1024 (min, max) peaks over all channels, stored as signed bytes (2
 KB), with the file's size and modification date: if either has changed, the waveform is stale and
-computed again. Peaks are built on the fly by merging buckets two by two, so memory use does not
-depend on the file length, which is not always known in advance (some MP3s). Tags are stored
-lowercase, without spaces; a tag no longer used by any sample is deleted. **Unplugged disk**: if
-the scanned folder itself has disappeared, nothing is removed from the database, at startup or
-live. Otherwise unplugging an external disk would erase the tags of all its samples.
+computed again. The waveform's row also holds the sample's loudness (`lufs`, `peak_db`, with
+`measured` = 1), measured from the sound itself during the same decoding (`waveform::compute`,
+`ebur128` crate: integrated loudness per EBU R128, the broadcast standard, and the sample peak;
+checked against ffmpeg's `ebur128` filter: same values). No LUFS under 0.4 s, the standard's block
+(2865 of the 3303 samples of the Linux library have one, all a peak). Waveforms saved before
+(`measured` = 0) are stale: the background thread measured the whole library again once (276 s in
+a debug build, 15 MB at most), telling the page every 5 s so that the LUFS column fills in. Peaks
+are built on the fly by merging buckets two by two, so memory use does not depend on the file
+length, which is not always known in advance (some MP3s). Tags are stored lowercase, without
+spaces; a tag no longer used by any sample is deleted. **Unplugged disk**: if the scanned folder
+itself has disappeared, nothing is removed from the database, at startup or live. Otherwise
+unplugging an external disk would erase the tags of all its samples.
 
 Scanning and playback have been tested on Linux and on the Mac (files read from the SMB share).
 

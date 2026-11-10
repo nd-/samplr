@@ -154,6 +154,7 @@ function buildRow(index) {
     bpmCell(sample),
     keyCell(sample),
     loopCell(sample),
+    loudnessCell(sample),
     collectionsCell(sample.collections),
     tagsCell(sample.tags),
     cell(folder, "folder"),
@@ -308,6 +309,7 @@ const defaultWidths = {
   bpm: 70,
   key: 60,
   loop: 60,
+  lufs: 60,
   collections: 160,
   tags: 200,
 };
@@ -405,6 +407,7 @@ const sortValues = {
   bpm: (sample) => sample.bpm,
   key: (sample) => sample.key,
   loop: (sample) => (sample.looped ? 1 : 0),
+  lufs: (sample) => sample.lufs,
   tags: (sample) => sample.tags.join(" ") || null,
   collections: (sample) => collectionNames(sample.collections).join(" ") || null,
 };
@@ -626,6 +629,7 @@ function drawInfo(sample) {
   }
   add("Tempo", sample.bpm === null ? null : `${sample.bpm} BPM`, tempoOrigins[sample.bpm_source]);
   add("Key", sample.key);
+  add("Loudness", loudnessText(sample) || null);
   add(
     "Loop",
     sample.loop_source ? (sample.looped ? "Loop" : "One-shot") : null,
@@ -2274,6 +2278,22 @@ function bpmCell(sample) {
 // selection when the row is in it. Enter or leaving the box saves, Esc
 // cancels; empty goes back to the value worked out from the name or the
 // length, "-" means none (a wrong guess).
+// Loudness in LUFS, one decimal; the peak in the tooltip. Empty until the
+// waveform (which measures it) is computed.
+function loudnessCell(sample) {
+  const td = cell(sample.lufs === null ? "" : sample.lufs.toFixed(1), "number");
+  td.title = loudnessText(sample);
+  return td;
+}
+
+// "-12.9 LUFS, peak -0.2 dBFS"; for a sound too short for LUFS, the peak.
+function loudnessText(sample) {
+  const parts = [];
+  if (sample.lufs !== null) parts.push(`${sample.lufs.toFixed(1)} LUFS`);
+  if (sample.peak_db !== null) parts.push(`peak ${sample.peak_db.toFixed(1)} dBFS`);
+  return parts.join(", ");
+}
+
 // Loop or one-shot: ✓ or —, greyed when only guessed from the tempo.
 const loopOrigins = {
   file: "from the file's ACID chunk",

@@ -86,7 +86,7 @@ pub fn open() -> Result<Connection, Box<dyn Error>> {
 }
 
 /// The schema version `migrate` brings a database to: the last step's.
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 
 /// Brings a database created by an older samplr up to date. Its version is
 /// kept by SQLite (`user_version`, 0 for a new database); each step runs once.
@@ -182,6 +182,18 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
         db.execute_batch(
             "ALTER TABLE files ADD COLUMN looped INTEGER;
              PRAGMA user_version = 7;",
+        )?;
+    }
+    if version < 8 {
+        // Loudness, measured with the waveform (see `waveform::compute`):
+        // integrated LUFS and peak in dBFS, NULL when they cannot be
+        // measured. `measured` is 0 for a waveform saved before: it counts
+        // as stale and is computed again, once, in the background.
+        db.execute_batch(
+            "ALTER TABLE waveforms ADD COLUMN lufs REAL;
+             ALTER TABLE waveforms ADD COLUMN peak_db REAL;
+             ALTER TABLE waveforms ADD COLUMN measured INTEGER NOT NULL DEFAULT 0;
+             PRAGMA user_version = 8;",
         )?;
     }
     db.execute_batch("COMMIT")?;
@@ -397,7 +409,8 @@ pub fn waveform(
 ) -> Result<Option<Vec<Peak>>, Box<dyn Error>> {
     let bytes: Option<Vec<u8>> = db
         .query_row(
-            "SELECT peaks FROM waveforms WHERE file_id = ?1 AND size = ?2 AND modified = ?3",
+            "SELECT peaks FROM waveforms
+             WHERE file_id = ?1 AND size = ?2 AND modified = ?3 AND measured = 1",
             params![file_id, stamp.size, stamp.modified],
             |row| row.get(0),
         )
@@ -411,15 +424,18 @@ pub fn save_waveform(
     file_id: i64,
     stamp: FileStamp,
     peaks: &[Peak],
+    loudness: waveform::Loudness,
 ) -> Result<(), Box<dyn Error>> {
     db.execute(
-        "INSERT OR REPLACE INTO waveforms (file_id, size, modified, peaks)
-         VALUES (?1, ?2, ?3, ?4)",
+        "INSERT OR REPLACE INTO waveforms (file_id, size, modified, peaks, lufs, peak_db, measured)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1)",
         params![
             file_id,
             stamp.size,
             stamp.modified,
-            waveform::to_bytes(peaks)
+            waveform::to_bytes(peaks),
+            loudness.lufs,
+            loudness.peak_db,
         ],
     )?;
     Ok(())
@@ -843,8 +859,10 @@ pub fn search(
                 f.favorite,
                 (SELECT group_concat(cf.collection_id) FROM collection_files cf
                  WHERE cf.file_id = f.id),
-                f.bpm, f.key, f.acid_beats, f.acid_root, f.acid_loop, f.looped
+                f.bpm, f.key, f.acid_beats, f.acid_root, f.acid_loop, f.looped,
+                w.lufs, w.peak_db
          FROM files f
+         LEFT JOIN waveforms w ON w.file_id = f.id AND w.measured = 1
          WHERE f.hidden = 0 AND instr(unicode_lower(f.path), unicode_lower(?1)) > 0",
     );
     if favorites_only {
@@ -927,6 +945,8 @@ pub fn search(
             key,
             looped,
             loop_source: Some(loop_source),
+            lufs: row.get(14)?,
+            peak_db: row.get(15)?,
             acid: acid_loop.map(|looped| acid::Acid {
                 beats: acid_beats.unwrap_or(0),
                 root: acid_root,
