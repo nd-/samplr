@@ -34,6 +34,8 @@ enum AudioRequest {
         start: f64,
     },
     Stop,
+    /// Pauses (`true`) or resumes the sound playing, where it was.
+    Pause(bool),
     /// 0.0 is silence, 1.0 the file's own level.
     Volume(rodio::Float),
 }
@@ -725,6 +727,11 @@ fn stop(audio: State<Audio>) -> Result<(), String> {
     send(&audio, AudioRequest::Stop)
 }
 
+#[tauri::command]
+fn pause(paused: bool, audio: State<Audio>) -> Result<(), String> {
+    send(&audio, AudioRequest::Pause(paused))
+}
+
 /// Sets the preview volume, from 0.0 (silence) to 1.0 (the file's own level),
 /// for the sound playing and the next ones.
 #[tauri::command]
@@ -780,6 +787,15 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
             Ok(AudioRequest::Stop) => {
                 current = None;
                 playing_id = None;
+            }
+            Ok(AudioRequest::Pause(paused)) => {
+                if let Some(player) = &current {
+                    if paused {
+                        player.pause();
+                    } else {
+                        player.play();
+                    }
+                }
             }
             Ok(AudioRequest::Volume(new_volume)) => {
                 volume = new_volume;
@@ -871,6 +887,7 @@ fn main() {
             remove_from_collection,
             play,
             stop,
+            pause,
             set_volume,
             add_folder,
             folders,

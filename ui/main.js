@@ -816,12 +816,46 @@ let playId = 0;
 // `start`: where to start, in seconds from the beginning of the sample.
 // The path of the sample playing, or `null`.
 let playingPath = null;
+// The sound playing is paused (Space): it resumes where it was.
+let paused = false;
+
+// Space: a loop pauses and resumes; a one-shot plays again from the start,
+// as a pad would; nothing playing, the selected sample plays.
+function playOrPause() {
+  const sample = samples[selected];
+  if (playingPath === null || (sample && sample.path !== playingPath)) {
+    play();
+    return;
+  }
+  if (sample && !sample.looped && !paused) {
+    play();
+    return;
+  }
+  paused = !paused;
+  invoke("pause", { paused }).catch(showError);
+  // The playhead stops where the sound is, and goes on from there.
+  if (lastPosition !== null) {
+    const now = performance.now();
+    if (paused) {
+      lastPosition = { seconds: lastPosition.seconds + (now - lastPosition.at) / 1000, at: now };
+    } else {
+      lastPosition = { ...lastPosition, at: now };
+      if (!animating) {
+        animating = true;
+        requestAnimationFrame(movePlayhead);
+      }
+    }
+  }
+  const name = splitPath(playingPath).name;
+  status.textContent = `${paused ? "⏸" : "▶"} ${name}`;
+}
 
 function play(start = 0) {
   const sample = samples[selected];
   if (!sample) return;
   playId += 1;
   playingPath = sample.path;
+  paused = false;
   startPlayhead(sample.duration_secs, start);
   status.textContent = `▶ ${splitPath(sample.path).name}`;
   stopButton.disabled = false;
@@ -861,6 +895,11 @@ function movePlayhead() {
     animating = false;
     return;
   }
+  if (paused) {
+    // Still drawn where it stopped; nothing moves until Space again.
+    animating = false;
+    return;
+  }
   let seconds = lastPosition.seconds + (performance.now() - lastPosition.at) / 1000;
   seconds = loopBox.checked
     ? seconds % playheadDuration
@@ -876,6 +915,7 @@ window.__TAURI__.event.listen("playback-position", (event) => {
 
 function showStopped() {
   playingPath = null;
+  paused = false;
   stopPlayhead();
   stopButton.disabled = true;
   status.textContent = `${samples.length} sample(s)`;
@@ -2157,6 +2197,22 @@ document.addEventListener("keydown", (event) => {
     case "Enter":
       play();
       break;
+    case " ":
+      // In a text box or on a button, Space types or presses as usual.
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLButtonElement) {
+        return;
+      }
+      playOrPause();
+      break;
+    case "l":
+    case "L":
+      if (event.target instanceof HTMLInputElement || event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+      }
+      // Through the checkbox itself: its change handler restarts the sound
+      // in the new mode and remembers the choice.
+      loopBox.click();
+      break;
     case "Escape":
       stop();
       // A right-click menu still waiting for its answer must not open.
@@ -2412,6 +2468,8 @@ try {
 const shortcutList = [
   ["↑ ↓", "Browse the list and play"],
   ["Enter", "Play the selected sample again"],
+  ["Space", "Pause or resume a loop; play a one-shot again"],
+  ["L", "Play in a loop, or no longer (the Play loop box)"],
   ["Esc", "Stop"],
   ["Ctrl+click", "Add a sample to the selection, or take it out"],
   ["Shift+click, Shift+↑ ↓", "Select from the last sample clicked"],

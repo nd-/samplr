@@ -254,24 +254,27 @@ Audio pitfalls met so far:
   and the windows scroll inside, each on its own. The header wraps its buttons onto a second line
   in a narrow window (`flex-wrap`, search box at least 12rem): unwrapped they needed about 1020
   px, and below that the whole page scrolled sideways with the last buttons out of the window.
-- Preview controls: Play, Stop (same as Esc), the Play loop and Autoplay checkboxes and a
-  volume slider in the header. Autoplay off: a click on a row selects it without playing (to
-  tag or drag it in silence), and stops the sound playing if it was another sample's; the arrow
-  keys, Enter and Play still play; remembered in `localStorage` (`autoplay`). "Play loop"
-  checked: every sample played loops, until the box is unchecked (Stop does not change it);
-  remembered in `localStorage` (`loop`). A sound cannot change mode while playing: toggling the
-  box starts the selected sample again in the new mode, or stops a sound no longer selected. A
-  loop uses rodio's `build_looped`, which seeks back to the start of the file at each end
-  instead of keeping the sound in memory; the audio thread receives either decoder as a
-  `Box<dyn Source + Send>`. The slider's position is squared before reaching rodio
-  (`set_volume` command, 0.0 to 1.0), so that it acts evenly over its whole travel (a linear
-  slider barely changes the loudness in its top half); it is remembered in the web view's
-  `localStorage`. The audio thread receives `AudioRequest::Play`, `Stop` or `Volume`, and
-  applies the volume to the sound playing and to the next ones. It waits for requests at most
-  100 ms at a time, to notice when the sound has played to its end: it then sends the page a
-  `playback-ended` event with the number the page gave to that sound (`play` command's `id`),
-  and the page ignores the end of a sound already replaced by another one. The audio thread is
-  started in Tauri's `setup`, to get the `AppHandle` it sends events with.
+- Preview controls: Play, Stop (same as Esc), Space (`playOrPause`: a loop pauses and resumes
+  where it was, `pause` command → `AudioRequest::Pause`, `Player::pause` / `play`, the playhead
+  frozen meanwhile; a one-shot plays again from the start, like a pad; nothing playing, the
+  selected sample plays), L (switches the Play loop box, as a click on it would), the Play loop
+  and Autoplay checkboxes and a volume slider in the header. Autoplay off: a click on a row
+  selects it without playing (to tag or drag it in silence), and stops the sound playing if it was
+  another sample's; the arrow keys, Enter and Play still play; remembered in `localStorage`
+  (`autoplay`). "Play loop" checked: every sample played loops, until the box is unchecked (Stop
+  does not change it); remembered in `localStorage` (`loop`). A sound cannot change mode while
+  playing: toggling the box starts the selected sample again in the new mode, or stops a sound no
+  longer selected. A loop uses rodio's `build_looped`, which seeks back to the start of the file
+  at each end instead of keeping the sound in memory; the audio thread receives either decoder as
+  a `Box<dyn Source + Send>`. The slider's position is squared before reaching rodio (`set_volume`
+  command, 0.0 to 1.0), so that it acts evenly over its whole travel (a linear slider barely
+  changes the loudness in its top half); it is remembered in the web view's `localStorage`. The
+  audio thread receives `AudioRequest::Play`, `Stop` or `Volume`, and applies the volume to the
+  sound playing and to the next ones. It waits for requests at most 100 ms at a time, to notice
+  when the sound has played to its end: it then sends the page a `playback-ended` event with the
+  number the page gave to that sound (`play` command's `id`), and the page ignores the end of a
+  sound already replaced by another one. The audio thread is started in Tauri's `setup`, to get
+  the `AppHandle` it sends events with.
 - Playhead: a line over the waveform (a `<div>` moved in CSS, not a redraw of the canvas). The
   audio thread sends a `playback-position` event every 100 ms (`Player::get_pos`); in between,
   the page moves the line on the clock (`requestAnimationFrame`). In loop mode the position is
