@@ -6,7 +6,9 @@
 // For the tests: `window.__calls` records every command with its arguments,
 // `window.__emit(name, payload)` sends an event as Rust would, and
 // `window.__answer` is what `dialog.ask` answers (true by default), each
-// question kept in `window.__asked`.
+// question kept in `window.__asked`; `window.__chosenFolder` is what the
+// folder chooser gives (`null`: cancelled), `window.__splice` the Splice
+// folders found.
 // `window.__pending` counts the commands not answered yet.
 // `window.__library` changes the library as the folder watcher would (the
 // test then emits `library-changed`), `window.__delay(command, args)` gives
@@ -52,6 +54,16 @@
     { id: 1, name: "Red", hex: "#e5484d" },
     { id: 2, name: "Blue", hex: "#0090ff" },
   ];
+  // The scanned folders; an unplugged disk's is not found. Removing one
+  // hides its samples.
+  const folders = [
+    { path: "/lib", found: true },
+    { path: "/Volumes/Old disk", found: false },
+  ];
+  const hidden = new Set();
+  const shown = () => samples.filter((sample) => !hidden.has(sample.path));
+  const under = (folder, sample) => sample.path.startsWith(`${folder}/`);
+
   // Tag name → colour id.
   const tagColors = new Map();
 
@@ -76,7 +88,7 @@
 
   function tagCounts() {
     const counts = new Map();
-    for (const sample of samples) {
+    for (const sample of shown()) {
       for (const tag of sample.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
     }
     return [...counts].sort(([a], [b]) => a.localeCompare(b));
@@ -87,7 +99,7 @@
   // imitated.
   function search({ query, favorites, collection }) {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-    return samples
+    return shown()
       .filter((sample) => !favorites || sample.favorite)
       .filter((sample) => collection === null || sample.collections.includes(collection))
       .filter((sample) =>
@@ -134,7 +146,7 @@
     collections: () =>
       [...collections].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })).map((c) => ({
         ...c,
-        samples: samples.filter((s) => s.collections.includes(c.id)).length,
+        samples: shown().filter((s) => s.collections.includes(c.id)).length,
       })),
     colors: () => palette,
     tag_colors: () => [...tagColors],
@@ -167,10 +179,29 @@
       return null;
     },
     tags: () => tagCounts(),
-    splice_folders: () => [],
+    splice_folders: () => window.__splice,
     library_problems: () => window.__problems.splice(0),
     ffmpeg_available: () => true,
-    folders: () => [{ path: "/lib", samples: samples.length, found: true }],
+    folders: () =>
+      folders.map((folder) => ({
+        ...folder,
+        samples: shown().filter((sample) => under(folder.path, sample)).length,
+      })),
+    remove_folder: ({ folder }) => {
+      folders.splice(folders.findIndex((f) => f.path === folder), 1);
+      const leaving = shown().filter((sample) => under(folder, sample));
+      for (const sample of leaving) hidden.add(sample.path);
+      return leaving.length;
+    },
+    // Three new samples, the progress told as a scan does.
+    add_folder: ({ folder }) => {
+      folders.push({ path: folder, found: true });
+      for (let i = 1; i <= 3; i++) {
+        window.__library.add(`${folder}/Hit ${i}.wav`);
+        window.__emit("scan-progress", { done: i, total: 3 });
+      }
+      return { samples: 3, unreadable: 0 };
+    },
     file_info: () => ({ size: 1000, modified: 0, tags: [] }),
     waveform: () => Array.from({ length: 1024 }, (_, i) => [-Math.abs(Math.sin(i / 20)), Math.abs(Math.sin(i / 20))]),
     play: () => null,
@@ -288,6 +319,8 @@
   window.__pending = 0;
   window.__answer = true;
   window.__asked = [];
+  window.__chosenFolder = null;
+  window.__splice = [];
   window.__emit = (name, payload) => {
     for (const handler of listeners.get(name) ?? []) handler({ event: name, payload });
   };
@@ -321,7 +354,7 @@
         window.__asked.push(message);
         return window.__answer;
       },
-      open: async () => null,
+      open: async () => window.__chosenFolder,
     },
     drag: { startDrag: async () => null },
     webview: {
