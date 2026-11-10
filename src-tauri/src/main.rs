@@ -376,6 +376,14 @@ fn convert_samples(
     Ok(converted)
 }
 
+/// What went wrong while following the folders since the last call (a
+/// folder that cannot be watched, a change on disk not applied), for the
+/// page to show. Emptied by the call.
+#[tauri::command]
+fn library_problems(library: State<Library>) -> Vec<String> {
+    library.take_problems()
+}
+
 /// The `playback-position` event: where the sound `id` is, in seconds from
 /// its start (a loop keeps counting from its first start).
 #[derive(Serialize, Clone)]
@@ -684,6 +692,7 @@ fn main() {
             move_samples,
             trash_samples,
             ffmpeg_available,
+            library_problems,
             convert_samples,
             colors,
             add_color,

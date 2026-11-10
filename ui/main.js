@@ -883,6 +883,9 @@ async function addFolder() {
     await search();
     status.textContent =
       `${added.samples} sample(s) saved, ${added.unreadable} unreadable.`;
+    // The folder may be saved but not followed (too many folders for the
+    // system, no permission).
+    await showLibraryProblems();
   } catch (error) {
     showError(error);
   } finally {
@@ -949,6 +952,7 @@ async function removeFolder(folder) {
     await refresh();
     await showFolders();
     status.textContent = `Folder removed, ${hidden} sample(s) hidden.`;
+    await showLibraryProblems();
   } catch (error) {
     showError(error);
   }
@@ -994,6 +998,23 @@ async function refresh({ stopIfGone = true } = {}) {
 }
 
 window.__TAURI__.event.listen("library-changed", () => refresh());
+
+// Following the folders goes on when one of them fails (cannot be watched,
+// a change not applied): the problems are kept on the Rust side and shown
+// here. Asked at startup too, for those met before the page was listening.
+async function showLibraryProblems() {
+  let problems = [];
+  try {
+    problems = await invoke("library_problems");
+  } catch (error) {
+    showError(error);
+    return;
+  }
+  if (problems.length > 0) showError(problems.join("\n"));
+}
+
+window.__TAURI__.event.listen("library-problem", showLibraryProblems);
+showLibraryProblems();
 
 // "★ Favorites" on: the list shows only the favorites.
 let favoritesOnly = false;

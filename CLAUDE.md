@@ -274,7 +274,14 @@ Audio pitfalls met so far:
   renamed) and is the one playing, its sound stops; a sound only left out by the current search
   keeps playing. `Library` (in `State`) holds the watcher and the watched folders, so that
   `add_folder` watches a new folder at once (`update_watched`). Running `samplr watch` at the
-  same time works but is useless: both apply the same changes.
+  same time works but is useless: both apply the same changes. A failure never stops the
+  following of the other folders: a folder that cannot be watched (a subfolder without read
+  permission makes inotify refuse the whole folder; too many folders for the system) is left out
+  and tried again at the next `update_watched`, a folder that cannot be caught up with is still
+  followed live, a change that cannot be applied is skipped. Each is kept as a problem
+  (`Library::problem`), and the page shows them in the red error box: it asks for them
+  (`library_problems`, which empties the list) at startup, after adding or removing a folder,
+  and on the `library-problem` event.
 - Folders window ("Folders…" button, a `<dialog>`): the scanned folders with their sample
   count, "(not found)" when missing from disk, and a Remove button each, confirmed through
   `window.__TAURI__.dialog.ask` (the plugin's `message` command, allowed by `dialog:default`).
