@@ -308,9 +308,21 @@ Audio pitfalls met so far:
   another one. The audio thread is started in Tauri's `setup`, to get the `AppHandle` it sends
   events with. The header keeps the search box, Favorites, + Folder, Folders… and Settings…
 - Playhead: a line over the waveform (a `<div>` moved in CSS, not a redraw of the canvas). The
-  audio thread sends a `playback-position` event every 100 ms (`Player::get_pos`); in between,
-  the page moves the line on the clock (`requestAnimationFrame`). In loop mode the position is
-  taken modulo the sample's length. No line when the length is unknown (some MP3s).
+  audio thread sends a `playback-position` event every 100 ms; in between, the page moves the line
+  on the clock (`requestAnimationFrame`), times the speed. The position is in seconds of the file:
+  the sound is wrapped in a `track_position` of its own, read every 20 ms, under the player's speed
+  (`Player::get_pos` counts the time played, wrong once the speed changes during a sound). In loop
+  mode the position is taken modulo the sample's length. No line when the length is unknown (some
+  MP3s).
+- Pitch, as a tape (`#pitch-options` in the playback bar): Pitch in semitones (-24 to +24) and
+  Fine in cents (±50), a double-click on a slider brings it back to 0, its value shown in
+  `--signal` when not 0. They give a speed, 2^(semitones / 12) (`set_speed` command →
+  `AudioRequest::Speed` → `Player::set_speed`, applied to the sound playing and the next ones):
+  pitch and tempo change together. A seek is divided by the speed, the player's seek being in
+  time played. The bar then shows the tempo and key heard, the file's own between brackets
+  ("133.5 BPM (120) · Bm (Am)"). Not remembered between launches: a library heard out of tune at
+  the next start would mislead. Pitch without tempo, and the reverse, need time stretching: not
+  done.
 - A click on the waveform plays the sample from that point (`play` command's `start`, applied
   with `Player::try_seek` right after `append`), in the current mode (once or loop). Ignored
   when the length is unknown.

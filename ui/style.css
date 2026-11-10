@@ -742,6 +742,36 @@ header button:disabled,
 	font-size: 0.85em;
 }
 
+/* Pitch in semitones and fine tuning in cents, one above the other. */
+#pitch-options {
+	display: grid;
+	grid-template-columns: auto auto auto;
+	align-items: center;
+	gap: var(--space-1) var(--space-4);
+	font-size: 0.85em;
+	color: var(--muted);
+}
+
+/* The grid places the label's text, slider and value in its columns. */
+.pitch-box {
+	display: contents;
+}
+
+#pitch, #fine {
+	width: 6rem;
+}
+
+#pitch-options output {
+	min-width: 3.4em;
+	font-variant-numeric: tabular-nums;
+}
+
+/* Not at 0: the sound is not heard as it is in the file. */
+#pitch-options output.shifted {
+	color: var(--signal);
+	font-weight: 600;
+}
+
 #player-switches {
 	display: flex;
 	gap: var(--space-8);

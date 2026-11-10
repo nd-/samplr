@@ -793,12 +793,31 @@ function renderPlayer(sample) {
   nowName.textContent = splitPath(sample.path).name;
   nowName.title = sample.path;
   const details = [];
-  if (sample.bpm !== null) details.push(`${sample.bpm_source === "length" ? "≈ " : ""}${sample.bpm} BPM`);
-  if (sample.key) details.push(sample.key);
+  // Pitched: the tempo and key heard, the file's own between brackets.
+  const shifted = semitones() !== 0;
+  if (sample.bpm !== null) {
+    const estimated = sample.bpm_source === "length" ? "≈ " : "";
+    const heard = shifted ? `${Math.round(sample.bpm * playSpeed() * 10) / 10} BPM (${sample.bpm})` : `${sample.bpm} BPM`;
+    details.push(estimated + heard);
+  }
+  if (sample.key) {
+    const heard = transpose(sample.key, Math.round(semitones()));
+    details.push(heard === sample.key ? heard : `${heard} (${sample.key})`);
+  }
   if (sample.loop_source) details.push(sample.looped ? "Loop" : "One-shot");
   if (sample.duration_secs !== null) details.push(formatDuration(sample.duration_secs));
   if (sample.lufs !== null) details.push(`${sample.lufs.toFixed(1)} LUFS`);
   nowDetails.textContent = details.join(" · ");
+}
+
+const notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+// "Am" up 2 semitones: "Bm". Keys are written in sharps.
+function transpose(key, steps) {
+  const match = /^([A-G]#?)(.*)$/.exec(key);
+  if (!match || steps === 0) return key;
+  const index = notes.indexOf(match[1]);
+  return notes[(((index + steps) % 12) + 12) % 12] + match[2];
 }
 
 // "WAV · pcm_s24le · 24 bit · 44.1 kHz · stereo".
@@ -1076,7 +1095,7 @@ function movePlayhead() {
     animating = false;
     return;
   }
-  let seconds = lastPosition.seconds + (performance.now() - lastPosition.at) / 1000;
+  let seconds = lastPosition.seconds + ((performance.now() - lastPosition.at) / 1000) * playSpeed();
   seconds = loopBox.checked
     ? seconds % playheadDuration
     : Math.min(seconds, playheadDuration);
@@ -1168,6 +1187,54 @@ try {
 }
 volumeSlider.addEventListener("input", applyVolume);
 applyVolume();
+
+// The preview's pitch, as a tape: semitones and cents give a speed, the
+// tempo following. Not remembered: a library heard out of tune at the next
+// launch would mislead.
+const pitchSlider = document.getElementById("pitch");
+const fineSlider = document.getElementById("fine");
+const pitchValue = document.getElementById("pitch-value");
+const fineValue = document.getElementById("fine-value");
+
+function semitones() {
+  return Number(pitchSlider.value) + Number(fineSlider.value) / 100;
+}
+
+function playSpeed() {
+  return 2 ** (semitones() / 12);
+}
+
+function signed(value) {
+  return value > 0 ? `+${value}` : String(value);
+}
+
+function applyPitch() {
+  // The playhead goes on from where it is at the old speed.
+  if (lastPosition !== null && !paused) {
+    const now = performance.now();
+    lastPosition = {
+      seconds: lastPosition.seconds + ((now - lastPosition.at) / 1000) * previousSpeed,
+      at: now,
+    };
+  }
+  previousSpeed = playSpeed();
+  pitchValue.textContent = `${signed(Number(pitchSlider.value))} st`;
+  fineValue.textContent = `${signed(Number(fineSlider.value))} ct`;
+  pitchValue.classList.toggle("shifted", pitchSlider.value !== "0");
+  fineValue.classList.toggle("shifted", fineSlider.value !== "0");
+  invoke("set_speed", { speed: playSpeed() });
+  renderPlayer(samples[selected]);
+}
+
+let previousSpeed = 1;
+for (const slider of [pitchSlider, fineSlider]) {
+  slider.addEventListener("input", applyPitch);
+  slider.addEventListener("dblclick", () => {
+    slider.value = 0;
+    applyPitch();
+  });
+}
+applyPitch();
 
 // Autoplay off: a click on a row selects it without playing it, to tag it or
 // drag it in silence. The arrow keys, Enter and Play still play.

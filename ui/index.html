@@ -76,6 +76,10 @@
     </div>
     <div id="player-controls">
       <button id="stop" type="button" title="Stop playback (Esc)" disabled>■</button>
+      <div id="pitch-options" title="As a tape: the tempo follows the pitch. Double-click a slider to bring it back to 0">
+        <label class="pitch-box">Pitch <input id="pitch" type="range" min="-24" max="24" value="0"> <output id="pitch-value"></output></label>
+        <label class="pitch-box">Fine <input id="fine" type="range" min="-50" max="50" value="0"> <output id="fine-value"></output></label>
+      </div>
       <div id="player-options">
         <div id="player-switches">
           <label id="loop-box" title="Play in a loop, this sample and the next ones"><input id="loop" type="checkbox"> Loop</label>

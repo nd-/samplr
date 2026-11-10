@@ -11,6 +11,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -38,6 +39,8 @@ enum AudioRequest {
     Pause(bool),
     /// 0.0 is silence, 1.0 the file's own level.
     Volume(rodio::Float),
+    /// Playback speed, as a tape: 2.0 an octave up and twice as fast.
+    Speed(f32),
 }
 
 /// Shared by every command through `State`: the way to talk to the audio thread.
@@ -534,8 +537,8 @@ fn file_info(path: PathBuf) -> Result<FileInfo, String> {
     })
 }
 
-/// The `playback-position` event: where the sound `id` is, in seconds from
-/// its start (a loop keeps counting from its first start).
+/// The `playback-position` event: where the sound `id` is, in seconds of the
+/// file whatever the speed (a loop keeps counting from its first start).
 #[derive(Serialize, Clone)]
 struct Position {
     id: u32,
@@ -739,6 +742,13 @@ fn set_volume(volume: rodio::Float, audio: State<Audio>) -> Result<(), String> {
     send(&audio, AudioRequest::Volume(volume.clamp(0.0, 1.0)))
 }
 
+/// Sets the preview speed, for the sound playing and the next ones: the
+/// pitch and the tempo change together, as on a tape.
+#[tauri::command]
+fn set_speed(speed: f32, audio: State<Audio>) -> Result<(), String> {
+    send(&audio, AudioRequest::Speed(speed.clamp(0.25, 4.0)))
+}
+
 fn send(audio: &Audio, request: AudioRequest) -> Result<(), String> {
     // Sending only fails if the audio thread has stopped, which it does when
     // no audio output could be opened.
@@ -769,6 +779,11 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
     // The id of the sound playing, until its end has been reported.
     let mut playing_id: Option<u32> = None;
     let mut volume = 1.0;
+    let mut speed = 1.0;
+    // Where the sound playing is in its file. `Player::get_pos` counts the
+    // time played, which no longer matches the file once the speed changes
+    // during the sound: the position is tracked under the speed instead.
+    let mut position = Arc::new(Mutex::new(Duration::ZERO));
     loop {
         // Waits for a request, but no more than 100 ms, to report the
         // position of the sound playing and notice its end.
@@ -776,10 +791,20 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
             Ok(AudioRequest::Play { sound, id, start }) => {
                 let player = rodio::Player::connect_new(sink.mixer());
                 player.set_volume(volume);
-                player.append(sound);
+                player.set_speed(speed);
+                position = Arc::new(Mutex::new(Duration::ZERO));
+                let shared = Arc::clone(&position);
+                let tracked = sound
+                    .track_position()
+                    .periodic_access(Duration::from_millis(20), move |source| {
+                        *shared.lock().unwrap() = source.get_pos()
+                    });
+                player.append(tracked);
                 if start > 0.0 {
-                    // A format that cannot seek just plays from the start.
-                    let _ = player.try_seek(Duration::from_secs_f64(start));
+                    // The player's seek is in time played: at twice the
+                    // speed, a second played is two of the file. A format
+                    // that cannot seek just plays from the start.
+                    let _ = player.try_seek(Duration::from_secs_f64(start / f64::from(speed)));
                 }
                 current = Some(player);
                 playing_id = Some(id);
@@ -803,6 +828,12 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
                     player.set_volume(volume);
                 }
             }
+            Ok(AudioRequest::Speed(new_speed)) => {
+                speed = new_speed;
+                if let Some(player) = &current {
+                    player.set_speed(speed);
+                }
+            }
             Err(RecvTimeoutError::Timeout) => {}
             // The app is closing.
             Err(RecvTimeoutError::Disconnected) => break,
@@ -818,7 +849,7 @@ fn audio_thread(requests: Receiver<AudioRequest>, app: AppHandle) {
             playing_id = None;
             let _ = app.emit("playback-ended", id);
         } else {
-            let seconds = player.get_pos().as_secs_f64();
+            let seconds = position.lock().unwrap().as_secs_f64();
             let _ = app.emit("playback-position", Position { id, seconds });
         }
     }
@@ -892,6 +923,7 @@ fn main() {
             stop,
             pause,
             set_volume,
+            set_speed,
             add_folder,
             folders,
             remove_folder
