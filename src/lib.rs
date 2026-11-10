@@ -2,6 +2,7 @@
 // both need (database, waveforms, reading audio files).
 
 pub mod analysis;
+pub mod convert;
 pub mod db;
 pub mod watch;
 pub mod waveform;
@@ -79,6 +80,34 @@ pub fn trash_sample(db: &Connection, path: &Path) -> Result<(), Box<dyn Error>> 
     trash::delete(path)?;
     db::forget(db, path)?;
     Ok(())
+}
+
+/// Converts a sample with ffmpeg (see `convert`), next to the original, and
+/// adds the copy to the library with the original's tags and collections.
+/// Returns its path.
+pub fn convert_sample(
+    db: &Connection,
+    path: &Path,
+    options: &convert::Options,
+) -> Result<PathBuf, Box<dyn Error>> {
+    let original = read_info(path)?;
+    // A sample already mono is only converted: in a mixed selection, "mono"
+    // concerns the stereo ones.
+    let mut options = options.clone();
+    if original.channels == Some(1) {
+        options.mono = false;
+    }
+    let converted = convert::convert(path, &options, original.bits)?;
+    // Saved at once rather than left to the folder watcher, so that the copy
+    // gets the original's tags and collections now.
+    let file_id = db::save(db, &read_info(&converted)?)?;
+    if let Some(original_id) = db::file_id(db, path)? {
+        db::add_tags(db, file_id, &db::tags_of(db, original_id)?)?;
+        for collection in db::collections_holding(db, &[original_id])? {
+            db::add_to_collection(db, collection, &[file_id])?;
+        }
+    }
+    Ok(converted)
 }
 
 /// True for `._kick.wav`: metadata that macOS leaves next to `kick.wav` on a

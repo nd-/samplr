@@ -347,6 +347,35 @@ fn trash_samples(paths: Vec<PathBuf>) -> Result<u32, String> {
     Ok(trashed)
 }
 
+/// True when ffmpeg, which converts samples, is installed.
+#[tauri::command]
+fn ffmpeg_available() -> bool {
+    samplr::convert::ffmpeg().is_some()
+}
+
+/// Converts samples after `options` (format, depth or bit rate, mono), each
+/// next to its original, which is kept. Stops at the first failure; the
+/// copies made before it stay. Returns the new paths, in order.
+#[tauri::command(async)]
+fn convert_samples(
+    paths: Vec<PathBuf>,
+    options: samplr::convert::Options,
+) -> Result<Vec<PathBuf>, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    let mut converted = Vec::new();
+    for path in &paths {
+        let copy = samplr::convert_sample(&db, path, &options).map_err(|e| {
+            format!(
+                "{}: {e} ({} sample(s) converted before)",
+                path.display(),
+                converted.len()
+            )
+        })?;
+        converted.push(copy);
+    }
+    Ok(converted)
+}
+
 /// The `playback-position` event: where the sound `id` is, in seconds from
 /// its start (a loop keeps counting from its first start).
 #[derive(Serialize, Clone)]
@@ -654,6 +683,8 @@ fn main() {
             rename_sample,
             move_samples,
             trash_samples,
+            ffmpeg_available,
+            convert_samples,
             colors,
             add_color,
             update_color,

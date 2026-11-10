@@ -230,7 +230,8 @@ header {
 header button,
 #new-collection button,
 #folder-list button,
-#add-color {
+#add-color,
+.dialog-buttons button {
 	padding: var(--space-3) var(--space-6);
 	border: none;
 	border-radius: 4px;
@@ -245,7 +246,8 @@ header button,
 header button:hover:enabled,
 #new-collection button:hover,
 #folder-list button:hover,
-#add-color:hover {
+#add-color:hover,
+.dialog-buttons button:hover {
 	background: var(--button-hover);
 }
 
@@ -271,7 +273,7 @@ header button:disabled {
 	width: 7rem;
 }
 
-#folders, #settings {
+#folders, #settings, #convert {
 	width: min(40rem, 90vw);
 	border: 1px solid var(--border);
 	background: var(--surface);
@@ -916,6 +918,12 @@ footer {
 	gap: var(--space-8);
 }
 
+/* `display: flex` would otherwise win over the `hidden` attribute. */
+.setting[hidden],
+.check[hidden] {
+	display: none;
+}
+
 #settings #add-color {
 	align-self: flex-start;
 }
@@ -967,4 +975,35 @@ footer {
 	color: var(--muted);
 	font: inherit;
 	cursor: pointer;
+}
+
+/* The conversion window: its settings one under the other, its buttons at
+   the bottom right. */
+#convert-form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-8);
+}
+
+#convert .setting label {
+	min-width: 6rem;
+}
+
+#convert .hint {
+	margin: 0;
+	font-size: 0.9em;
+	color: var(--muted);
+}
+
+.dialog-buttons {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--space-6);
+}
+
+/* The button that does the job stands out, with text that keeps its
+   contrast in every theme (a fill of the main colour would not). */
+#convert-go {
+	font-weight: 600;
+	box-shadow: inset 0 0 0 1px var(--wave);
 }

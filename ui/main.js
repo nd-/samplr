@@ -1435,6 +1435,12 @@ async function openContextMenu(x, y) {
   items.push(document.createElement("hr"));
   if (chosenPaths().length === 1) items.push(renameButton());
   items.push(menuButton("Move file(s) to folder…", moveChosen));
+  const convert = menuButton("Convert file(s)…", openConvert);
+  if (!ffmpegFound) {
+    convert.disabled = true;
+    convert.title = "Converting needs ffmpeg, not found on this computer";
+  }
+  items.push(convert);
   items.push(menuButton("Move file(s) to the trash…", trashChosen));
   contextMenu.replaceChildren(...items);
   contextMenu.hidden = false;
@@ -1503,6 +1509,93 @@ async function moveChosen() {
     showError(error);
   }
 }
+
+// Converting samples, through ffmpeg (Rust side): the window asks the
+// format and its settings, remembered for the next time.
+const convertDialog = document.getElementById("convert");
+const convertFields = {
+  format: document.getElementById("convert-format"),
+  bits: document.getElementById("convert-bits"),
+  mp3Bitrate: document.getElementById("convert-mp3"),
+  oggQuality: document.getElementById("convert-ogg"),
+  mono: document.getElementById("convert-mono"),
+};
+let ffmpegFound = false;
+invoke("ffmpeg_available").then((found) => {
+  ffmpegFound = found;
+});
+
+let convertOptions = { format: "wav", bits: null, mp3Bitrate: 320, oggQuality: 8, mono: false };
+try {
+  convertOptions = { ...convertOptions, ...JSON.parse(localStorage.getItem("convertOptions") ?? "{}") };
+} catch {
+  // Storage unavailable: the defaults.
+}
+// The paths to convert, kept while the window is open.
+let convertPaths = [];
+
+// Only the settings of the chosen format are shown.
+function showConvertFields() {
+  for (const row of convertDialog.querySelectorAll("[data-for]")) {
+    row.hidden = !row.dataset.for.split(" ").includes(convertFields.format.value);
+  }
+}
+convertFields.format.addEventListener("change", showConvertFields);
+
+function openConvert() {
+  convertPaths = chosenPaths();
+  if (convertPaths.length === 0) return;
+  convertFields.format.value = convertOptions.format;
+  convertFields.bits.value = convertOptions.bits ?? "";
+  convertFields.mp3Bitrate.value = String(convertOptions.mp3Bitrate);
+  convertFields.oggQuality.value = String(convertOptions.oggQuality);
+  convertFields.mono.checked = convertOptions.mono;
+  // Offered only when there is something to mix down: a sample with more
+  // than one channel (or whose channels are unknown). Hidden, it keeps the
+  // remembered choice for the next stereo sample.
+  const anyStereo = selectedSamples().some((sample) => sample.channels !== 1);
+  document.getElementById("convert-mono-box").hidden = !anyStereo;
+  const what = convertPaths.length === 1 ? splitPath(convertPaths[0]).name : `${convertPaths.length} files`;
+  document.getElementById("convert-title").textContent = `Convert ${what}`;
+  showConvertFields();
+  convertDialog.returnValue = "";
+  convertDialog.showModal();
+  convertFields.format.focus();
+}
+
+// The window closes on any of its buttons (a `method="dialog"` form); only
+// "Convert" goes on.
+convertDialog.addEventListener("close", async () => {
+  if (convertDialog.returnValue !== "convert") return;
+  convertOptions = {
+    format: convertFields.format.value,
+    bits: convertFields.bits.value === "" ? null : Number(convertFields.bits.value),
+    mp3Bitrate: Number(convertFields.mp3Bitrate.value),
+    oggQuality: Number(convertFields.oggQuality.value),
+    mono: convertFields.mono.checked,
+  };
+  try {
+    localStorage.setItem("convertOptions", JSON.stringify(convertOptions));
+  } catch {
+    // Storage unavailable: the choices are simply not remembered.
+  }
+  const paths = convertPaths;
+  status.textContent = `Converting ${paths.length} file(s)…`;
+  let copies = [];
+  try {
+    copies = await invoke("convert_samples", { paths, options: convertOptions });
+  } catch (error) {
+    showError(error);
+  }
+  await refresh({ stopIfGone: false });
+  // The copies joined their originals' collections: the counts change.
+  await loadCollections();
+  if (copies.length > 0) {
+    status.textContent = `${copies.length} copy(ies) written, next to the original(s)`;
+    flash(rowsOf(copies));
+  }
+});
+closeOnPressOutside(convertDialog);
 
 // Sends the selected samples' files to the system's trash, after asking
 // (unless turned off in Settings): their tags and collections are lost, even
@@ -1592,7 +1685,7 @@ searchBox.addEventListener("input", () => {
 document.addEventListener("keydown", (event) => {
   // The folders window has its own keys (Esc closes it, Tab moves between
   // its buttons): the list behind must not react.
-  if (foldersDialog.open || settingsDialog.open) return;
+  if (foldersDialog.open || settingsDialog.open || convertDialog.open) return;
   // Typing a collection name: Enter creates it (the form's own behaviour),
   // and the list's keys must not react.
   if (event.target === collectionName) return;

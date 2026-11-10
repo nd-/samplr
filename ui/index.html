@@ -72,6 +72,56 @@
     <ul id="folder-list"></ul>
     <p class="hint">Removing a folder takes its samples out of the list. Their tags are kept, and come back if the folder is added again. The audio files are not touched.</p>
   </dialog>
+  <dialog id="convert">
+    <form id="convert-form" method="dialog">
+      <div class="dialog-head">
+        <h2 id="convert-title">Convert</h2>
+        <button class="close" value="cancel" title="Cancel (Esc)" aria-label="Cancel">×</button>
+      </div>
+      <div class="setting">
+        <label for="convert-format">Format</label>
+        <select id="convert-format">
+          <option value="wav">WAV</option>
+          <option value="aiff">AIFF</option>
+          <option value="flac">FLAC (lossless, smaller)</option>
+          <option value="mp3">MP3</option>
+          <option value="ogg">OGG Vorbis</option>
+        </select>
+      </div>
+      <div class="setting" data-for="wav aiff flac">
+        <label for="convert-bits">Bit depth</label>
+        <select id="convert-bits">
+          <option value="">As the original (16 or 24 bits)</option>
+          <option value="16">16 bits</option>
+          <option value="24">24 bits</option>
+        </select>
+      </div>
+      <div class="setting" data-for="mp3">
+        <label for="convert-mp3">Bit rate</label>
+        <select id="convert-mp3">
+          <option value="128">128 kbit/s</option>
+          <option value="192">192 kbit/s</option>
+          <option value="256">256 kbit/s</option>
+          <option value="320">320 kbit/s</option>
+        </select>
+      </div>
+      <div class="setting" data-for="ogg">
+        <label for="convert-ogg">Quality</label>
+        <select id="convert-ogg">
+          <option value="4">4 (about 128 kbit/s)</option>
+          <option value="6">6 (about 192 kbit/s)</option>
+          <option value="8">8 (about 256 kbit/s)</option>
+          <option value="10">10 (about 500 kbit/s)</option>
+        </select>
+      </div>
+      <label id="convert-mono-box" class="check"><input id="convert-mono" type="checkbox"> Mix down to mono</label>
+      <p class="hint">A copy is written next to each original and added to the library with its tags and collection.</p>
+      <div class="dialog-buttons">
+        <button value="cancel">Cancel</button>
+        <button id="convert-go" value="convert">Convert</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="settings">
     <div class="dialog-head">
       <h2>Settings</h2>
