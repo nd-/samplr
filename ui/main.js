@@ -309,6 +309,18 @@ tbody.addEventListener("click", (event) => {
   const editable = event.target.closest("td.bpm, td.key, td.loop, td.type") !== null;
   if (editable && event.detail > 1) return;
   const andPlay = autoplayBox.checked && !editable;
+  const modified = event.metaKey || event.ctrlKey || event.shiftKey;
+  // On a row of a multiple selection, the first click of a double-click
+  // must not reduce the selection to that row: the edit is for the whole
+  // selection. It is reduced only once no second click has come.
+  if (editable && !modified && selectedPaths.size > 1 && selectedPaths.has(samples[index].path)) {
+    selected = index;
+    paintSelection();
+    delayedPlay = setTimeout(() => {
+      select(index, "single", autoplayBox.checked);
+    }, doubleClickDelay);
+    return;
+  }
   // Cmd on a Mac, Ctrl elsewhere (Ctrl+click is a right-click on a Mac).
   if (event.metaKey || event.ctrlKey) select(index, "toggle", andPlay);
   else if (event.shiftKey) select(index, "range", andPlay);

@@ -637,7 +637,9 @@ Audio pitfalls met so far:
   GTK's double-click time) if no second click came: editing stays silent, and these cells no
   longer silence a third of the row (Autoplay seemed broken once the Type column was added). The
   second click of the double-click does nothing (`event.detail`); elsewhere quick clicks on a row
-  still retrigger the sound, like a pad. Stored in `files.bpm` and
+  still retrigger the sound, like a pad. On a row of a multiple selection, such a click reduces the
+  selection to the row only after the same delay: otherwise the double-click's first click did it,
+  and an edit "for the whole selection" never reached more than one row. Stored in `files.bpm` and
   `files.key` (migration 5): NULL automatic, 0 and '' none; commands `set_tempo` (20 to 400) and
   `set_key` (any spelling, kept in sharps). The edit box has no border nor vertical padding: a
   taller row would break the virtual list's fixed height. A `library-changed` event while a cell
