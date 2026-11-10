@@ -1435,6 +1435,7 @@ async function openContextMenu(x, y) {
   items.push(document.createElement("hr"));
   if (chosenPaths().length === 1) items.push(renameButton());
   items.push(menuButton("Move file(s) to folder…", moveChosen));
+  items.push(menuButton("Move file(s) to the trash…", trashChosen));
   contextMenu.replaceChildren(...items);
   contextMenu.hidden = false;
   // Kept inside the window.
@@ -1501,6 +1502,31 @@ async function moveChosen() {
     await refresh({ stopIfGone: false });
     showError(error);
   }
+}
+
+// Sends the selected samples' files to the system's trash, after asking
+// (unless turned off in Settings): their tags and collections are lost, even
+// if a file is put back.
+async function trashChosen() {
+  const paths = chosenPaths();
+  const what = paths.length === 1 ? splitPath(paths[0]).name : `${paths.length} files`;
+  const confirmed = await confirmAction(
+    `Move ${what} to the trash?\n\n` +
+      "Their tags, collections and favorite are lost, even if put back from the trash.",
+    "Move to the trash",
+  );
+  if (!confirmed) return;
+  try {
+    const trashed = await invoke("trash_samples", { paths });
+    status.textContent = `${trashed} file(s) moved to the trash`;
+  } catch (error) {
+    showError(error);
+  }
+  // Those trashed are gone from the list; a sound of theirs stops.
+  const statusText = status.textContent;
+  await refresh();
+  await loadCollections();
+  status.textContent = statusText;
 }
 
 // Files renamed or moved (old path → new path): the selection, the sound

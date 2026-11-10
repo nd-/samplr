@@ -22,6 +22,9 @@ rusqlite = { version = "0.41", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 # Audio decoding and file info (same version as the one rodio uses)
 symphonia = { version = "0.5", features = ["all"] }
+# Deleting a sample sends it to the system's trash (freedesktop on Linux,
+# the Finder's on Mac), where it can be got back
+trash = "5.3"
 # Recursive folder walking
 walkdir = "2.5"
 

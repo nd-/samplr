@@ -328,6 +328,25 @@ fn move_samples(paths: Vec<PathBuf>, folder: PathBuf) -> Result<Vec<PathBuf>, St
     Ok(moved)
 }
 
+/// Sends samples' files to the system's trash. Stops at the first failure;
+/// those trashed before it stay in the trash. Returns how many were trashed.
+#[tauri::command(async)]
+fn trash_samples(paths: Vec<PathBuf>) -> Result<u32, String> {
+    let db = db::open().map_err(|e| e.to_string())?;
+    let mut trashed = 0;
+    for path in &paths {
+        file_id(&db, path)?;
+        samplr::trash_sample(&db, path).map_err(|e| {
+            format!(
+                "{}: {e} ({trashed} sample(s) trashed before)",
+                path.display()
+            )
+        })?;
+        trashed += 1;
+    }
+    Ok(trashed)
+}
+
 /// The `playback-position` event: where the sound `id` is, in seconds from
 /// its start (a loop keeps counting from its first start).
 #[derive(Serialize, Clone)]
@@ -634,6 +653,7 @@ fn main() {
             set_key,
             rename_sample,
             move_samples,
+            trash_samples,
             colors,
             add_color,
             update_color,

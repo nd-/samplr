@@ -72,6 +72,15 @@ pub fn move_sample(db: &Connection, old: &Path, new: &Path) -> Result<(), Box<dy
     Ok(())
 }
 
+/// Sends a sample's file to the system's trash and forgets it in the
+/// database (tags, collections, waveform): put back from the trash, it comes
+/// back as a new sample, without them.
+pub fn trash_sample(db: &Connection, path: &Path) -> Result<(), Box<dyn Error>> {
+    trash::delete(path)?;
+    db::forget(db, path)?;
+    Ok(())
+}
+
 /// True for `._kick.wav`: metadata that macOS leaves next to `kick.wav` on a
 /// disk that cannot store it (USB stick, network share). Not sound.
 pub fn is_mac_metadata(path: &Path) -> bool {
