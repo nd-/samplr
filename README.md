@@ -26,27 +26,46 @@ A graphical interface, and a command line (`samplr`) for scripts.
 
 ## Installation
 
-### On Linux
+There is no installer yet: ready-made ones will come soon, a `.dmg` for the Mac and an
+AppImage or a `.deb` for Linux. Until then, samplr is built from its code.
+
+### Getting the code
 
 ```sh
-# Debian / Ubuntu: ALSA headers and pkg-config for audio output
-sudo apt install build-essential pkg-config libasound2-dev
-# Fedora: sudo dnf install gcc pkg-config alsa-lib-devel
+git clone https://github.com/nd-/samplr.git
+cd samplr
+```
 
-# For the graphical interface (Tauri):
-# Debian / Ubuntu: sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
-# Fedora: sudo dnf install webkit2gtk4.1-devel libsoup3-devel gtk3-devel javascriptcoregtk4.1-devel libappindicator-gtk3-devel librsvg2-devel openssl-devel
 
-# Optional, to convert samples: ffmpeg
-# Debian / Ubuntu: sudo apt install ffmpeg
-# Fedora: sudo dnf install ffmpeg-free (or ffmpeg, from RPM Fusion)
 
+### Install on Linux
+
+```sh
+# 1. git, build tools and the audio output's headers (ALSA)
+# Debian / Ubuntu:
+sudo apt install git build-essential pkg-config libasound2-dev
+# Fedora:
+sudo dnf install git gcc pkg-config alsa-lib-devel
+
+# 2. Rust (installs rustup, cargo and rustc in ~/.cargo)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# 3. For the graphical interface only, not the command line: its web view (WebKitGTK)
+# Debian / Ubuntu:
+sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev
+# Fedora (gcc-c++ for the pitch and tempo engine, in C++):
+sudo dnf install gcc-c++ webkit2gtk4.1-devel gtk3-devel libsoup3-devel javascriptcoregtk4.1-devel
+
+# 4. Optional, to convert samples: ffmpeg
+# Debian / Ubuntu:
+sudo apt install ffmpeg
+# Fedora (or ffmpeg, from RPM Fusion):
+sudo dnf install ffmpeg-free
 ```
 
 Check the installation with `cargo --version`.
 
-### On Mac (Apple Silicon)
+### Install on Mac (Apple Silicon)
 
 ```sh
 # 1. Apple's build tools (clang, git…)
@@ -59,10 +78,28 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 brew install ffmpeg
 ```
 
-Close and reopen the terminal. Nothing else to install: sound goes through CoreAudio, built
-into macOS.
+Close and reopen the terminal. Nothing else to install: sound goes through CoreAudio and the
+interface through WKWebView, both built into macOS.
 
 ## Running
+
+### The app
+
+From the project folder:
+
+```sh
+cargo run -p samplr-app
+```
+
+The first build takes a few minutes, as every dependency is compiled once; the next ones a few
+seconds. At the first launch, add your sample folders with **+ Folder** (samplr also offers the
+Splice folders it finds). Then the arrow keys browse and play, a double-click on a cell sets a
+sample's tempo, key, loop or type, and **Settings…** lists every keyboard shortcut.
+
+For an optimised build, faster on a big library: `cargo build --release -p samplr-app`, then
+`./target/release/samplr-app`.
+
+### The command line
 
 From the project folder:
 
@@ -78,16 +115,16 @@ cargo run -- play ~/Samples/kick.wav         # plays a file
 cargo run -- wave ~/Samples/kick.wav         # draws its waveform in the terminal
 cargo run -- waveforms                       # computes the missing waveforms
 cargo run -- help                            # every command
-cargo run -p samplr-app                      # opens the graphical interface
 ```
 
-The `--` separates cargo's options from the program's. The first build takes a minute, the next
-ones a few seconds.
+The `--` separates cargo's options from the program's. For an optimised build:
+`cargo build --release`, then `./target/release/samplr scan ~/Samples`.
 
-For an optimised build: `cargo build --release`, then `./target/release/samplr scan ~/Samples`.
+### The library
 
-The database is created on first launch, in `~/.local/share/samplr/samplr.db` on Linux and
-`~/Library/Application Support/samplr/samplr.db` on Mac. To experiment on a separate database:
+The app and the command line share their database, created on first launch, in
+`~/.local/share/samplr/samplr.db` on Linux and `~/Library/Application Support/samplr/samplr.db`
+on Mac. To experiment on a separate database:
 `SAMPLR_DB=/tmp/test.db cargo run -- scan ~/Samples`.
 
 ## Tests
