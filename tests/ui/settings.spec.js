@@ -47,6 +47,14 @@ test("a theme chosen applies at once and at the next start", async ({ page }) =>
   await expect(page.locator("html")).not.toHaveAttribute("data-theme");
 });
 
+test("a theme remembered that no longer exists falls back to System", async ({ page }) => {
+  await page.evaluate(() => localStorage.setItem("theme", "acid-dark"));
+  await page.reload();
+  await expect(page.locator("#status")).toHaveText("50 sample(s)");
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme");
+  await expect(page.locator("#theme")).toHaveValue("system");
+});
+
 test("with confirmations off, a collection is deleted without asking", async ({ page }) => {
   await openSettings(page);
   const ask = page.locator("#ask-before-deleting");
