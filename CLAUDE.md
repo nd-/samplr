@@ -19,6 +19,9 @@ Desktop audio sample manager for **macOS, Linux and Windows**: listen to, tag an
   npx playwright test`, in Chromium, the page opened from `ui/index.html` with the Tauri API faked
   by `tests/ui/fake-tauri.js` (a library of 50 samples; `window.__calls` records the commands).
   Node is for these tests only: the interface itself still has no build tool.
+  Playwright's WebKit does not run on Fedora (its fallback Ubuntu build wants `libjpeg.so.8`,
+  `libjxl` 0.8 and `libbacktrace`): to test in WebKit, the official Playwright image under Podman,
+  or the real app through `tauri-driver` and WebKitGTK's WebKitWebDriver.
 - Think Mac, Linux **and** Windows for every choice (paths, audio, drag and drop, packaging). Code
   for one system goes under `#[cfg(target_os = "…")]` for each of the three: `not(target_os =
   "macos")` is not Linux, it is Windows too.
