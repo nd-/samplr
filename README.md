@@ -24,7 +24,8 @@ you hear it at once, and drags it into your DAW.
 - **Used with your DAW.** Drag samples into it, rename, move, convert (WAV, AIFF, FLAC, MP3,
   OGG) or trash their files from samplr.
 
-A graphical interface, and a command line (`samplr`) for scripts.
+A graphical interface, and a command line (`samplr`) for scripts. Every change is listed in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Installation
 
