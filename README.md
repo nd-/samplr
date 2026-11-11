@@ -1,8 +1,10 @@
+[![Tests](https://github.com/nd-/samplr/actions/workflows/tests.yml/badge.svg)](https://github.com/nd-/samplr/actions/workflows/tests.yml)
+
 # samplr (WIP)
 
 Audio sample manager for Linux and macOS (and Windows, maybe, someday).  
-Scan sample folders, tag them, find them again and listen to them. [![Tests](https://github.com/nd-/samplr/actions/workflows/tests.yml/badge.svg)](https://github.com/nd-/samplr/actions/workflows/tests.yml)
-
+Scan sample folders, tag them, find them again and listen to them.
+  
 ![samplr: the sample list with its tempo, key, type and loudness, collections and tags on the left, the Info panel on the right, the playback bar at the bottom](docs/screenshot.png)
 
 ## What it does

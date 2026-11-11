@@ -44,8 +44,8 @@ tag and organise samples (for musicians, alongside a DAW). Windows is not built 
 - Continuous integration: `.github/workflows/tests.yml` runs `./tests/run.sh` at each push to
   `main` and each pull request, on Ubuntu 24.04 (every suite; the real app's under `xvfb-run`,
   `webkit2gtk-driver` for `WebKitWebDriver`, a PulseAudio null sink as the audio output, without
-  which the app's audio thread stops) and on macOS 14 (Rust and interface). Its badge ends the
-  README's first paragraph.
+  which the app's audio thread stops) and on macOS 14 (Rust and interface). Its badge stands above
+  the README's title.
 - Documentation: `README.md` for users (what samplr does, installing, running, credits, licence),
   `CONTRIBUTING.md` for contributors (proposing a change, code rules, commit messages, the tests
   and what they cover); keep both in step with a change they describe, in English.
