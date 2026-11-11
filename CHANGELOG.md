@@ -71,5 +71,7 @@ All notable changes to samplr are written here, after
 
 - `samplr scan`, `list`, `search`, `tag`, `untag`, `tags`, `fav`, `unfav`, `folders`,
   `remove-folder`, `watch`, `play`, `wave` and `waveforms`; `--json` for scripts on any command.
+- `samplr similar`: the samples that sound most like a given one (brightness, noise, attack,
+  length), nearest first.
 
 [Unreleased]: https://github.com/nd-/samplr/commits/main

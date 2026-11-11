@@ -173,9 +173,10 @@ declare (an interface test fails on any script error):
   on stdout, for scripts. `list` and `search`: the samples as the interface gets them
   (`SampleInfo`: tempo and its origin, key, loop, type, LUFS…); `tags`, `folders`: arrays of
   objects; `scan`, `remove-folder`, `tag`, `untag`, `fav`, `unfav`, `waveforms`, `play`: what they
-  did; `wave`: the 1024 cached peaks (`--width` only concerns the drawing); `watch`: one object
-  per line and per change (`{"change": …}`), so that a script reads them as they come. Errors stay
-  text on stderr, exit code 1. Written through `writeln!` (`print_json`), so that `| head` ends
+  did; `similar`: the samples as `search` gives them, each with its `distance`; `wave`: the 1024
+  cached peaks (`--width` only concerns the drawing); `watch`: one object per line and per change
+  (`{"change": …}`), so that a script reads them as they come. Errors stay text on stderr, exit
+  code 1. Written through `writeln!` (`print_json`), so that `| head` ends
   quietly like the tables.
 - `samplr play <file>`: plays a file on the default output.
 - `samplr wave <file> [--width N]`: draws the waveform in the terminal, computing and caching
@@ -183,6 +184,9 @@ declare (an interface test fails on any script error):
 - `samplr waveforms`: computes every missing or stale waveform (about 0.6 s for 10 min of audio
   in release). `scan` does not compute waveforms: decoding every file would make it much slower
   on a big library.
+- `samplr similar <file> [-n 20]`: the samples sounding most like a sample of the library, nearest
+  first, with their distance (`samplr::similar`, see Timbre below). The sample's own timbre is
+  measured if needed; the others must be already (`waveforms`, or the app's background pass).
 
 Database: `samplr.db` in the system data folder (`~/.local/share/samplr` on Linux,
 `~/Library/Application Support/samplr` on Mac). The `SAMPLR_DB` variable points to another database,
@@ -701,14 +705,17 @@ Audio pitfalls met so far:
   `key:bbm`), applied after the SQL query by `samplr::query` (`Query::keeps`), which the interface's
   `search` command and `samplr search` share. On the 3287 samples of the Linux library: tempo from
   the name for 51 %, from the length for 11 %, key for 30 %.
-- Timbre (`src/timbre.rs`, unit-tested), to find samples that sound alike (in progress: computed
-  and stored, not compared yet): fed during the waveform's decoding, like the pulse, by frames of
+- Timbre (`src/timbre.rs`, unit-tested), to find samples that sound alike (in progress: compared
+  by `samplr similar`, not in the interface yet): fed during the waveform's decoding, like the pulse, by frames of
   2048 samples overlapping by half, the first 64 s only; on each frame not silent (-60 dBFS), 12
   MFCC (32 mel bands, 40 Hz to 16 kHz, the first coefficient, the level, left out), the spectral
   centroid (log2 of Hz) and the flatness; the fingerprint is their means and standard deviations,
   the attack (to 3 dB of the loudest frame) and the length, 30 `f32` in `waveforms.timbre` (120
   bytes; migration 14). Floors in the logarithms are relative to each frame's level, so that the
-  fingerprint does not change with it. A silent sound has none.
+  fingerprint does not change with it. A silent sound has none. Compared by `timbre::rank`: each
+  number brought to the library's scale (mean and standard deviation over the samples measured,
+  worked out at each query), then the root mean square of the differences; 33 ms for 3356 samples
+  in release.
 - Tempo detected from the sound (`src/pulse.rs`, unit-tested), the last resort, for a loop only
   (manual, name, ACID chunk first; it replaces the estimate from the length, and a one-shot keeps no
   tempo, nor becomes a loop through it): a loop lasts a whole number of beats, so its length gives a

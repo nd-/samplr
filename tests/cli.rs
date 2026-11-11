@@ -93,7 +93,27 @@ impl Library {
 /// Writes a WAV (16 bit, stereo, 44.1 kHz, 0.1 s of a quiet ramp) at `path`,
 /// creating its folders.
 fn write_wav(path: &Path) {
-    let frames = 4410u32;
+    write_frames(path, 4410, |frame| ((frame % 100) * 50) as i16);
+}
+
+/// Half a second of a tone at `hz`.
+fn write_tone(path: &Path, hz: f64) {
+    write_frames(path, 22_050, |frame| {
+        (8000.0 * (2.0 * std::f64::consts::PI * hz * f64::from(frame) / 44_100.0).sin()) as i16
+    });
+}
+
+/// Half a second of white noise.
+fn write_noise(path: &Path) {
+    let mut state: u32 = 12345;
+    write_frames(path, 22_050, |_| {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (state >> 16) as i16 / 4
+    });
+}
+
+/// Writes `frames` of the same sample on both channels at `path`.
+fn write_frames(path: &Path, frames: u32, mut sample: impl FnMut(u32) -> i16) {
     let data = frames * 4;
     let mut bytes = Vec::new();
     bytes.extend(b"RIFF");
@@ -109,9 +129,9 @@ fn write_wav(path: &Path) {
     bytes.extend(b"data");
     bytes.extend(data.to_le_bytes());
     for frame in 0..frames {
-        let sample = ((frame % 100) * 50) as i16;
-        bytes.extend(sample.to_le_bytes());
-        bytes.extend(sample.to_le_bytes());
+        let value = sample(frame);
+        bytes.extend(value.to_le_bytes());
+        bytes.extend(value.to_le_bytes());
     }
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, bytes).unwrap();
@@ -382,6 +402,52 @@ fn the_waveform_drawn_in_the_terminal() {
     assert_eq!(lines.len(), 7);
     assert!(lines[..6].iter().all(|line| line.chars().count() == 20));
     assert_eq!(lines[6], text(&kick));
+}
+
+#[test]
+fn similar_samples_nearest_first() {
+    let library = Library::new();
+    let low = library.samples().join("low.wav");
+    let samples = [
+        (low.clone(), 200.0),
+        (library.samples().join("near.wav"), 220.0),
+        (library.samples().join("high.wav"), 3000.0),
+    ];
+    for (path, hz) in &samples {
+        write_tone(path, *hz);
+    }
+    write_noise(&library.samples().join("hiss.wav"));
+    write_wav(&library.samples().join("ramp.wav"));
+    library.scan();
+
+    // Not measured yet: only the sample asked about is, on the way.
+    let answer = library.json(&["similar", text(&low)]);
+    assert_eq!(answer["file"], text(&low));
+    assert!(answer["similar"].as_array().unwrap().is_empty());
+
+    library.json(&["waveforms"]);
+    let answer = library.json(&["similar", text(&low), "-n", "2"]);
+    let similar = answer["similar"].as_array().unwrap();
+    assert_eq!(names(&answer["similar"]), ["near.wav", "high.wav"]);
+    let distances: Vec<f64> = similar
+        .iter()
+        .map(|sample| sample["distance"].as_f64().unwrap())
+        .collect();
+    assert!(distances[0] < distances[1]);
+
+    let output = library.run(&["similar", text(&low)]);
+    let table = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        table.lines().nth(2).unwrap().starts_with("DIST."),
+        "{table}"
+    );
+    assert_eq!(table.lines().count(), 3 + 4);
+
+    let outside = library.dir.0.join("outside.wav");
+    write_wav(&outside);
+    let output = library.run(&["similar", text(&outside)]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("is not in the database"));
 }
 
 #[test]

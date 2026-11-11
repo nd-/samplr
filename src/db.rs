@@ -522,6 +522,32 @@ pub fn save_waveform(
     Ok(())
 }
 
+/// A sample's `id`, path and timbre.
+pub type SampleTimbre = (i64, PathBuf, Fingerprint);
+
+/// The timbre of every sample shown that has one.
+pub fn timbres(db: &Connection) -> Result<Vec<SampleTimbre>, Box<dyn Error>> {
+    let mut query = db.prepare(
+        "SELECT f.id, f.path, w.timbre FROM files f JOIN waveforms w ON w.file_id = f.id
+         WHERE f.hidden = 0 AND w.timbre IS NOT NULL ORDER BY f.path",
+    )?;
+    let rows = query.query_map([], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            PathBuf::from(row.get::<_, String>(1)?),
+            row.get::<_, Vec<u8>>(2)?,
+        ))
+    })?;
+    let mut timbres = Vec::new();
+    for row in rows {
+        let (id, path, bytes) = row?;
+        if let Some(fingerprint) = Fingerprint::from_bytes(&bytes) {
+            timbres.push((id, path, fingerprint));
+        }
+    }
+    Ok(timbres)
+}
+
 /// A sample's timbre, from its waveform's row, whatever its age: `None`
 /// until measured, or for a silent sound.
 pub fn timbre(db: &Connection, file_id: i64) -> Result<Option<Fingerprint>, Box<dyn Error>> {

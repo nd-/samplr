@@ -117,6 +117,7 @@ cargo run -- watch                           # updates the database live when sc
 cargo run -- play ~/Samples/kick.wav         # plays a file
 cargo run -- wave ~/Samples/kick.wav         # draws its waveform in the terminal
 cargo run -- waveforms                       # computes the missing waveforms
+cargo run -- similar ~/Samples/kick.wav      # the samples that sound most like it
 cargo run -- help                            # every command
 ```
 

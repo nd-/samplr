@@ -247,6 +247,53 @@ impl Timbre {
     }
 }
 
+/// The samples of `library` ranked by how close their timbre is to
+/// `target`'s, nearest first, with their distance. Each number is first
+/// brought to the library's own scale (its mean and standard deviation over
+/// the library), so that none weighs more for its unit: a distance of 1 is a
+/// difference of one standard deviation on every number.
+pub fn rank<K: Copy>(target: &Fingerprint, library: &[(K, Fingerprint)]) -> Vec<(K, f32)> {
+    let count = library.len().max(1) as f64;
+    let mut means = [0.0f64; DIMENSIONS];
+    let mut spreads = [0.0f64; DIMENSIONS];
+    for (_, fingerprint) in library {
+        for (mean, value) in means.iter_mut().zip(fingerprint.0) {
+            *mean += f64::from(value) / count;
+        }
+    }
+    for (_, fingerprint) in library {
+        for ((spread, mean), value) in spreads.iter_mut().zip(means).zip(fingerprint.0) {
+            *spread += (f64::from(value) - mean).powi(2) / count;
+        }
+    }
+    // A number the same for the whole library tells no sample apart.
+    let scales: Vec<f32> = spreads
+        .iter()
+        .map(|spread| {
+            if *spread > 1e-12 {
+                (1.0 / spread.sqrt()) as f32
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let mut ranked: Vec<(K, f32)> = library
+        .iter()
+        .map(|(key, fingerprint)| {
+            let squares: f32 = target
+                .0
+                .iter()
+                .zip(fingerprint.0)
+                .zip(&scales)
+                .map(|((a, b), scale)| ((a - b) * scale).powi(2))
+                .sum();
+            (*key, (squares / DIMENSIONS as f32).sqrt())
+        })
+        .collect();
+    ranked.sort_by(|a, b| a.1.total_cmp(&b.1));
+    ranked
+}
+
 /// Triangular filters evenly spread on the mel scale, which follows the ear:
 /// fine in the bass, coarse in the treble.
 fn mel_filters(sample_rate: f64) -> Vec<Vec<(usize, f32)>> {
@@ -380,6 +427,33 @@ mod tests {
         // 20 ms, less than half a frame.
         let short = fingerprint(sine(440.0, 0.02, 0.5)).unwrap();
         assert!(short.0.iter().all(|value| value.is_finite()));
+    }
+
+    #[test]
+    fn the_nearest_come_first_whatever_the_units() {
+        let low = fingerprint(sine(200.0, 1.0, 0.5)).unwrap();
+        let near = fingerprint(sine(220.0, 1.0, 0.5)).unwrap();
+        let high = fingerprint(sine(3000.0, 1.0, 0.5)).unwrap();
+        let hiss = fingerprint(noise(1.0, 0.5)).unwrap();
+        let library = [("hiss", hiss), ("high", high), ("near", near), ("low", low)];
+        let ranked = rank(&low, &library);
+        let order: Vec<&str> = ranked.iter().map(|(key, _)| *key).collect();
+        assert_eq!(order[..2], ["low", "near"]);
+        assert_eq!(ranked[0].1, 0.0);
+        assert!(ranked.windows(2).all(|pair| pair[0].1 <= pair[1].1));
+    }
+
+    #[test]
+    fn a_number_the_same_everywhere_is_ignored() {
+        let tone = fingerprint(sine(440.0, 1.0, 0.5)).unwrap();
+        let mut other = tone;
+        other.0[CENTROID] += 1.0;
+        // Only the centroid differs, and only between the two.
+        let ranked = rank(&tone, &[(1, tone), (2, other)]);
+        assert!(ranked.iter().all(|(_, distance)| distance.is_finite()));
+        assert!(ranked[1].1 > 0.0);
+        assert!(rank(&tone, &[(1, tone)])[0].1 == 0.0);
+        assert!(rank::<u8>(&tone, &[]).is_empty());
     }
 
     #[test]

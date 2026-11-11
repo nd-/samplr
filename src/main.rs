@@ -7,6 +7,7 @@
 //   cargo run -- search 808 --json           → the same, as JSON, for scripts
 //   cargo run -- help                        → every command
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::{self, Write};
@@ -98,6 +99,14 @@ enum Command {
         #[arg(long)]
         fav: bool,
     },
+    /// Finds the samples that sound most like a sample of the library (its
+    /// timbre: brightness, noise, attack…), nearest first
+    Similar {
+        file: PathBuf,
+        /// How many to show
+        #[arg(short = 'n', long, default_value_t = 20)]
+        count: usize,
+    },
 }
 
 fn main() {
@@ -122,6 +131,7 @@ fn main() {
         Command::Search { words, fav } => search(&words, fav, json),
         Command::Wave { file, width } => wave(&file, width, json),
         Command::Waveforms => compute_waveforms(json),
+        Command::Similar { file, count } => similar(&file, count, json),
     };
 
     // If a function returned an error, print it cleanly.
@@ -279,6 +289,42 @@ fn search(words: &[String], favorites_only: bool, json: bool) -> Result<(), Box<
         print_row(&mut out, info, &info.path)?;
     }
     writeln!(out, "\n{} sample(s) found.", samples.len())?;
+    Ok(())
+}
+
+/// The samples nearest a sample's timbre, as a table with their distance.
+fn similar(file: &Path, count: usize, json: bool) -> Result<(), Box<dyn Error>> {
+    let db = db::open()?;
+    let file = dunce::canonicalize(file)?;
+    let file_id = db::require_file_id(&db, &file)?;
+    let ranked = samplr::similar(&db, file_id, &file)?;
+    let mut samples: HashMap<PathBuf, SampleInfo> = samplr::query::search(&db, "", false, None)?
+        .into_iter()
+        .map(|info| (info.path.clone(), info))
+        .collect();
+    let nearest: Vec<(f32, SampleInfo)> = ranked
+        .into_iter()
+        .filter_map(|(path, distance)| samples.remove(&path).map(|info| (distance, info)))
+        .take(count)
+        .collect();
+    if json {
+        let mut list = Vec::new();
+        for (distance, info) in &nearest {
+            let mut value = serde_json::to_value(info)?;
+            value["distance"] = json!(distance);
+            list.push(value);
+        }
+        return print_json(&json!({ "file": file, "similar": list }));
+    }
+
+    let mut out = io::stdout().lock();
+    writeln!(out, "Sounding like {}:\n", file.display())?;
+    write!(out, "{:>5}  ", "DIST.")?;
+    print_header(&mut out)?;
+    for (distance, info) in &nearest {
+        write!(out, "{distance:>5.2}  ")?;
+        print_row(&mut out, info, &info.path)?;
+    }
     Ok(())
 }
 

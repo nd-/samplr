@@ -465,6 +465,35 @@ pub fn update_waveform(
     }
 }
 
+/// The samples shown, ranked by how close their timbre is to the sample
+/// `file_id`'s, nearest first, with their distance (see `timbre::rank`); the
+/// sample itself left out. Its timbre is measured first if needed; samples
+/// not measured yet, or silent, are left out.
+pub fn similar(
+    db: &Connection,
+    file_id: i64,
+    path: &Path,
+) -> Result<Vec<(PathBuf, f32)>, Box<dyn Error>> {
+    match update_waveform(db, file_id, path)? {
+        WaveformUpdate::Missing => return Err(format!("{} not found", path.display()).into()),
+        WaveformUpdate::Unreadable(error) => return Err(error.into()),
+        WaveformUpdate::Computed | WaveformUpdate::UpToDate => {}
+    }
+    let target = db::timbre(db, file_id)?
+        .ok_or_else(|| format!("{}: silent, no timbre to compare", path.display()))?;
+    let timbres = db::timbres(db)?;
+    let library: Vec<(usize, timbre::Fingerprint)> = timbres
+        .iter()
+        .enumerate()
+        .map(|(index, (_, _, fingerprint))| (index, *fingerprint))
+        .collect();
+    Ok(timbre::rank(&target, &library)
+        .into_iter()
+        .filter(|(index, _)| timbres[*index].0 != file_id)
+        .map(|(index, distance)| (timbres[index].1.clone(), distance))
+        .collect())
+}
+
 /// The folders where Splice keeps the sounds it downloads, those present
 /// on this computer. Splice documents its folder as `~/Splice` on the Mac
 /// and in the user's folder on Windows, the sounds inside; its plugin keeps
