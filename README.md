@@ -39,8 +39,6 @@ git clone https://github.com/nd-/samplr.git
 cd samplr
 ```
 
-
-
 ### Install on Linux
 
 ```sh
@@ -66,9 +64,9 @@ sudo apt install ffmpeg
 sudo dnf install ffmpeg-free
 ```
 
-Check the installation with `cargo --version`.
+Close and reopen the terminal, then check the installation with `cargo --version`.
 
-### Install on Mac (Apple Silicon)
+### Install on Mac
 
 ```sh
 # 1. Apple's build tools (clang, git…)
@@ -133,16 +131,6 @@ on Mac. To experiment on a separate database:
 ## Contributing
 
 How to run the tests, and what they cover: [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Useful cargo commands
-
-| Command        | Effect                                           |
-|----------------|--------------------------------------------------|
-| `cargo build`  | compiles                                         |
-| `cargo run`    | compiles and runs                                |
-| `cargo check`  | checks the code without building a binary (fast) |
-| `cargo clippy` | suggestions to improve the code                  |
-| `cargo fmt`    | formats the code automatically                   |
 
 ## Supported formats
 

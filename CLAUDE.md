@@ -65,7 +65,7 @@ tag and organise samples (for musicians, alongside a DAW). Windows is not built 
 ## Current stack
 
 - Rust edition 2024, a Cargo workspace: the `samplr` library and command line (root), and the
-  `samplr-app` interface (Tauri 2, `src-tauri/`, see "Step 7 in progress").
+  `samplr-app` interface (Tauri 2, `src-tauri/`, see "The interface (step 7)").
 - `symphonia` 0.5 (feature `all`): file info and decoding. **Keep 0.5**, it is the version
   `rodio` uses; moving to 0.6 would compile two versions.
 - `rodio` 0.23 (feature `symphonia-all`): audio playback. API:

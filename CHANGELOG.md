@@ -60,7 +60,7 @@ All notable changes to samplr are written here, after
 - Sort by any column, in natural order; resize, hide and show the columns.
 - Rename a sample's file, move it to another folder, convert it with ffmpeg (WAV, AIFF, FLAC,
   MP3, OGG, optionally to mono, the copy keeping the tags and collections), move it to the
-  system's trash, or show it in the Finder, the file manager or the Explorer.
+  system's trash, or show it in the Finder or the file manager.
 - Add a folder with a progress bar; the Splice folders found are offered at the first launch.
 - Six colour themes in light and dark, named after music genres, and a System one.
 - The keyboard shortcuts listed in Settings, with the Mac's keys on a Mac.
@@ -71,3 +71,5 @@ All notable changes to samplr are written here, after
 
 - `samplr scan`, `list`, `search`, `tag`, `untag`, `tags`, `fav`, `unfav`, `folders`,
   `remove-folder`, `watch`, `play`, `wave` and `waveforms`; `--json` for scripts on any command.
+
+[Unreleased]: https://github.com/nd-/samplr/commits/main

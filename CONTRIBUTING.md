@@ -28,6 +28,16 @@ without warnings, and every test passing (see [Tests](#tests)).
 - **The interface** (`ui/`) is plain HTML, CSS and JavaScript, with no build tool: its scripts
   are classic ones, loaded in order by `index.html`.
 
+## Useful cargo commands
+
+| Command        | Effect                                           |
+|----------------|--------------------------------------------------|
+| `cargo build`  | compiles                                         |
+| `cargo run`    | compiles and runs                                |
+| `cargo check`  | checks the code without building a binary (fast) |
+| `cargo clippy` | suggestions to improve the code                  |
+| `cargo fmt`    | formats the code automatically                   |
+
 ## Commit messages
 
 [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): a prefix, an optional
