@@ -1,8 +1,10 @@
 # samplr
 
-Audio sample manager written in Rust, for macOS, Linux and Windows (Windows not supported yet).
+Audio sample manager for Linux, and soon for Windows and macOS.
 
-Scan sample folders, keep them in a SQLite database, tag them, find them again and listen to them. A command line tool, and a graphical interface in progress (Tauri).
+Scan sample folders, tag them, find them again and listen to them. 
+
+Written in Rust, to last.
 
 ## Installation
 
@@ -16,7 +18,8 @@ xcode-select --install
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Close and reopen the terminal. Nothing else to install: sound goes through CoreAudio, built into macOS.
+Close and reopen the terminal. Nothing else to install: sound goes through CoreAudio, built
+into macOS.
 
 ### On Linux
 
@@ -53,25 +56,57 @@ cargo run -- help                            # every command
 cargo run -p samplr-app                      # opens the graphical interface
 ```
 
-The `--` separates cargo's options from the program's. The first build takes a minute, the next ones a few seconds.
+The `--` separates cargo's options from the program's. The first build takes a minute, the next
+ones a few seconds.
 
 For an optimised build: `cargo build --release`, then `./target/release/samplr scan ~/Samples`.
 
-The database is created on first launch, in `~/.local/share/samplr/samplr.db` on Linux and `~/Library/Application Support/samplr/samplr.db` on Mac. To experiment on a separate database: `SAMPLR_DB=/tmp/test.db cargo run -- scan ~/Samples`.
+The database is created on first launch, in `~/.local/share/samplr/samplr.db` on Linux and
+`~/Library/Application Support/samplr/samplr.db` on Mac. To experiment on a separate database:
+`SAMPLR_DB=/tmp/test.db cargo run -- scan ~/Samples`.
+
+## Tests
+
+Every test, from the project folder:
+
+```sh
+./tests/run.sh
+```
+
+It runs the Rust tests first, then the interface's, and stops at the first suite that fails.
+The interface's need Node (any install: nvm, Homebrew, the system's packages); on the first run
+the script installs their tools and the browser they drive (`tests/ui/node_modules`, and
+Playwright's Chromium in its own cache).
+
+The tests never touch your library: they work on WAV files they generate in a temporary folder
+and on a throwaway database. Two of them run ffmpeg if it is installed, and say they were
+skipped otherwise.
+
+| What                       | Where                | Run alone                              |
+|----------------------------|----------------------|----------------------------------------|
+| The library, unit tests    | `src/*.rs`           | `cargo test -p samplr --lib`           |
+| The interface's commands   | `src-tauri/src/*.rs` | `cargo test -p samplr-app`             |
+| The command line           | `tests/cli.rs`       | `cargo test -p samplr --test cli`      |
+| The interface, in Chromium | `tests/ui/*.spec.js` | `cd tests/ui && npx playwright test`   |
+
+The interface is tested in a plain browser: `tests/ui/fake-tauri.js` stands in for the Rust
+side, with a library of 50 samples. To run a single test: `cargo test -p samplr --lib watch::`,
+or `npx playwright test -g "the arrow keys"` in `tests/ui`.
 
 ## Useful cargo commands
 
-| Command         | Effect                                            |
-|-----------------|---------------------------------------------------|
-| `cargo build`   | compiles                                          |
-| `cargo run`     | compiles and runs                                 |
-| `cargo check`   | checks the code without building a binary (fast)  |
-| `cargo clippy`  | suggestions to improve the code                   |
-| `cargo fmt`     | formats the code automatically                    |
+| Command        | Effect                                           |
+|----------------|--------------------------------------------------|
+| `cargo build`  | compiles                                         |
+| `cargo run`    | compiles and runs                                |
+| `cargo check`  | checks the code without building a binary (fast) |
+| `cargo clippy` | suggestions to improve the code                  |
+| `cargo fmt`    | formats the code automatically                   |
 
 ## Recommended editor
 
-VS Code with the **rust-analyzer** extension: completion, types on hover and live errors. Zed and RustRover work too.
+VS Code with the **rust-analyzer** extension: completion, types on hover and live errors. Zed
+and RustRover work too.
 
 ## Supported formats
 
