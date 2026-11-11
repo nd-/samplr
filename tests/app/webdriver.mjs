@@ -128,6 +128,13 @@ export async function startApp() {
       }
       throw new Error(`waited for ${JSON.stringify(expected)}, got ${JSON.stringify(value)}`);
     },
+    /// Closes the app and starts it again on the same folder: what it
+    /// remembered is found again.
+    async restart() {
+      await app.call("DELETE", `/session/${session}`);
+      session = null;
+      await openSession();
+    },
     async close() {
       try {
         if (session) await app.call("DELETE", `/session/${session}`);
@@ -149,6 +156,14 @@ export async function startApp() {
     },
   };
 
+  async function openSession() {
+    const created = await app.call("POST", "/session", {
+      capabilities: { alwaysMatch: { "tauri:options": { application: appBinary } } },
+    });
+    session = created.sessionId;
+    await app.waitFor('return document.getElementById("status").textContent', "3 sample(s)");
+  }
+
   try {
     for (let tries = 0; ; tries++) {
       try {
@@ -159,11 +174,7 @@ export async function startApp() {
         await pause(100);
       }
     }
-    const created = await app.call("POST", "/session", {
-      capabilities: { alwaysMatch: { "tauri:options": { application: appBinary } } },
-    });
-    session = created.sessionId;
-    await app.waitFor('return document.getElementById("status").textContent', "3 sample(s)");
+    await openSession();
   } catch (error) {
     await app.close();
     throw error;

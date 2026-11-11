@@ -224,3 +224,26 @@ withApp("the waveform is drawn in the theme's colour", async (app) => {
   );
   assert.equal(await app.run(drawnColour), "#86c46a");
 });
+
+withApp("the app's choices are found again at the next launch", async (app) => {
+  await app.run(
+    'const theme = document.getElementById("theme"); theme.value = "dub-dark"; theme.dispatchEvent(new Event("change"));',
+  );
+  await app.run('const v = document.getElementById("volume"); v.value = 30; v.dispatchEvent(new Event("input"));');
+  await app.click("#loop");
+  // The Codec column hidden from the header's menu.
+  await app.run(
+    `document.querySelector("#list-head th").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 100 }));
+     [...document.querySelectorAll("#context-menu button")].find((b) => b.textContent.includes("Codec")).click();`,
+  );
+  await app.waitFor('return document.querySelector(\'th[data-sort="codec"]\').hidden', true);
+
+  await app.restart();
+  assert.equal(await app.run("return document.documentElement.dataset.theme"), "dub-dark");
+  assert.equal(await app.run('return document.getElementById("volume").value'), "30");
+  assert.equal(await app.run('return document.getElementById("loop").checked'), true);
+  assert.equal(await app.run('return document.querySelector(\'th[data-sort="codec"]\').hidden'), true);
+  // Not the window's size: tauri-plugin-window-state saves it when Tauri
+  // closes the window, which WebDriver cannot ask for (its own close goes
+  // round Tauri, and the page may not close the window).
+});
