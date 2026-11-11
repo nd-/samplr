@@ -247,3 +247,20 @@ withApp("the app's choices are found again at the next launch", async (app) => {
   // closes the window, which WebDriver cannot ask for (its own close goes
   // round Tauri, and the page may not close the window).
 });
+
+withApp("the background pass measures every sample's loudness by itself", async (app) => {
+  // Nothing asked: the pass after startup computes the waveforms, measures
+  // them and tells the page.
+  await app.waitFor("return samples.every((sample) => sample.lufs !== null)", true, 20_000);
+  const loudness = await app.run("return samples.map((sample) => sample.lufs)");
+  // A tone at a quarter of full scale: about -16 LUFS.
+  for (const lufs of loudness) assert.ok(lufs > -20 && lufs < -12, `${lufs} LUFS`);
+  const shown = await app.run(
+    `const column = [...document.querySelectorAll("#list-head th")].filter((th) => !th.hidden).findIndex((th) => th.dataset.sort === "lufs");
+     return document.querySelector('${row(0)}').children[column].textContent`,
+  );
+  assert.equal(shown, loudness[0].toFixed(1));
+  // Saved: nothing left for the command line to compute.
+  const pass = app.cli("waveforms");
+  assert.deepEqual([pass.computed, pass.up_to_date], [0, 3]);
+});
