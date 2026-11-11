@@ -16,7 +16,7 @@ const port = 4444;
 const base = `http://127.0.0.1:${port}`;
 
 /// Writes a 16-bit mono WAV of `seconds` of a quiet tone at `path`.
-function writeWav(path, seconds) {
+export function writeWav(path, seconds) {
   const frames = Math.round(44100 * seconds);
   const data = Buffer.alloc(frames * 2);
   for (let i = 0; i < frames; i++) data.writeInt16LE(Math.round(8000 * Math.sin(i * 0.05)), i * 2);

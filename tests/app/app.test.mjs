@@ -5,7 +5,9 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { startApp } from "./webdriver.mjs";
+import { rmSync, renameSync } from "node:fs";
+import { join } from "node:path";
+import { startApp, writeWav } from "./webdriver.mjs";
 
 const ENTER = "";
 const row = (index) => `#samples tr[data-index="${index}"]`;
@@ -115,4 +117,33 @@ withApp("the rows' columns line up with the header in WebKitGTK", async (app) =>
   for (const [column, left, width] of offsets) {
     assert.ok(Math.abs(left) <= 1 && Math.abs(width) <= 1, `${column}: ${left}, ${width}`);
   }
+});
+
+// The names in the list, in its order.
+const names = "return [...document.querySelectorAll('#samples tr[data-index] td:nth-child(2)')].map((td) => td.textContent)";
+const selectedNames =
+  "return [...document.querySelectorAll('#samples tr.selected td:nth-child(2)')].map((td) => td.textContent)";
+
+withApp("a sample added, renamed or deleted on disk follows in the list", async (app) => {
+  await app.click("#autoplay");
+  await app.click(`${row(1)} td:nth-child(2)`);
+  // Added while the app is open: in the list after the watcher's second of
+  // grouping, the selection kept.
+  writeWav(join(app.samples, "Clap 03.wav"), 0.5);
+  await app.waitFor(names, ["Bass Loop 120BPM Am.wav", "Clap 03.wav", "Kick 01.wav", "Snare 02.wav"]);
+  assert.deepEqual(await app.run(selectedNames), ["Kick 01.wav"]);
+
+  // Renamed: the same sample, its tags kept.
+  await app.click(`${row(1)} td:nth-child(2)`);
+  await app.type("#new-tags", `clap${ENTER}`);
+  await app.waitFor('return document.querySelectorAll("#tagbar .tag").length', 1);
+  renameSync(join(app.samples, "Clap 03.wav"), join(app.samples, "Clap 04.wav"));
+  await app.waitFor(names, ["Bass Loop 120BPM Am.wav", "Clap 04.wav", "Kick 01.wav", "Snare 02.wav"]);
+  assert.deepEqual(app.cli("search", "#clap").map((sample) => sample.path.split("/").at(-1)), [
+    "Clap 04.wav",
+  ]);
+
+  // Deleted: gone from the list.
+  rmSync(join(app.samples, "Clap 04.wav"));
+  await app.waitFor(names, ["Bass Loop 120BPM Am.wav", "Kick 01.wav", "Snare 02.wav"]);
 });
