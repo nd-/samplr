@@ -11,7 +11,13 @@ const pageUrl = pathToFileURL(path.join(__dirname, "../../ui/index.html")).href;
 // was answered. Called by each file: a module is loaded only once per
 // worker, hooks registered at its loading would only reach the first file.
 function openFakeLibrary() {
+  // Errors the page's scripts threw, which the error box would not show
+  // (one thrown while loading, a function called before its file ran).
+  let scriptErrors = [];
+
   test.beforeEach(async ({ page }) => {
+    scriptErrors = [];
+    page.on("pageerror", (error) => scriptErrors.push(error.message));
     await page.addInitScript({ path: path.join(__dirname, "fake-tauri.js") });
     await page.goto(pageUrl);
     await expect(page.locator("#status")).toHaveText("50 sample(s)");
@@ -22,6 +28,7 @@ function openFakeLibrary() {
 
   test.afterEach(async ({ page }) => {
     await expect(page.locator("#error-box")).toBeHidden();
+    expect(scriptErrors).toEqual([]);
   });
 }
 

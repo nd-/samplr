@@ -88,7 +88,12 @@ mixing macOS and Linux binaries in `target/`. Do not put this setting in the pro
 sample, `src/acid.rs` the ACID chunk of WAV files, `src/info.rs` a file's own metadata (Info
 panel), `src/convert.rs` the conversion through ffmpeg. The interface's Rust side is in
 `src-tauri/src/main.rs` (commands, audio thread) and `src-tauri/src/library.rs` (live following,
-background waveforms); its page in `ui/` (`index.html`, `main.js`, `style.css`, `theme.js`):
+background waveforms); its page in `ui/`: `index.html`, `style.css`, `theme.js` (the theme,
+applied before the first paint) and the scripts, classic ones loaded in order by `index.html`
+(`base.js` shared helpers and state, `list.js`, `details.js`, `player.js`, `library.js`,
+`collections.js`, `menus.js`, `keys.js`, `cells.js`, `settings.js`, then `main.js` the start). A
+function exists only once its file has run: code run while loading calls only what earlier files
+declare (an interface test fails on any script error):
 
 - `samplr scan <folder>`: lists the audio files (wav, aif, aiff, flac, mp3, ogg, m4a) with
   length, sample rate, bits and channels, and saves them to the database (absolute path; a new
@@ -255,7 +260,7 @@ Audio pitfalls met so far:
     moving files to the trash always is), colour palette. The window closes with its × at the top
     right, Esc, or a press outside it (only the press counts, so that selecting text and releasing
     outside does not close it); the Folders window too (`closeOnPressOutside`, `.dialog-head`).
-    `confirmAction` in `main.js` asks, or not; the choice is kept in `localStorage`
+    `confirmAction` in `base.js` asks, or not; the choice is kept in `localStorage`
     (`askBeforeDeleting`). The shortcuts are listed there, not in the footer (`shortcutList`,
     drawn as `<kbd>`); on a Mac they show the Mac's keys (`shortcut()`: ⌘ for Ctrl, ⇧ for Shift, ⌫
     for Del), and so do the tooltips naming a shortcut: they are written for Linux in the code,
@@ -480,7 +485,7 @@ Audio pitfalls met so far:
   both tables like the × one (`applyColumns`), and `buildRow` makes no cell for it. The last
   header shown gets the class `last` (no line after it): `:last-child` is the hidden × header.
 - Visual feedback: after adding samples to a collection (menu or drop), their rows and the
-  collection flash; after adding tags, the rows and the tag bar (`flash` in `main.js`, a CSS
+  collection flash; after adding tags, the rows and the tag bar (`flash` in `details.js`, a CSS
   animation from the waveform colour back to the element's own background).
 - Multiple selection: click selects one row, Ctrl/Cmd+click adds or takes out a row, Shift+click
   and Shift+↑↓ select from the anchor (the last row clicked without Shift) to the row, Ctrl/Cmd+A
@@ -745,7 +750,7 @@ Audio pitfalls met so far:
   their own (`--bg`): when the panel overflows, WebKitGTK draws it on a scrolling layer of its
   own, where text on no background looked bold (a background on the panel itself did not help;
   checked in MiniBrowser).
-- Errors: `showError` in `main.js` shows them in a red box above the status line (`#error-box`,
+- Errors: `showError` in `base.js` shows them in a red box above the status line (`#error-box`,
   `--error` the same red in every theme, closed by its × or after 10 s, not while the pointer is
   on it; its text can be selected and copied) and in the status line; every failure reported to
   the user goes through it, never through the status line alone, which nobody notices.
