@@ -21,6 +21,9 @@ Desktop audio sample manager for **macOS, Linux and Windows**: listen to, tag an
   the page opened from `ui/index.html` with the Tauri API faked by `tests/ui/fake-tauri.js` (a
   library of 50 samples; `window.__calls` records the commands).
   Node is for these tests only: the interface itself still has no build tool.
+  `tests/credits.rs` keeps the README's Credits in step with the dependencies (both
+  `Cargo.toml`, `tests/ui/package.json`): a dependency added goes into the Credits and the test's
+  `CREDITED` table, or into its `UNCREDITED` list for a small helper.
   Playwright's WebKit does not run on Fedora (its fallback Ubuntu build wants `libjpeg.so.8`,
   `libjxl` 0.8 and `libbacktrace`): to test in WebKit, the official Playwright image under Podman,
   or the real app through `tauri-driver` and WebKitGTK's WebKitWebDriver.

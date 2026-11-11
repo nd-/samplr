@@ -88,6 +88,7 @@ skipped otherwise.
 | The interface's commands   | `src-tauri/src/*.rs` | `cargo test -p samplr-app`             |
 | The command line           | `tests/cli.rs`       | `cargo test -p samplr --test cli`      |
 | The interface, in Chromium | `tests/ui/*.spec.js` | `cd tests/ui && npx playwright test`   |
+| The Credits below          | `tests/credits.rs`   | `cargo test -p samplr --test credits`  |
 
 The interface is tested in a plain browser: `tests/ui/fake-tauri.js` stands in for the Rust
 side, with a library of 50 samples. To run a single test: `cargo test -p samplr --lib watch::`,
