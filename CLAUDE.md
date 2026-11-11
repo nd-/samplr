@@ -41,6 +41,15 @@ tag and organise samples (for musicians, alongside a DAW). Windows is not built 
     page may not close it without `core:window:allow-close`). Playwright's own WebKit does not
     run on Fedora (its fallback Ubuntu build wants `libjpeg.so.8`, `libjxl` 0.8 and
     `libbacktrace`).
+- Documentation: `README.md` for users (what samplr does, installing, running, credits, licence),
+  `CONTRIBUTING.md` for contributors (proposing a change, code rules, commit messages, the tests
+  and what they cover); keep both in step with a change they describe, in English. Licence: MIT
+  or Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`, "The samplr contributors"; `license` in both
+  `Cargo.toml`), contributions under the same terms. `docs/screenshot.png`, at the top of the
+  README: the real app driven through `tauri-driver` (as `tests/app`), on a demo library of
+  synthesised samples named as sample packs name them (one-shots under a "One Shots" folder, so
+  that they are not taken for loops), isolated in `/tmp`; the Ch and Codec columns hidden. The
+  script is not kept: to take it again, the same way.
 - Think Mac, Linux **and** Windows for every choice (paths, audio, drag and drop, packaging). Code
   for one system goes under `#[cfg(target_os = "…")]` for each of the three: `not(target_os =
   "macos")` is not Linux, it is Windows too.
