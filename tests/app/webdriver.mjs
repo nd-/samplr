@@ -136,7 +136,12 @@ export async function startApp() {
         // The app, still closing, writes its web storage again after a
         // first removal: removed until the folder stays gone.
         for (let tries = 0; tries < 20; tries++) {
-          rmSync(dir, { recursive: true, force: true });
+          try {
+            rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+          } catch (error) {
+            // Written to while being removed: tried again below.
+            if (tries === 19) throw error;
+          }
           await pause(150);
           if (!existsSync(dir)) break;
         }

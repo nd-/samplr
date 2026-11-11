@@ -197,3 +197,30 @@ withApp(
   },
   { skip: !ffmpegFound && "ffmpeg is not installed" },
 );
+
+// The colour most drawn on the waveform's canvas, as `#rrggbb`.
+const drawnColour = `
+  const canvas = document.getElementById("wave");
+  const pixels = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+  const counts = new Map();
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (pixels[i + 3] < 255) continue;
+    const hex = "#" + [0, 1, 2].map((c) => pixels[i + c].toString(16).padStart(2, "0")).join("");
+    counts.set(hex, (counts.get(hex) ?? 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;`;
+
+withApp("the waveform is drawn in the theme's colour", async (app) => {
+  await app.click("#autoplay");
+  await app.click(`${row(0)} td:nth-child(2)`);
+  await app.waitFor("return peaks.length", 1024);
+  // The System theme writes its colour as light-dark(), which a canvas
+  // does not read: once drawn black. Soul's, light or dark (style.css).
+  const system = await app.run(drawnColour);
+  assert.ok(["#c47a08", "#f2a93b"].includes(system), `System theme: ${system}`);
+
+  await app.run(
+    'const theme = document.getElementById("theme"); theme.value = "dub-dark"; theme.dispatchEvent(new Event("change"));',
+  );
+  assert.equal(await app.run(drawnColour), "#86c46a");
+});
