@@ -82,6 +82,12 @@ A dependency added (a crate, or a package of `tests/ui/package.json`) goes into 
 Credits, and into the `CREDITED` table of `tests/credits.rs`, or its `UNCREDITED` list for a
 small helper: the test fails until it does.
 
+## Continuous integration
+
+`.github/workflows/tests.yml` runs `./tests/run.sh` at each push to `main` and each pull request:
+on Linux every suite, the real app's included (in a virtual display, with a silent audio
+output); on macOS the Rust and interface tests. A pull request is merged once both pass.
+
 ## License of contributions
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in
