@@ -710,7 +710,7 @@ Audio pitfalls met so far:
   a subtype from a qualifier of the same name (`QUALIFIERS`: "Elec_Gtr" is an electric guitar) or
   from the folders above (`HITS/Kick/MP2_Drums_1.wav` is a kick). Worked out at each search, not
   stored. On the Linux library: 3303 samples, 1061 typed from their folders only. Column Type
-  ("Drums › kick", greyed when worked out), sortable, hideable, searched with `type:drums` (the
+  ("Drums › Kick", greyed when worked out), sortable, hideable, searched with `type:drums` (the
   family), `type:kick` (the subtype in any family) or `type:guitar/electric`. A double-click
   opens the type picker (`openTypePicker`, `#type-picker`): a search box (typing lists the
   families and subtypes matching, accents ignored), the five types chosen last (`recentTypes` in

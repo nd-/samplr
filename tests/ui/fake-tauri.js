@@ -151,17 +151,17 @@
         id: "drums",
         label: "Drums",
         subtypes: [
-          { id: "kick", label: "kick" },
-          { id: "snare", label: "snare" },
+          { id: "kick", label: "Kick" },
+          { id: "snare", label: "Snare" },
         ],
       },
-      { id: "bass", label: "Bass", subtypes: [{ id: "electric", label: "electric" }] },
+      { id: "bass", label: "Bass", subtypes: [{ id: "electric", label: "Electric" }] },
       {
         id: "guitar",
         label: "Guitar",
         subtypes: [
-          { id: "acoustic", label: "acoustic" },
-          { id: "electric", label: "electric" },
+          { id: "acoustic", label: "Acoustic" },
+          { id: "electric", label: "Electric" },
         ],
       },
     ],

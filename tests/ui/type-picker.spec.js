@@ -27,26 +27,26 @@ test("a double-click opens the picker on the sample's family", async ({ page }) 
     "Guitar ›",
   ]);
   await expect(families(page).filter({ hasText: "Drums" })).toHaveClass(/open/);
-  await expect(subtypes(page)).toHaveText(["kick", "snare"]);
+  await expect(subtypes(page)).toHaveText(["Kick", "Snare"]);
 });
 
 test("a subtype clicked is set, and offered among the recent ones", async ({ page }) => {
   await typeCell(page, SNARE).dblclick();
   await subtypes(page).filter({ hasText: "snare" }).click();
   await expect(picker(page)).toBeHidden();
-  await expect(typeCell(page, SNARE)).toHaveText("Drums › snare");
+  await expect(typeCell(page, SNARE)).toHaveText("Drums › Snare");
   // Set by hand: no longer greyed as worked out.
   await expect(typeCell(page, SNARE)).not.toHaveClass(/estimated/);
   expect(await lastType(page)).toEqual({ paths: ["/lib/Drums/Snare 1.wav"], value: "drums/snare" });
 
   await typeCell(page, SNARE + 1).dblclick();
-  await expect(page.locator("#type-recent button")).toHaveText(["Drums › snare"]);
+  await expect(page.locator("#type-recent button")).toHaveText(["Drums › Snare"]);
 });
 
 test("pointing at a family shows its subtypes", async ({ page }) => {
   await typeCell(page, SNARE).dblclick();
   await families(page).filter({ hasText: "Guitar" }).hover();
-  await expect(subtypes(page)).toHaveText(["acoustic", "electric"]);
+  await expect(subtypes(page)).toHaveText(["Acoustic", "Electric"]);
   await subtypes(page).filter({ hasText: "acoustic" }).click();
   expect((await lastType(page)).value).toBe("guitar/acoustic");
 });
@@ -68,7 +68,7 @@ test("typing lists the matching types, in every family", async ({ page }) => {
   await typeCell(page, SNARE).dblclick();
   await page.keyboard.type("ELEC");
   const results = page.locator("#type-results button");
-  await expect(results).toHaveText(["Bass › electric", "Guitar › electric"]);
+  await expect(results).toHaveText(["Bass › Electric", "Guitar › Electric"]);
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   expect((await lastType(page)).value).toBe("guitar/electric");
@@ -100,7 +100,7 @@ test("No type, then Automatic back to the type worked out", async ({ page }) => 
   // The current choice is marked.
   await expect(families(page).filter({ hasText: "No type" })).toHaveText("✓ No type");
   await families(page).filter({ hasText: "Automatic" }).click();
-  await expect(typeCell(page, KICK)).toHaveText("Drums › kick");
+  await expect(typeCell(page, KICK)).toHaveText("Drums › Kick");
   await expect(typeCell(page, KICK)).toHaveClass(/estimated/);
 });
 
@@ -111,7 +111,7 @@ test("the whole selection gets the type when the row is in it", async ({ page })
   await typeCell(page, SNARE + 1).dblclick();
   await subtypes(page).filter({ hasText: "snare" }).click();
   expect((await lastType(page)).paths).toHaveLength(3);
-  await expect(typeCell(page, SNARE + 2)).toHaveText("Drums › snare");
+  await expect(typeCell(page, SNARE + 2)).toHaveText("Drums › Snare");
   await expect(page.locator("#samples tr.selected")).toHaveCount(3);
 });
 
