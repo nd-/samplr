@@ -10,6 +10,9 @@
 // folder chooser gives (`null`: cancelled), `window.__splice` the Splice
 // folders found, `window.__ffmpeg` whether ffmpeg is installed,
 // `window.__unreadable` the paths whose file cannot be read.
+// `window.__drags` keeps each drag started towards another app, and
+// `window.__dragDrop(payload)` plays a drag over the window as Tauri
+// reports it (enter, over, drop, leave; position in physical pixels).
 // `window.__pending` counts the commands not answered yet.
 // `window.__library` changes the library as the folder watcher would (the
 // test then emits `library-changed`), `window.__delay(command, args)` gives
@@ -395,15 +398,17 @@
       }
       return removed;
     },
+    // Paths not in the library (files from a file manager) are left out
+    // and counted, not refused.
     add_to_collection: ({ collection, paths }) => {
       let added = 0;
-      for (const sample of chosen(paths)) {
+      for (const sample of chosen(paths.filter((path) => byPath.has(path)))) {
         if (!sample.collections.includes(collection)) {
           sample.collections.push(collection);
           added += 1;
         }
       }
-      return { added, unknown: 0 };
+      return { added, unknown: paths.filter((path) => !byPath.has(path)).length };
     },
   };
 
@@ -433,6 +438,9 @@
   window.__chosenFolder = null;
   window.__ffmpeg = true;
   window.__unreadable = [];
+  window.__drags = [];
+  let dragDrop = () => {};
+  window.__dragDrop = (payload) => dragDrop({ payload });
   window.__splice = [];
   window.__emit = (name, payload) => {
     for (const handler of listeners.get(name) ?? []) handler({ event: name, payload });
@@ -469,9 +477,19 @@
       },
       open: async () => window.__chosenFolder,
     },
-    drag: { startDrag: async () => null },
+    drag: {
+      startDrag: async (options) => {
+        window.__drags.push(options);
+        return null;
+      },
+    },
     webview: {
-      getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }),
+      getCurrentWebview: () => ({
+        onDragDropEvent: async (handler) => {
+          dragDrop = handler;
+          return () => {};
+        },
+      }),
     },
   };
 })();
