@@ -88,16 +88,42 @@ export async function startApp() {
     async click(css) {
       await app.call("POST", `/session/${session}/element/${await app.element(css)}/click`, {});
     },
+    async clear(css) {
+      await app.call("POST", `/session/${session}/element/${await app.element(css)}/clear`, {});
+    },
+    /// Opens the row menu of `css` as a right-click does, and clicks its
+    /// entry starting with `label`.
+    async menu(css, label) {
+      await app.run(
+        `const cell = document.querySelector(arguments[0]);
+         const box = cell.getBoundingClientRect();
+         cell.dispatchEvent(new MouseEvent("contextmenu", {
+           bubbles: true, cancelable: true, button: 2,
+           clientX: box.left + 10, clientY: box.top + 5,
+         }));`,
+        css,
+      );
+      await app.waitFor(
+        `return [...document.querySelectorAll("#context-menu button")].some((b) => b.textContent.startsWith(arguments[0]))`,
+        true,
+        10_000,
+        label,
+      );
+      await app.run(
+        `[...document.querySelectorAll("#context-menu button")].find((b) => b.textContent.startsWith(arguments[0])).click()`,
+        label,
+      );
+    },
     /// Types `text` into the element; WebDriver's own codes for special keys
     /// ("" is Enter).
     async type(css, text) {
       await app.call("POST", `/session/${session}/element/${await app.element(css)}/value`, { text });
     },
     /// Waits for `script` to give `expected`; fails with the last value.
-    async waitFor(script, expected, timeout = 10_000) {
+    async waitFor(script, expected, timeout = 10_000, ...args) {
       let value;
       for (const start = Date.now(); Date.now() - start < timeout; await pause(100)) {
-        value = await app.run(script);
+        value = await app.run(script, ...args);
         if (JSON.stringify(value) === JSON.stringify(expected)) return value;
       }
       throw new Error(`waited for ${JSON.stringify(expected)}, got ${JSON.stringify(value)}`);

@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { rmSync, renameSync } from "node:fs";
+import { existsSync, rmSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { startApp, writeWav } from "./webdriver.mjs";
 
@@ -146,4 +146,26 @@ withApp("a sample added, renamed or deleted on disk follows in the list", async 
   // Deleted: gone from the list.
   rmSync(join(app.samples, "Clap 04.wav"));
   await app.waitFor(names, ["Bass Loop 120BPM Am.wav", "Kick 01.wav", "Snare 02.wav"]);
+});
+
+withApp("a file renamed from the row menu, on disk and in the database", async (app) => {
+  await app.click("#autoplay");
+  await app.click(`${row(1)} td:nth-child(2)`);
+  await app.type("#new-tags", `kick${ENTER}`);
+  await app.waitFor('return document.querySelectorAll("#tagbar .tag").length', 1);
+
+  await app.menu(`${row(1)} td:nth-child(2)`, "Rename file");
+  // The name without its extension, which is kept.
+  assert.equal(await app.run('return document.querySelector("#context-menu input[title]").value'), "Kick 01");
+  await app.clear("#context-menu input[title]");
+  await app.type("#context-menu input[title]", `Kick dry${ENTER}`);
+  await app.waitFor(names, ["Bass Loop 120BPM Am.wav", "Kick dry.wav", "Snare 02.wav"]);
+
+  assert.ok(existsSync(join(app.samples, "Kick dry.wav")));
+  assert.ok(!existsSync(join(app.samples, "Kick 01.wav")));
+  // The same sample, its tag kept, and still selected.
+  assert.deepEqual(app.cli("search", "#kick").map((sample) => sample.path.split("/").at(-1)), [
+    "Kick dry.wav",
+  ]);
+  assert.deepEqual(await app.run(selectedNames), ["Kick dry.wav"]);
 });
