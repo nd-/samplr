@@ -284,9 +284,10 @@ Audio pitfalls met so far:
 ## The interface (step 7)
 
 - Tauri 2 stable (2.12.x at the time of writing; 3.x is only in alpha).
-- Fedora packages Tauri needs (installed on the Linux machine):
-  `webkit2gtk4.1-devel libsoup3-devel gtk3-devel javascriptcoregtk4.1-devel libappindicator-gtk3-devel`.
-  Already present: `openssl-devel`, `librsvg2-devel`. Node and npm are available through nvm.
+- Fedora packages the interface needs: `gcc-c++` (Signalsmith Stretch is C++),
+  `webkit2gtk4.1-devel libsoup3-devel gtk3-devel javascriptcoregtk4.1-devel`. Not needed, though
+  Tauri's general list has them: `libappindicator-gtk3-devel` (no tray icon), `librsvg2-devel`,
+  `openssl-devel` (none is linked: `cargo tree`). Node and npm are available through nvm.
 - Layout: the crate is a library (`src/lib.rs`: `db`, `waveform`, `SampleInfo`, `read_info`,
   `index`; done) plus the CLI binary (`src/main.rs`, `use samplr::…`). The Tauri app lives in
   `src-tauri/`, in a Cargo workspace declared in the root `Cargo.toml` (one `Cargo.lock`, one
