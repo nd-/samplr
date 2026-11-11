@@ -1,7 +1,7 @@
 # samplr (WIP)
 
 Audio sample manager for Linux and macOS (and Windows, maybe, someday).  
-Scan sample folders, tag them, find them again and listen to them. 
+Scan sample folders, tag them, find them again and listen to them.
 
 ## What it does
 
@@ -37,6 +37,10 @@ sudo apt install build-essential pkg-config libasound2-dev
 # Debian / Ubuntu: sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
 # Fedora: sudo dnf install webkit2gtk4.1-devel libsoup3-devel gtk3-devel javascriptcoregtk4.1-devel libappindicator-gtk3-devel librsvg2-devel openssl-devel
 
+# Optional, to convert samples: ffmpeg
+# Debian / Ubuntu: sudo apt install ffmpeg
+# Fedora: sudo dnf install ffmpeg-free (or ffmpeg, from RPM Fusion)
+
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
@@ -50,6 +54,9 @@ xcode-select --install
 
 # 2. Rust (installs rustup, cargo and rustc in ~/.cargo)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# 3. Optional, to convert samples: ffmpeg, with Homebrew
+brew install ffmpeg
 ```
 
 Close and reopen the terminal. Nothing else to install: sound goes through CoreAudio, built
@@ -102,8 +109,8 @@ app's window for a few seconds, on a library of its own: your samples, database 
 are left alone, and nothing is heard (the volume is set to zero).
 
 The tests never touch your library: they work on WAV files they generate in a temporary folder
-and on a throwaway database. Two of them run ffmpeg if it is installed, and say they were
-skipped otherwise.
+and on a throwaway database. Those that convert samples run ffmpeg if it is installed, and say
+they were skipped otherwise.
 
 | What                       | Where                | Run alone                              |
 |----------------------------|----------------------|----------------------------------------|
@@ -130,7 +137,7 @@ or `npx playwright test -g "the arrow keys"` in `tests/ui`.
 
 ## Supported formats
 
-WAV, AIFF, FLAC, MP3, OGG, M4A.
+WAV, AIFF (`.aif`, `.aiff`), FLAC, MP3, OGG, M4A.
 
 ## Credits
 
@@ -154,4 +161,3 @@ samplr stands on the work of others:
 - [FFmpeg](https://ffmpeg.org), run as a separate program, converts samples.
 - [Playwright](https://playwright.dev) drives the interface's tests, and
   [tauri-driver](https://github.com/tauri-apps/tauri) the real app's.
-    
