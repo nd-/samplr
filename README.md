@@ -103,11 +103,29 @@ or `npx playwright test -g "the arrow keys"` in `tests/ui`.
 | `cargo clippy` | suggestions to improve the code                  |
 | `cargo fmt`    | formats the code automatically                   |
 
-## Recommended editor
-
-VS Code with the **rust-analyzer** extension: completion, types on hover and live errors. Zed
-and RustRover work too.
-
 ## Supported formats
 
 WAV, AIFF, FLAC, MP3, OGG, M4A.
+
+## Credits
+
+samplr stands on the work of others:
+
+- [Tauri](https://github.com/tauri-apps/tauri) for the window around the interface, with its
+  [dialog and window-state plugins](https://github.com/tauri-apps/plugins-workspace), and
+  CrabNebula's [drag](https://github.com/crabnebula-dev/drag-rs) to drag samples into a DAW.
+- [Symphonia](https://github.com/pdeljanov/Symphonia) reads and decodes the audio files,
+  [rodio](https://github.com/RustAudio/rodio) plays them.
+- [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) changes the
+  tempo and the pitch one without the other, through the
+  [ssstretch](https://github.com/bmisiak/ssstretch) binding.
+- [ebur128](https://github.com/sdroege/ebur128) measures the loudness (EBU R128).
+- [SQLite](https://sqlite.org), through [rusqlite](https://github.com/rusqlite/rusqlite), keeps
+  the library.
+- [notify](https://github.com/notify-rs/notify) follows the folders,
+  [walkdir](https://github.com/BurntSushi/walkdir) walks them,
+  [trash](https://github.com/ArturKovacs/trash) sends files to the system's trash, and
+  [clap](https://github.com/clap-rs/clap) reads the command line.
+- [FFmpeg](https://ffmpeg.org), run as a separate program, converts samples.
+- [Playwright](https://playwright.dev) drives the interface's tests.
+    
