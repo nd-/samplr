@@ -345,7 +345,7 @@ Audio pitfalls met so far:
   canvas takes the theme's colour through `cssColor` (a probe element resolves the variable to
   `#rrggbb`): the System theme writes `--wave` as `light-dark(…)`, which a canvas does not read,
   and the waveform and the drag image were drawn in black.
-- 7d: a tag bar under the waveform shows the selected sample's tags, each with a × to remove
+- 7d: a tag bar under the list of samples shows the selected sample's tags, each with a × to remove
   it. Ctrl+T (Cmd+T on Mac) moves to the tag box; there, Enter adds the tags typed (separated
   by spaces), Backspace on an empty box removes the last tag shown in the bar (`commonTags`:
   with several samples selected, the last tag they all carry, never one of the current row
