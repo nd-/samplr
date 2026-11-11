@@ -31,7 +31,12 @@ Desktop audio sample manager for **macOS, Linux and Windows**: listen to, tag an
   `XDG_CONFIG_HOME` and `XDG_DATA_HOME` in a temporary folder (window state, web storage), so
   that the user's own are never touched; the volume set to zero before playing. The folder is
   removed until it stays gone: the app, closing, writes its web storage again. For what Chromium
-  cannot show: the page's way to Rust and back, the audio thread, WebKitGTK's layout.
+  cannot show: the page's way to Rust and back, the audio thread, the folder watcher, files
+  renamed and converted, the background pass, WebKitGTK's layout and canvas colours, what is
+  remembered at the next launch (`restart()`). Out of WebDriver's reach: native drag and drop,
+  the system's dialogs, and the window size `tauri-plugin-window-state` keeps (it saves when Tauri
+  closes the window; WebDriver's own close goes round Tauri, and the page may not close it
+  without `core:window:allow-close`).
   Playwright's own WebKit does not run on Fedora (its fallback Ubuntu build wants
   `libjpeg.so.8`, `libjxl` 0.8 and `libbacktrace`).
 - Think Mac, Linux **and** Windows for every choice (paths, audio, drag and drop, packaging). Code
