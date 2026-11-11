@@ -3,6 +3,8 @@
 Audio sample manager for Linux and macOS (and Windows, maybe, someday).  
 Scan sample folders, tag them, find them again and listen to them.
 
+![samplr: the sample list with its tempo, key, type and loudness, collections and tags on the left, the Info panel on the right, the playback bar at the bottom](docs/screenshot.png)
+
 ## What it does
 
 samplr is for musicians whose sample packs pile up on their disks: it finds a sound again, lets
