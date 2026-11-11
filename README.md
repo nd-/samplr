@@ -1,25 +1,30 @@
-# samplr
+# samplr (WIP)
 
-Audio sample manager for Linux, and soon for Windows and macOS.
-
+Audio sample manager for Linux and macOS (and Windows, maybe, someday).  
 Scan sample folders, tag them, find them again and listen to them. 
 
-Written in Rust, to last.
+## What it does
+
+samplr is for musicians whose sample packs pile up on their disks: it finds a sound again, lets
+you hear it at once, and drags it into your DAW.
+
+- **Your folders, as they are.** Point samplr at your sample folders: it indexes them and
+  follows them live. Your files never move unless you ask, so your DAW projects keep finding
+  them, and an unplugged disk loses nothing.
+- **Worked out from your samples.** Tempo and key from the file names and the WAV files' ACID
+  chunk, loop or one-shot, the kind of sound (Drums › Kick, Bass, Keys…), the length in bars and
+  the loudness.
+- **Found in one search box.** Words in the names or the tags, and filters such as
+  `bpm:118-124`, `key:Am`, `loop:yes` or `type:kick`.
+- **Heard right away.** The arrow keys browse and play, with the pitch and the tempo changed one
+  without the other, to hear a loop in your track's key and tempo.
+- **Sorted your way.** Tags, favorites, collections gathered by hand, and colours.
+- **Used with your DAW.** Drag samples into it, rename, move, convert (WAV, AIFF, FLAC, MP3,
+  OGG) or trash their files from samplr.
+
+A graphical interface, and a command line (`samplr`) for scripts.
 
 ## Installation
-
-### On Mac (Apple Silicon)
-
-```sh
-# 1. Apple's build tools (clang, git…)
-xcode-select --install
-
-# 2. Rust (installs rustup, cargo and rustc in ~/.cargo)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-Close and reopen the terminal. Nothing else to install: sound goes through CoreAudio, built
-into macOS.
 
 ### On Linux
 
@@ -36,6 +41,19 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
 Check the installation with `cargo --version`.
+
+### On Mac (Apple Silicon)
+
+```sh
+# 1. Apple's build tools (clang, git…)
+xcode-select --install
+
+# 2. Rust (installs rustup, cargo and rustc in ~/.cargo)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Close and reopen the terminal. Nothing else to install: sound goes through CoreAudio, built
+into macOS.
 
 ## Running
 
