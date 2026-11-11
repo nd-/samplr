@@ -426,6 +426,9 @@
     tag(path, tag) {
       byPath.get(path).tags.push(tag);
     },
+    set(path, fields) {
+      Object.assign(byPath.get(path), fields);
+    },
   };
   window.__problems = [];
   window.__delay = () => 0;
