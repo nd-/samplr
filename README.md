@@ -127,40 +127,9 @@ The app and the command line share their database, created on first launch, in
 on Mac. To experiment on a separate database:
 `SAMPLR_DB=/tmp/test.db cargo run -- scan ~/Samples`.
 
-## Tests
+## Contributing
 
-Every test, from the project folder:
-
-```sh
-./tests/run.sh
-```
-
-It runs the Rust tests first, then the interface's, then the real app's, and stops at the first
-suite that fails. The interface's need Node (any install: nvm, Homebrew, the system's packages);
-on the first run the script installs their tools and the browser they drive
-(`tests/ui/node_modules`, and Playwright's Chromium in its own cache).
-
-The real app's run on Linux only, with a display, `tauri-driver` (`cargo install tauri-driver`)
-and WebKitGTK's `WebKitWebDriver`; elsewhere the script says they were skipped. Each opens the
-app's window for a few seconds, on a library of its own: your samples, database and settings
-are left alone, and nothing is heard (the volume is set to zero).
-
-The tests never touch your library: they work on WAV files they generate in a temporary folder
-and on a throwaway database. Those that convert samples run ffmpeg if it is installed, and say
-they were skipped otherwise.
-
-| What                       | Where                | Run alone                              |
-|----------------------------|----------------------|----------------------------------------|
-| The library, unit tests    | `src/*.rs`           | `cargo test -p samplr --lib`           |
-| The interface's commands   | `src-tauri/src/*.rs` | `cargo test -p samplr-app`             |
-| The command line           | `tests/cli.rs`       | `cargo test -p samplr --test cli`      |
-| The interface, in Chromium | `tests/ui/*.spec.js` | `cd tests/ui && npx playwright test`   |
-| The Credits below          | `tests/credits.rs`   | `cargo test -p samplr --test credits`  |
-| The real app, in WebKitGTK | `tests/app/*.mjs`    | `node --test tests/app/app.test.mjs`   |
-
-The interface is tested in a plain browser: `tests/ui/fake-tauri.js` stands in for the Rust
-side, with a library of 50 samples. To run a single test: `cargo test -p samplr --lib watch::`,
-or `npx playwright test -g "the arrow keys"` in `tests/ui`.
+How to run the tests, and what they cover: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Useful cargo commands
 
@@ -198,3 +167,8 @@ samplr stands on the work of others:
 - [FFmpeg](https://ffmpeg.org), run as a separate program, converts samples.
 - [Playwright](https://playwright.dev) drives the interface's tests, and
   [tauri-driver](https://github.com/tauri-apps/tauri) the real app's.
+
+## License
+
+samplr is licensed under either of [the MIT license](LICENSE-MIT) or
+[the Apache License, Version 2.0](LICENSE-APACHE), at your option.
