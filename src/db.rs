@@ -11,6 +11,7 @@ use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OptionalExtension, named_params, params, params_from_iter};
 use serde::Serialize;
 
+use crate::timbre::Fingerprint;
 use crate::waveform::{self, Peak};
 use crate::{SampleInfo, acid, analysis, sound_type};
 
@@ -92,12 +93,12 @@ pub(crate) fn set_up(db: &Connection) -> Result<(), Box<dyn Error>> {
 }
 
 /// The schema version `migrate` brings a database to: the last step's.
-const SCHEMA_VERSION: i64 = 13;
+const SCHEMA_VERSION: i64 = 14;
 
 /// What a waveform's row holds, in `waveforms.measured`: 1 the loudness, 2
-/// the tempo detected too. A row of an older version is stale: computed
+/// the tempo detected too, 3 the timbre too. A row of an older version is stale: computed
 /// again, once, in the background, its loudness shown meanwhile.
-const MEASURED: i64 = 2;
+const MEASURED: i64 = 3;
 
 /// Brings a database created by an older samplr up to date. Its version is
 /// kept by SQLite (`user_version`, 0 for a new database); each step runs once.
@@ -257,6 +258,14 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
                  WHERE id NOT IN (SELECT MIN(id) FROM collections GROUP BY unicode_lower(name));
              UPDATE collections SET name = unicode_lower(name);
              PRAGMA user_version = 13;",
+        )?;
+    }
+    if version < 14 {
+        // The timbre's fingerprint (see `timbre`), filled as the waveforms
+        // are computed again (`MEASURED`).
+        db.execute_batch(
+            "ALTER TABLE waveforms ADD COLUMN timbre BLOB;
+             PRAGMA user_version = 14;",
         )?;
     }
     db.execute_batch("COMMIT")?;
@@ -496,8 +505,8 @@ pub fn save_waveform(
 ) -> Result<(), Box<dyn Error>> {
     db.execute(
         "INSERT OR REPLACE INTO waveforms
-             (file_id, size, modified, peaks, lufs, peak_db, detected_bpm, measured)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             (file_id, size, modified, peaks, lufs, peak_db, detected_bpm, timbre, measured)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             file_id,
             stamp.size,
@@ -506,10 +515,24 @@ pub fn save_waveform(
             measures.lufs,
             measures.peak_db,
             measures.tempo,
+            measures.timbre.map(|timbre| timbre.to_bytes()),
             MEASURED,
         ],
     )?;
     Ok(())
+}
+
+/// A sample's timbre, from its waveform's row, whatever its age: `None`
+/// until measured, or for a silent sound.
+pub fn timbre(db: &Connection, file_id: i64) -> Result<Option<Fingerprint>, Box<dyn Error>> {
+    let bytes: Option<Option<Vec<u8>>> = db
+        .query_row(
+            "SELECT timbre FROM waveforms WHERE file_id = ?1",
+            [file_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(bytes.flatten().and_then(|b| Fingerprint::from_bytes(&b)))
 }
 
 /// What tells whether a file has changed since a waveform was computed:
@@ -1647,6 +1670,7 @@ mod tests {
         db.execute_batch(&format!(
             "INSERT INTO collections (id, name, color_id) VALUES (1, 'Drums', {color}), (2, 'drums', NULL);
              INSERT INTO collection_files VALUES (1, {a}), (2, {a}), (2, {b});
+             ALTER TABLE waveforms DROP COLUMN timbre;
              PRAGMA user_version = 12;"
         ))
         .unwrap();

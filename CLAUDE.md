@@ -88,6 +88,7 @@ tag and organise samples (for musicians, alongside a DAW). Windows is not built 
 - `trash` 5: "Move file(s) to the trash" (freedesktop trash on Linux, the Finder's on Mac, the
   Recycle Bin on Windows).
 - `ebur128` 0.1: a sample's loudness (LUFS, peak), measured with its waveform.
+- `realfft` 3.5 (over RustFFT): the spectra of a sample's timbre (`src/timbre.rs`).
 - rusqlite's `functions` feature: `unicode_lower`, the search's case folding (see `samplr search`).
 - Interface (`src-tauri/Cargo.toml`): `tauri` 2, `tauri-plugin-drag` (native drag into a DAW,
   patched in `vendor/drag`), `tauri-plugin-dialog` (folder chooser, questions),
@@ -120,7 +121,8 @@ project's `.cargo/config.toml`: the path does not exist on Linux.
 `src/db.rs` the database access, `src/waveform.rs` the waveform computation and drawing,
 `src/watch.rs` the folder following, `src/analysis.rs` the tempo, key and loop or one-shot of a
 sample, `src/acid.rs` the ACID chunk of WAV files, `src/info.rs` a file's own metadata (Info
-panel), `src/convert.rs` the conversion through ffmpeg. The interface's Rust side is in
+panel), `src/convert.rs` the conversion through ffmpeg, `src/timbre.rs` the fingerprint of a
+sample's timbre (to find the samples that sound alike). The interface's Rust side is in
 `src-tauri/src/main.rs` (commands, audio thread) and `src-tauri/src/library.rs` (live following,
 background waveforms); its page in `ui/`: `index.html`, `style.css`, `theme.js` (the theme,
 applied before the first paint) and the scripts, classic ones loaded in order by `index.html`
@@ -194,7 +196,7 @@ stays in them and comes back with its folder), `colors` (the palette: name, `#rr
 filled with 10 colours by the migration to version 4). `tags` and `collections` have a `color_id`
 (`ON DELETE SET NULL`: deleting a colour leaves them without colour). A tag deleted because no
 sample carries it any more loses its colour. Schema changes go through `db::migrate`: SQLite keeps
-the schema version (`PRAGMA user_version`, 13 so far), each step runs once, under `BEGIN IMMEDIATE`
+the schema version (`PRAGMA user_version`, 14 so far), each step runs once, under `BEGIN IMMEDIATE`
 so that the app and a command opening the database together do not both run it. A new database goes
 through every step too (the `CREATE TABLE`s are version 0): add a column with a migration step, not
 in the `CREATE TABLE`, and raise `SCHEMA_VERSION` with it: an up-to-date database is opened without
@@ -205,14 +207,14 @@ a short transaction: the lock is never held for the whole walk, which can take m
 disk or a network share. A waveform is 1024 (min, max) peaks over all channels, stored as signed
 bytes (2 KB), with the file's size and modification date: if either has changed, the waveform is
 stale and computed again. The waveform's row also holds the sample's loudness (`lufs`, `peak_db`)
-and the tempo detected from its sound (`detected_bpm`, see `pulse` below), with `measured` = 2
-(`MEASURED` in `db.rs`), measured from the sound itself during the same decoding
+the tempo detected from its sound (`detected_bpm`, see `pulse` below) and its timbre (`timbre`, see
+`src/timbre.rs` below), with `measured` = 3 (`MEASURED` in `db.rs`), measured from the sound itself during the same decoding
 (`waveform::compute`, `ebur128` crate: integrated loudness per EBU R128, the broadcast standard, and
 the sample peak; checked against ffmpeg's `ebur128` filter: same values). No LUFS under 0.4 s, the
 standard's block (2865 of the 3303 samples of the Linux library have one, all a peak). Waveforms
 saved by an older version (`measured` below `MEASURED`) are stale: the background thread measures
 the whole library again once (276 s in a debug build for the loudness, 372 s with the tempo too, 15
-MB at most), telling the page every 5 s so that the columns fill in; the loudness of an older row is
+MB at most; 168 s in a release build with the timbre too), telling the page every 5 s so that the columns fill in; the loudness of an older row is
 shown meanwhile. Peaks are built on the fly by merging buckets two by two, so memory use does not
 depend on the file length, which is not always known in advance (some MP3s). Tags are stored
 lowercase, without spaces; a tag no longer used by any sample is deleted. **Unplugged disk**: if the
@@ -699,6 +701,14 @@ Audio pitfalls met so far:
   `key:bbm`), applied after the SQL query by `samplr::query` (`Query::keeps`), which the interface's
   `search` command and `samplr search` share. On the 3287 samples of the Linux library: tempo from
   the name for 51 %, from the length for 11 %, key for 30 %.
+- Timbre (`src/timbre.rs`, unit-tested), to find samples that sound alike (in progress: computed
+  and stored, not compared yet): fed during the waveform's decoding, like the pulse, by frames of
+  2048 samples overlapping by half, the first 64 s only; on each frame not silent (-60 dBFS), 12
+  MFCC (32 mel bands, 40 Hz to 16 kHz, the first coefficient, the level, left out), the spectral
+  centroid (log2 of Hz) and the flatness; the fingerprint is their means and standard deviations,
+  the attack (to 3 dB of the loudest frame) and the length, 30 `f32` in `waveforms.timbre` (120
+  bytes; migration 14). Floors in the logarithms are relative to each frame's level, so that the
+  fingerprint does not change with it. A silent sound has none.
 - Tempo detected from the sound (`src/pulse.rs`, unit-tested), the last resort, for a loop only
   (manual, name, ACID chunk first; it replaces the estimate from the length, and a one-shot keeps no
   tempo, nor becomes a loop through it): a loop lasts a whole number of beats, so its length gives a

@@ -9,6 +9,7 @@ pub mod info;
 pub mod pulse;
 pub mod query;
 pub mod sound_type;
+pub mod timbre;
 pub mod watch;
 pub mod waveform;
 
@@ -774,6 +775,27 @@ mod tests {
         // Silence has no pulse.
         assert_eq!(detect_tempo(&db, id, &path, "sound").unwrap(), None);
         assert!(db::has_waveform(&db, id, stamp).unwrap());
+    }
+
+    #[test]
+    fn the_timbre_is_stored_with_the_waveform() {
+        let dir = TempDir::new();
+        let db = memory_db();
+        let tone = dir.path().join("tone.wav");
+        let samples: Vec<i16> = (0..44_100)
+            .map(|i| (8000.0 * (i as f32 * 0.0627).sin()) as i16)
+            .collect();
+        write_sound(&tone, 1, &samples);
+        let silent = dir.path().join("silent.wav");
+        write_wav(&silent);
+        let tone_id = db::save(&db, &read_info(&tone).unwrap()).unwrap();
+        let silent_id = db::save(&db, &read_info(&silent).unwrap()).unwrap();
+        assert_eq!(db::timbre(&db, tone_id).unwrap(), None);
+        update_waveform(&db, tone_id, &tone).unwrap();
+        update_waveform(&db, silent_id, &silent).unwrap();
+        let timbre = db::timbre(&db, tone_id).unwrap().unwrap();
+        assert!(timbre.0[timbre::FLATNESS] < 0.1);
+        assert_eq!(db::timbre(&db, silent_id).unwrap(), None);
     }
 
     #[test]

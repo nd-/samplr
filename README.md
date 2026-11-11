@@ -151,6 +151,9 @@ samplr stands on the work of others:
   tempo and the pitch one without the other, through the
   [ssstretch](https://github.com/bmisiak/ssstretch) binding.
 - [ebur128](https://github.com/sdroege/ebur128) measures the loudness (EBU R128).
+- [RustFFT](https://github.com/ejmahler/RustFFT), through
+  [realfft](https://github.com/HEnquist/realfft), computes the spectra that sound alike samples
+  are compared on.
 - [SQLite](https://sqlite.org), through [rusqlite](https://github.com/rusqlite/rusqlite), keeps
   the library.
 - [notify](https://github.com/notify-rs/notify) follows the folders,

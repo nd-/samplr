@@ -26,11 +26,13 @@ pub struct Measures {
     /// The tempo it would have as a loop (see `pulse`); whether it is one is
     /// decided elsewhere.
     pub tempo: Option<u32>,
+    /// To find the samples that sound alike; `None` for silence.
+    pub timbre: Option<crate::timbre::Fingerprint>,
 }
 
 /// Decodes the whole file and summarises it into at most `POINTS` peaks,
-/// measuring its loudness and its pulse on the way (the same decoding serves
-/// all three).
+/// measuring its loudness, its pulse and its timbre on the way (the same
+/// decoding serves them all).
 /// Every channel goes into the same peaks: the drawing shows the loudest
 /// channel at each moment.
 pub fn compute(path: &Path) -> Result<(Vec<Peak>, Measures), Box<dyn Error>> {
@@ -45,6 +47,7 @@ pub fn compute(path: &Path) -> Result<(Vec<Peak>, Measures), Box<dyn Error>> {
     // Fed by blocks of frames rather than sample by sample.
     let mut block: Vec<f32> = Vec::with_capacity(4096 * channels);
     let mut onsets = crate::pulse::Onsets::new(decoder.sample_rate().get());
+    let mut timbre = crate::timbre::Timbre::new(decoder.sample_rate().get());
     let mut frame_sum = 0.0;
 
     // The file length is not always known in advance (some MP3s), so the
@@ -78,6 +81,7 @@ pub fn compute(path: &Path) -> Result<(Vec<Peak>, Measures), Box<dyn Error>> {
         // End of a frame: count it, and close the bucket once it is full.
         if index % channels == channels - 1 {
             onsets.push(frame_sum / channels as f32);
+            timbre.push(frame_sum / channels as f32);
             frame_sum = 0.0;
             frames_in_current += 1;
             if frames_in_current == frames_per_bucket {
@@ -101,6 +105,7 @@ pub fn compute(path: &Path) -> Result<(Vec<Peak>, Measures), Box<dyn Error>> {
         lufs,
         peak_db,
         tempo: onsets.tempo(),
+        timbre: timbre.finish(),
     };
     Ok((resample(&buckets, POINTS), measures))
 }
