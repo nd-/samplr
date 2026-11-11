@@ -24,9 +24,16 @@ Desktop audio sample manager for **macOS, Linux and Windows**: listen to, tag an
   `tests/credits.rs` keeps the README's Credits in step with the dependencies (both
   `Cargo.toml`, `tests/ui/package.json`): a dependency added goes into the Credits and the test's
   `CREDITED` table, or into its `UNCREDITED` list for a small helper.
-  Playwright's WebKit does not run on Fedora (its fallback Ubuntu build wants `libjpeg.so.8`,
-  `libjxl` 0.8 and `libbacktrace`): to test in WebKit, the official Playwright image under Podman,
-  or the real app through `tauri-driver` and WebKitGTK's WebKitWebDriver.
+  The real app: `tests/app/app.test.mjs` (`node --test`, no dependency: WebDriver over `fetch`),
+  through `tauri-driver` and WebKitGTK's `WebKitWebDriver` (the `webkitgtk6.0` package's drives
+  the app's `webkit2gtk4.1` too), Linux only, with a display; `run.sh` skips it otherwise. Each
+  test starts an app of its own (`tests/app/webdriver.mjs`): a throwaway library and `SAMPLR_DB`,
+  `XDG_CONFIG_HOME` and `XDG_DATA_HOME` in a temporary folder (window state, web storage), so
+  that the user's own are never touched; the volume set to zero before playing. The folder is
+  removed until it stays gone: the app, closing, writes its web storage again. For what Chromium
+  cannot show: the page's way to Rust and back, the audio thread, WebKitGTK's layout.
+  Playwright's own WebKit does not run on Fedora (its fallback Ubuntu build wants
+  `libjpeg.so.8`, `libjxl` 0.8 and `libbacktrace`).
 - Think Mac, Linux **and** Windows for every choice (paths, audio, drag and drop, packaging). Code
   for one system goes under `#[cfg(target_os = "…")]` for each of the three: `not(target_os =
   "macos")` is not Linux, it is Windows too.
