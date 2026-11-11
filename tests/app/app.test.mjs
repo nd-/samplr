@@ -5,6 +5,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { spawnSync } from "node:child_process";
 import { existsSync, rmSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { startApp, writeWav } from "./webdriver.mjs";
@@ -13,9 +14,10 @@ const ENTER = "";
 const row = (index) => `#samples tr[data-index="${index}"]`;
 const statusText = 'return document.getElementById("status").textContent';
 
-// Each test gets a fresh app, stopped and deleted afterwards.
-function withApp(name, body) {
-  test(name, async () => {
+// Each test gets a fresh app, stopped and deleted afterwards. `options`:
+// node:test's (`skip`).
+function withApp(name, body, options = {}) {
+  test(name, options, async () => {
     const app = await startApp();
     try {
       await body(app);
@@ -169,3 +171,29 @@ withApp("a file renamed from the row menu, on disk and in the database", async (
   ]);
   assert.deepEqual(await app.run(selectedNames), ["Kick dry.wav"]);
 });
+
+const ffmpegFound = spawnSync("ffmpeg", ["-version"]).status === 0;
+
+withApp(
+  "a sample converted by ffmpeg, the copy next to it with its tags",
+  async (app) => {
+    await app.click("#autoplay");
+    await app.click(`${row(1)} td:nth-child(2)`);
+    await app.type("#new-tags", `kick${ENTER}`);
+    await app.waitFor('return document.querySelectorAll("#tagbar .tag").length', 1);
+
+    await app.menu(`${row(1)} td:nth-child(2)`, "Convert file(s)");
+    await app.waitFor('return document.getElementById("convert").open', true);
+    await app.run(
+      'const format = document.getElementById("convert-format"); format.value = "flac"; format.dispatchEvent(new Event("change"));',
+    );
+    await app.click("#convert-go");
+    await app.waitFor(names, ["Bass Loop 120BPM Am.wav", "Kick 01.flac", "Kick 01.wav", "Snare 02.wav"]);
+
+    assert.ok(existsSync(join(app.samples, "Kick 01.flac")));
+    assert.ok(existsSync(join(app.samples, "Kick 01.wav")), "the original is kept");
+    const copy = app.cli("search", "#kick").find((sample) => sample.path.endsWith(".flac"));
+    assert.equal(copy.codec, "flac");
+  },
+  { skip: !ffmpegFound && "ffmpeg is not installed" },
+);
