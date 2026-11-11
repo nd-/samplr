@@ -373,7 +373,9 @@
       }
       return null;
     },
-    create_collection: ({ name }) => {
+    // Lowercase, as tags: "Drums" and "drums" are the same collection.
+    create_collection: ({ name: typed }) => {
+      const name = typed.trim().toLowerCase();
       if (collections.some((c) => c.name === name)) {
         throw `a collection named "${name}" already exists`;
       }

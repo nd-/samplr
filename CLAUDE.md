@@ -141,13 +141,14 @@ database, for experiments. Tables `files` (with `hidden`, see `remove-folder`, `
 `key`, `looped` and `sound_type` set by hand, `acid_beats`, `acid_root` and `acid_loop` from the
 file's ACID chunk, `codec` as symphonia names it: "pcm_s24le", "flac", "mp3"…), `tags`,
 `file_tags`, `folders` (the folders given to `scan`, followed by `watch`), `waveforms`,
-`collections` and `collection_files` (samples gathered by hand; a sample forgotten by the
+`collections` and `collection_files` (samples gathered by hand, names lowercase as tags' are,
+so that `Drums` and `drums` are one collection; a sample forgotten by the
 database leaves its collections, a hidden one stays in them and comes back with its folder),
 `colors` (the palette: name, `#rrggbb`, position; filled with 10 colours by the migration to
 version 4). `tags` and `collections` have a `color_id` (`ON DELETE SET NULL`: deleting a colour
 leaves them without colour). A tag deleted because no sample carries it any more loses its
 colour. Schema changes go through `db::migrate`: SQLite keeps the schema version (`PRAGMA
-user_version`, 12 so far), each step runs once, under `BEGIN IMMEDIATE` so that the app and a command opening the database
+user_version`, 13 so far), each step runs once, under `BEGIN IMMEDIATE` so that the app and a command opening the database
 together do not both run it. A new database goes through every step too (the `CREATE TABLE`s are
 version 0): add a column with a migration step, not in the `CREATE TABLE`, and raise
 `SCHEMA_VERSION` with it: an up-to-date database is opened without taking the write lock,

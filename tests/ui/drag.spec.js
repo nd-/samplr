@@ -89,7 +89,7 @@ test("files dropped on a collection join it, those from elsewhere left out", asy
   const item = await createCollection(page, "Set");
   await dragOver(page, "drop", item, ["/lib/Drums/Kick 1.wav", "/home/me/Desktop/new.wav"]);
   await expect(page.locator("#status")).toHaveText(
-    "1 sample(s) added to Set (1 not in the library, left out).",
+    "1 sample(s) added to set (1 not in the library, left out).",
   );
   await expect(item.locator(".count")).toHaveText("1");
   await expect(item).not.toHaveClass(/drop-target/);

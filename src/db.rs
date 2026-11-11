@@ -77,22 +77,22 @@ pub(crate) fn set_up(db: &Connection) -> Result<(), Box<dyn Error>> {
             peaks    BLOB NOT NULL
         );",
     )?;
-    migrate(db)?;
 
     // SQLite's `lower` only knows ASCII: "Été" stays "Été", and a search for
     // "été" missed it. The search compares through this one, Rust's
-    // lowercase, which knows every alphabet (tags are stored with it too).
+    // lowercase, which knows every alphabet (tags and collection names are
+    // stored with it too). Registered before `migrate`, which uses it.
     db.create_scalar_function(
         "unicode_lower",
         1,
         FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
         |context| Ok(context.get::<String>(0)?.to_lowercase()),
     )?;
-    Ok(())
+    migrate(db)
 }
 
 /// The schema version `migrate` brings a database to: the last step's.
-const SCHEMA_VERSION: i64 = 12;
+const SCHEMA_VERSION: i64 = 13;
 
 /// What a waveform's row holds, in `waveforms.measured`: 1 the loudness, 2
 /// the tempo detected too. A row of an older version is stale: computed
@@ -239,6 +239,24 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn Error>> {
         db.execute_batch(
             "ALTER TABLE files ADD COLUMN bpm_origin TEXT;
              PRAGMA user_version = 12;",
+        )?;
+    }
+    if version < 13 {
+        // Collection names lowercase, as tags: "Drums" and "drums" are the
+        // same collection. Two that were apart are merged first, the oldest
+        // kept with its colour, so that lowercasing breaks no UNIQUE.
+        db.execute_batch(
+            "INSERT OR IGNORE INTO collection_files (collection_id, file_id)
+                 SELECT kept.id, cf.file_id
+                 FROM collection_files cf
+                 JOIN collections c ON c.id = cf.collection_id
+                 JOIN (SELECT MIN(id) AS id, unicode_lower(name) AS name
+                       FROM collections GROUP BY unicode_lower(name)) kept
+                   ON kept.name = unicode_lower(c.name);
+             DELETE FROM collections
+                 WHERE id NOT IN (SELECT MIN(id) FROM collections GROUP BY unicode_lower(name));
+             UPDATE collections SET name = unicode_lower(name);
+             PRAGMA user_version = 13;",
         )?;
     }
     db.execute_batch("COMMIT")?;
@@ -786,9 +804,10 @@ pub fn collections(db: &Connection) -> Result<Vec<Collection>, Box<dyn Error>> {
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-/// Creates an empty collection and returns its `id`.
+/// Creates an empty collection, its name lowercase as a tag's, and returns
+/// its `id`.
 pub fn create_collection(db: &Connection, name: &str) -> Result<i64, Box<dyn Error>> {
-    let name = name.trim();
+    let name = name.trim().to_lowercase();
     if name.is_empty() {
         return Err("a collection needs a name".into());
     }
@@ -797,7 +816,7 @@ pub fn create_collection(db: &Connection, name: &str) -> Result<i64, Box<dyn Err
             "INSERT INTO collections (name) VALUES (?1)
              ON CONFLICT (name) DO NOTHING
              RETURNING id",
-            [name],
+            [&name],
             |row| row.get(0),
         )
         .optional()?;
@@ -1598,16 +1617,41 @@ mod tests {
     fn collection_names() {
         let db = new_db();
         create_collection(&db, "  drums ").unwrap();
-        create_collection(&db, "Ambient").unwrap();
+        create_collection(&db, "Été Ambient").unwrap();
         assert!(create_collection(&db, "   ").is_err());
-        assert!(create_collection(&db, "drums").is_err());
-        // Sorted by name, case ignored.
+        // Lowercase, as tags: the same collection whatever the case.
+        assert!(create_collection(&db, "Drums").is_err());
         let names: Vec<String> = collections(&db)
             .unwrap()
             .into_iter()
             .map(|c| c.name)
             .collect();
-        assert_eq!(names, ["Ambient", "drums"]);
+        assert_eq!(names, ["drums", "été ambient"]);
+    }
+
+    #[test]
+    fn collections_differing_by_case_are_merged_by_the_migration() {
+        let db = new_db();
+        let a = add(&db, "/lib/a.wav");
+        let b = add(&db, "/lib/b.wav");
+        let color = colors(&db).unwrap()[0].id;
+        // Two collections a samplr before version 13 kept apart.
+        db.execute_batch(&format!(
+            "INSERT INTO collections (id, name, color_id) VALUES (1, 'Drums', {color}), (2, 'drums', NULL);
+             INSERT INTO collection_files VALUES (1, {a}), (2, {a}), (2, {b});
+             PRAGMA user_version = 12;"
+        ))
+        .unwrap();
+        set_up(&db).unwrap();
+
+        let merged = collections(&db).unwrap();
+        assert_eq!(merged.len(), 1);
+        let kept = &merged[0];
+        assert_eq!(
+            (kept.id, kept.name.as_str(), kept.color_id),
+            (1, "drums", Some(color))
+        );
+        assert_eq!(kept.samples, 2);
     }
 
     #[test]

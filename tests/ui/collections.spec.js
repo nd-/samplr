@@ -23,17 +23,21 @@ async function select(page, first, last) {
 
 test("a collection is created empty, its name box emptied", async ({ page }) => {
   await create(page, "  Heavy kicks ");
-  await expect(item(page, "Heavy kicks").locator(".count")).toHaveText("0");
+  // Lowercase, as tags.
+  await expect(item(page, "heavy kicks").locator(".name")).toHaveText("heavy kicks");
+  await expect(item(page, "heavy kicks").locator(".count")).toHaveText("0");
   await expect(page.locator("#collection-name")).toHaveValue("");
   expect((await calls(page, "create_collection")).at(-1).name).toBe("Heavy kicks");
 });
 
-test("a name already taken is refused, and kept in the box", async ({ page }) => {
+test("a name already taken, whatever its case, is refused and kept in the box", async ({
+  page,
+}) => {
   await create(page, "Set");
-  await page.locator("#collection-name").fill("Set");
+  await page.locator("#collection-name").fill("SET");
   await page.locator("#collection-name").press("Enter");
   await expect(page.locator("#error-text")).toContainText("already exists");
-  await expect(page.locator("#collection-name")).toHaveValue("Set");
+  await expect(page.locator("#collection-name")).toHaveValue("SET");
   await page.locator("#error-close").click();
   await expect(list(page).locator("li", { hasText: "Set" })).toHaveCount(1);
 });
@@ -46,7 +50,7 @@ test("the selection added from the row menu, which stays open", async ({ page })
 
   await expect(item(page, "Set").locator(".count")).toHaveText("3");
   for (const index of [0, 1, 2]) {
-    await expect(row(page, index).locator("td.collections")).toHaveText("Set");
+    await expect(row(page, index).locator("td.collections")).toHaveText("set");
   }
   // Still open, the collection now marked as holding them, with a × to take
   // them out.
@@ -63,7 +67,7 @@ test("a new collection named in the row menu gets the sample", async ({ page }) 
   await box.fill("Snares to check");
   await box.press("Enter");
   await expect(item(page, "Snares to check").locator(".count")).toHaveText("1");
-  await expect(row(page, 4).locator("td.collections")).toHaveText("Snares to check");
+  await expect(row(page, 4).locator("td.collections")).toHaveText("snares to check");
   // Esc closes the menu.
   await page.keyboard.press("Escape");
   await expect(menu(page)).toBeHidden();
@@ -140,11 +144,11 @@ test("deleting a collection is confirmed, its samples stay", async ({ page }) =>
   await expect(row(page, 0).locator("td.collections")).toHaveText("");
 });
 
-test("collections are listed by name, case ignored", async ({ page }) => {
+test("collection names are lowercase, as tags, listed by name", async ({ page }) => {
   for (const label of ["drums", "Ambient", "bass"]) await create(page, label);
   await expect(list(page).locator("li .name")).toHaveText([
     "All samples",
-    "Ambient",
+    "ambient",
     "bass",
     "drums",
   ]);
