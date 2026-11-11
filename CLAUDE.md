@@ -43,7 +43,10 @@ tag and organise samples (for musicians, alongside a DAW). Windows is not built 
     `libbacktrace`).
 - Documentation: `README.md` for users (what samplr does, installing, running, credits, licence),
   `CONTRIBUTING.md` for contributors (proposing a change, code rules, commit messages, the tests
-  and what they cover); keep both in step with a change they describe, in English. Licence: MIT
+  and what they cover); keep both in step with a change they describe, in English.
+  `CHANGELOG.md` (Keep a Changelog, in English): what users can see change, under
+  `## [Unreleased]` until a version is released; it is **committed**, in the same commit as the
+  change it describes, and no version number is raised without asking. Licence: MIT
   or Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`, "The samplr contributors"; `license` in both
   `Cargo.toml`), contributions under the same terms. `docs/screenshot.png`, at the top of the
   README: the real app driven through `tauri-driver` (as `tests/app`), on a demo library of
