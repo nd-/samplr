@@ -2,43 +2,45 @@
 
 ## The project
 
-Desktop audio sample manager for **macOS, Linux and Windows**: listen to, tag and organise samples
-(for musicians, alongside a DAW). Windows is not built nor tested yet (see "Known limitations").
+Desktop audio sample manager for **Linux and macOS** (and Windows, maybe, someday): listen to,
+tag and organise samples (for musicians, alongside a DAW). Windows is not built nor tested yet
+(see "Known limitations").
 
 ## How we work
 
 - Move forward in **small steps that compile and run**: each step must be testable with
-  `cargo run`.  
+  `cargo run`.
 - **Everything in the repository is in English**: identifiers, comments, user-facing messages,
   command names, documentation and commit messages.
 - Keep the code simple and readable rather than advanced-idiomatic. No premature abstraction.
 - When a compiler error is pasted, explain it before fixing it.
 - Before handing back: `cargo build`, `cargo clippy` and `cargo fmt` without warnings.
-- Tests: all of them with `./tests/run.sh` (Rust, then the interface; installs the interface's
-  test tools on a fresh clone). Separately: `cargo test --workspace` (unit tests, and
-  `tests/cli.rs`, which runs the `samplr` binary on generated WAV files and a throwaway
-  `SAMPLR_DB`). Interface: `cd tests/ui && npm install && npx playwright test`, in Chromium,
-  the page opened from `ui/index.html` with the Tauri API faked by `tests/ui/fake-tauri.js` (a
-  library of 50 samples; `window.__calls` records the commands).
-  Node is for these tests only: the interface itself still has no build tool.
-  `tests/credits.rs` keeps the README's Credits in step with the dependencies (both
-  `Cargo.toml`, `tests/ui/package.json`): a dependency added goes into the Credits and the test's
-  `CREDITED` table, or into its `UNCREDITED` list for a small helper.
-  The real app: `tests/app/app.test.mjs` (`node --test`, no dependency: WebDriver over `fetch`),
-  through `tauri-driver` and WebKitGTK's `WebKitWebDriver` (the `webkitgtk6.0` package's drives
-  the app's `webkit2gtk4.1` too), Linux only, with a display; `run.sh` skips it otherwise. Each
-  test starts an app of its own (`tests/app/webdriver.mjs`): a throwaway library and `SAMPLR_DB`,
-  `XDG_CONFIG_HOME` and `XDG_DATA_HOME` in a temporary folder (window state, web storage), so
-  that the user's own are never touched; the volume set to zero before playing. The folder is
-  removed until it stays gone: the app, closing, writes its web storage again. For what Chromium
-  cannot show: the page's way to Rust and back, the audio thread, the folder watcher, files
-  renamed and converted, the background pass, WebKitGTK's layout and canvas colours, what is
-  remembered at the next launch (`restart()`). Out of WebDriver's reach: native drag and drop,
-  the system's dialogs, and the window size `tauri-plugin-window-state` keeps (it saves when Tauri
-  closes the window; WebDriver's own close goes round Tauri, and the page may not close it
-  without `core:window:allow-close`).
-  Playwright's own WebKit does not run on Fedora (its fallback Ubuntu build wants
-  `libjpeg.so.8`, `libjxl` 0.8 and `libbacktrace`).
+- Tests: all of them with `./tests/run.sh` (Rust, then the interface, then the real app where it can
+  run; installs the interface's test tools on a fresh clone). Each suite alone:
+  - Rust, `cargo test --workspace`: the unit tests; `tests/cli.rs`, which runs the `samplr`
+    binary on generated WAV files and a throwaway `SAMPLR_DB`; `tests/credits.rs`, which keeps the
+    README's Credits in step with the dependencies (both `Cargo.toml`, `tests/ui/package.json`): a
+    dependency added goes into the Credits and the test's `CREDITED` table, or into its
+    `UNCREDITED` list for a small helper.
+  - Interface, `cd tests/ui && npm install && npx playwright test`: in Chromium, the page opened
+    from `ui/index.html` with the Tauri API faked by `tests/ui/fake-tauri.js` (a library of 50
+    samples; `window.__calls` records the commands). Node is for these tests only: the interface
+    itself still has no build tool.
+  - The real app, `node --test tests/app/app.test.mjs` (no dependency: WebDriver over `fetch`):
+    through `tauri-driver` and WebKitGTK's `WebKitWebDriver` (the `webkitgtk6.0` package's drives
+    the app's `webkit2gtk4.1` too), Linux only, with a display; `run.sh` skips it otherwise. Each
+    test starts an app of its own (`tests/app/webdriver.mjs`): a throwaway library and
+    `SAMPLR_DB`, `XDG_CONFIG_HOME` and `XDG_DATA_HOME` in a temporary folder (window state, web
+    storage), so that the user's own are never touched; the volume set to zero before playing.
+    The folder is removed until it stays gone: the app, closing, writes its web storage again.
+    For what Chromium cannot show: the page's way to Rust and back, the audio thread, the folder
+    watcher, files renamed and converted, the background pass, WebKitGTK's layout and canvas
+    colours, what is remembered at the next launch (`restart()`). Out of WebDriver's reach:
+    native drag and drop, the system's dialogs, and the window size `tauri-plugin-window-state`
+    keeps (it saves when Tauri closes the window; WebDriver's own close goes round Tauri, and the
+    page may not close it without `core:window:allow-close`). Playwright's own WebKit does not
+    run on Fedora (its fallback Ubuntu build wants `libjpeg.so.8`, `libjxl` 0.8 and
+    `libbacktrace`).
 - Think Mac, Linux **and** Windows for every choice (paths, audio, drag and drop, packaging). Code
   for one system goes under `#[cfg(target_os = "…")]` for each of the three: `not(target_os =
   "macos")` is not Linux, it is Windows too.
@@ -64,7 +66,8 @@ Desktop audio sample manager for **macOS, Linux and Windows**: listen to, tag an
   where FSEvents sends them separately.
 - `clap` 4 (feature `derive`): subcommands are described by the `enum Command` in `main.rs`;
   the `///` comments become the `samplr help` output.
-- `trash` 5: "Move file(s) to the trash" (freedesktop trash on Linux, the Finder's on Mac).
+- `trash` 5: "Move file(s) to the trash" (freedesktop trash on Linux, the Finder's on Mac, the
+  Recycle Bin on Windows).
 - `ebur128` 0.1: a sample's loudness (LUFS, peak), measured with its waveform.
 - rusqlite's `functions` feature: `unicode_lower`, the search's case folding (see `samplr search`).
 - Interface (`src-tauri/Cargo.toml`): `tauri` 2, `tauri-plugin-drag` (native drag into a DAW,
@@ -85,14 +88,14 @@ Desktop audio sample manager for **macOS, Linux and Windows**: listen to, tag an
 
 Linux system dependencies: `build-essential pkg-config libasound2-dev` (ALSA).
 
-On the Mac, the project is opened from the Linux machine's SMB share
-(`/Volumes/nico/Sites/projets/sample browser`). The share does not support the file locking
-Cargo needs ("could not create session directory lock file"): the Mac's `~/.cargo/config.toml`
-therefore sends the build to `/Users/nico/cargo-target` (`build.target-dir`), which also avoids
-mixing macOS and Linux binaries in `target/`. Do not put this setting in the project's
-`.cargo/config.toml`: the path does not exist on Linux.
+On the Mac, the project is opened from the Linux machine's SMB share (mounted under
+`/Volumes/`). The share does not support the file locking Cargo needs ("could not create session
+directory lock file"): the Mac's `~/.cargo/config.toml` therefore sends the build to a folder of
+the Mac's own disk (`build.target-dir`, an absolute path such as `/Users/<you>/cargo-target`),
+which also avoids mixing macOS and Linux binaries in `target/`. Do not put this setting in the
+project's `.cargo/config.toml`: the path does not exist on Linux.
 
-## Current state (step 6 done)
+## Current state (steps 1 to 7, 9 and 10 done)
 
 `src/main.rs` holds the commands, `src/lib.rs` the shared code (file reading and indexing),
 `src/db.rs` the database access, `src/waveform.rs` the waveform computation and drawing,
@@ -143,7 +146,7 @@ declare (an interface test fails on any script error):
   shared by both): each word must be in the path or in one of the tags (case-insensitive, accents
   included, `_` taken literally), `#tag` an exact tag (quoted in a shell, where `#` starts a
   comment), and the filters `bpm:`, `key:`, `loop:`, `type:`. SQLite's `lower` only knows ASCII:
-  the search compares through `unicode_lower`, Rust's `to_lowercase` registered in `db::open`
+  the search compares through `unicode_lower`, Rust's `to_lowercase` registered in `db::set_up`
   (rusqlite feature `functions`).
 - `--json` (any command, before or after it, `global` in clap): the result as one JSON document
   on stdout, for scripts. `list` and `search`: the samples as the interface gets them
@@ -161,43 +164,41 @@ declare (an interface test fails on any script error):
   on a big library.
 
 Database: `samplr.db` in the system data folder (`~/.local/share/samplr` on Linux,
-`~/Library/Application Support/samplr` on Mac). The `SAMPLR_DB` variable points to another
-database, for experiments. Tables `files` (with `hidden`, see `remove-folder`, `favorite`, `bpm`,
-`key`, `looped` and `sound_type` set by hand, `acid_beats`, `acid_root` and `acid_loop` from the
-file's ACID chunk, `codec` as symphonia names it: "pcm_s24le", "flac", "mp3"…), `tags`,
-`file_tags`, `folders` (the folders given to `scan`, followed by `watch`), `waveforms`,
-`collections` and `collection_files` (samples gathered by hand, names lowercase as tags' are,
-so that `Drums` and `drums` are one collection; a sample forgotten by the
-database leaves its collections, a hidden one stays in them and comes back with its folder),
-`colors` (the palette: name, `#rrggbb`, position; filled with 10 colours by the migration to
-version 4). `tags` and `collections` have a `color_id` (`ON DELETE SET NULL`: deleting a colour
-leaves them without colour). A tag deleted because no sample carries it any more loses its
-colour. Schema changes go through `db::migrate`: SQLite keeps the schema version (`PRAGMA
-user_version`, 13 so far), each step runs once, under `BEGIN IMMEDIATE` so that the app and a command opening the database
-together do not both run it. A new database goes through every step too (the `CREATE TABLE`s are
-version 0): add a column with a migration step, not in the `CREATE TABLE`, and raise
-`SCHEMA_VERSION` with it: an up-to-date database is opened without taking the write lock,
-otherwise every command, even a search, waited behind any process writing and failed after 5 s
-("database is locked"). For the same reason `index` (scan, startup catch-up, a folder appearing)
-reads the files outside any transaction and saves them by batches of 200, each in a short
-transaction: the lock is never held for the whole walk, which can take minutes on a slow disk or a
-network share. A waveform is 1024 (min, max) peaks over all channels, stored as signed bytes (2
-KB), with the file's size and modification date: if either has changed, the waveform is stale and
-computed again. The waveform's row also holds the sample's loudness (`lufs`, `peak_db`) and the tempo
-detected from its sound (`detected_bpm`, see `pulse` below), with `measured` = 2 (`MEASURED` in
-`db.rs`), measured from the sound itself during the same decoding (`waveform::compute`,
-`ebur128` crate: integrated loudness per EBU R128, the broadcast standard, and the sample peak;
-checked against ffmpeg's `ebur128` filter: same values). No LUFS under 0.4 s, the standard's block
-(2865 of the 3303 samples of the Linux library have one, all a peak). Waveforms saved by an
-older version (`measured` below `MEASURED`) are stale: the background thread measures the whole
-library again once (276 s in a debug build for the loudness, 372 s with the tempo too, 15 MB at
-most), telling the page every 5 s so that the columns fill in; the loudness of an older row is
-shown meanwhile. Peaks
-are built on the fly by merging buckets two by two, so memory use does not depend on the file
-length, which is not always known in advance (some MP3s). Tags are stored lowercase, without
-spaces; a tag no longer used by any sample is deleted. **Unplugged disk**: if the scanned folder
-itself has disappeared, nothing is removed from the database, at startup or live. Otherwise
-unplugging an external disk would erase the tags of all its samples.
+`~/Library/Application Support/samplr` on Mac). The `SAMPLR_DB` variable points to another database,
+for experiments. Tables `files` (with `hidden`, see `remove-folder`, `favorite`, `bpm`, `key`,
+`looped` and `sound_type` set by hand, `acid_beats`, `acid_root` and `acid_loop` from the file's
+ACID chunk, `codec` as symphonia names it: "pcm_s24le", "flac", "mp3"…), `tags`, `file_tags`,
+`folders` (the folders given to `scan`, followed by `watch`), `waveforms`, `collections` and
+`collection_files` (samples gathered by hand, names lowercase as tags' are, so that `Drums` and
+`drums` are one collection; a sample forgotten by the database leaves its collections, a hidden one
+stays in them and comes back with its folder), `colors` (the palette: name, `#rrggbb`, position;
+filled with 10 colours by the migration to version 4). `tags` and `collections` have a `color_id`
+(`ON DELETE SET NULL`: deleting a colour leaves them without colour). A tag deleted because no
+sample carries it any more loses its colour. Schema changes go through `db::migrate`: SQLite keeps
+the schema version (`PRAGMA user_version`, 13 so far), each step runs once, under `BEGIN IMMEDIATE`
+so that the app and a command opening the database together do not both run it. A new database goes
+through every step too (the `CREATE TABLE`s are version 0): add a column with a migration step, not
+in the `CREATE TABLE`, and raise `SCHEMA_VERSION` with it: an up-to-date database is opened without
+taking the write lock, otherwise every command, even a search, waited behind any process writing and
+failed after 5 s ("database is locked"). For the same reason `index` (scan, startup catch-up, a
+folder appearing) reads the files outside any transaction and saves them by batches of 200, each in
+a short transaction: the lock is never held for the whole walk, which can take minutes on a slow
+disk or a network share. A waveform is 1024 (min, max) peaks over all channels, stored as signed
+bytes (2 KB), with the file's size and modification date: if either has changed, the waveform is
+stale and computed again. The waveform's row also holds the sample's loudness (`lufs`, `peak_db`)
+and the tempo detected from its sound (`detected_bpm`, see `pulse` below), with `measured` = 2
+(`MEASURED` in `db.rs`), measured from the sound itself during the same decoding
+(`waveform::compute`, `ebur128` crate: integrated loudness per EBU R128, the broadcast standard, and
+the sample peak; checked against ffmpeg's `ebur128` filter: same values). No LUFS under 0.4 s, the
+standard's block (2865 of the 3303 samples of the Linux library have one, all a peak). Waveforms
+saved by an older version (`measured` below `MEASURED`) are stale: the background thread measures
+the whole library again once (276 s in a debug build for the loudness, 372 s with the tempo too, 15
+MB at most), telling the page every 5 s so that the columns fill in; the loudness of an older row is
+shown meanwhile. Peaks are built on the fly by merging buckets two by two, so memory use does not
+depend on the file length, which is not always known in advance (some MP3s). Tags are stored
+lowercase, without spaces; a tag no longer used by any sample is deleted. **Unplugged disk**: if the
+scanned folder itself has disappeared, nothing is removed from the database, at startup or live.
+Otherwise unplugging an external disk would erase the tags of all its samples.
 
 Scanning and playback have been tested on Linux and on the Mac (files read from the SMB share).
 
@@ -245,8 +246,8 @@ Audio pitfalls met so far:
    the interface's Folders window.
 6. ✅ Waveform computation and cache in the database. The interface computes the missing ones in
    the background; `samplr watch` does not.
-7. ⏳ Graphical interface with **Tauri** (Rust backend + web interface), keyboard preview. See
-   "Step 7 in progress" below.
+7. ✅ Graphical interface with **Tauri** (Rust backend + web interface), keyboard preview. See
+   "The interface (step 7)" below.
 8. ⏳ Drag and drop of samples into the DAW: written with `tauri-plugin-drag` (native drag and
    drop on Mac, Linux and Windows). Tested on Linux into Nautilus, a terminal and Bitwig; to
    test on the Mac. **Linux pitfalls**: the `drag` crate (under the plugin) is patched in
@@ -280,7 +281,7 @@ Audio pitfalls met so far:
 11. Packaging: embed ffmpeg, signed and notarised `.app` / `.dmg` on Mac, AppImage or `.deb`
     on Linux, an installer on Windows (`.msi` or NSIS `.exe`, both built by Tauri).
 
-## Step 7 in progress (7a to 7d done, tested on Linux)
+## The interface (step 7)
 
 - Tauri 2 stable (2.12.x at the time of writing; 3.x is only in alpha).
 - Fedora packages Tauri needs (installed on the Linux machine):
@@ -293,7 +294,7 @@ Audio pitfalls met so far:
 - Preview is played on the Rust side with rodio, not by the web view: every format symphonia
   reads is supported (WebKitGTK lacks some, e.g. AIFF), and an output kept open for the whole
   session avoids the short-sample problems listed above.
-- Planned sub-steps:
+- Sub-steps, all done:
     - 7a: library + CLI + workspace, then a first Tauri window.
     - 7b: sample list, search, keyboard navigation, preview played by Rust.
     - 7c: waveform display from the peaks cached in the database.
@@ -337,32 +338,32 @@ Audio pitfalls met so far:
   `~/.config/fr.dataetic.samplr/.window-state.json` on Linux, the system's config folder on Mac);
   it also copes with a screen unplugged meanwhile.
 - Preview controls, in the playback bar at the bottom of the window (`#player`, above the status
-  line): the play / pause button (⏸ while a sound plays, as Space), the selected sample's name
-  and, on one line, its tempo, key, loop, length and loudness (`renderPlayer`, called by
-  `renderInfo`), its waveform, then Stop (same as Esc), Space (`playOrPause`: a loop, or any
-  sample played with Loop on, pauses and resumes where it was, `pause` command →
-  `AudioRequest::Pause`, `Player::pause` / `play`, the playhead frozen meanwhile; a one-shot
-  played once plays again from the start, like a pad; nothing playing, the selected sample
-  plays; it works wherever the focus is but in a text box, `isTextEntry`: with the focus left on
-  a slider, a checkbox or a button just used, it ticked the box or pressed the button again), L (switches the Play loop box, as a click on it would), the Loop and
-  Autoplay checkboxes and the volume slider, the two checkboxes on one line and the slider under
-  them (`#player-options`) in the header. Autoplay off: a click on a row selects it without
-  playing (to tag or drag it in silence), and stops the sound playing if it was another sample's;
-  the arrow keys, Enter and Play still play; remembered in `localStorage` (`autoplay`). "Play
-  loop" checked: every sample played loops, until the box is unchecked (Stop does not change it);
-  remembered in `localStorage` (`loop`). A sound cannot change mode while playing: toggling the
-  box starts the selected sample again in the new mode, or stops a sound no longer selected. A
-  loop uses rodio's `build_looped`, which seeks back to the start of the file at each end instead
-  of keeping the sound in memory; the audio thread receives either decoder as a `Box<dyn Source +
-  Send>`. The slider's position is squared before reaching rodio (`set_volume` command, 0.0 to
-  1.0), so that it acts evenly over its whole travel (a linear slider barely changes the loudness
-  in its top half); it is remembered in the web view's `localStorage`. The audio thread receives
+  line): the play / pause button (⏸ while a sound plays, as Space), the selected sample's name and,
+  on one line, its tempo, key, loop, length and loudness (`renderPlayer`, called by `renderInfo`),
+  its waveform, then Stop (same as Esc), Space (`playOrPause`: a loop, or any sample played with
+  Loop on, pauses and resumes where it was, `pause` command → `AudioRequest::Pause`, `Player::pause`
+  / `play`, the playhead frozen meanwhile; a one-shot played once plays again from the start, like a
+  pad; nothing playing, the selected sample plays; it works wherever the focus is but in a text box,
+  `isTextEntry`: with the focus left on a slider, a checkbox or a button just used, it ticked the
+  box or pressed the button again), L (switches the Play loop box, as a click on it would), the Loop
+  and Autoplay checkboxes and the volume slider, the two checkboxes on one line and the slider under
+  them (`#player-options`) at the right of the playback bar. Autoplay off: a click on a row selects
+  it without playing (to tag or drag it in silence), and stops the sound playing if it was another
+  sample's; the arrow keys, Enter and Play still play; remembered in `localStorage` (`autoplay`).
+  "Play loop" checked: every sample played loops, until the box is unchecked (Stop does not change
+  it); remembered in `localStorage` (`loop`). A sound cannot change mode while playing: toggling the
+  box starts the selected sample again in the new mode, or stops a sound no longer selected. A loop
+  uses rodio's `build_looped`, which seeks back to the start of the file at each end instead of
+  keeping the sound in memory; the audio thread receives either decoder as a `Box<dyn Source +
+  Send>`. The slider's position is squared before reaching rodio (`set_volume` command, 0.0 to 1.0),
+  so that it acts evenly over its whole travel (a linear slider barely changes the loudness in its
+  top half); it is remembered in the web view's `localStorage`. The audio thread receives
   `AudioRequest::Play`, `Stop` or `Volume`, and applies the volume to the sound playing and to the
-  next ones. It waits for requests at most 100 ms at a time, to notice when the sound has played
-  to its end: it then sends the page a `playback-ended` event with the number the page gave to
-  that sound (`play` command's `id`), and the page ignores the end of a sound already replaced by
-  another one. The audio thread is started in Tauri's `setup`, to get the `AppHandle` it sends
-  events with. The header keeps the search box, Favorites, Type, + Folder, Folders… and Settings…
+  next ones. It waits for requests at most 100 ms at a time, to notice when the sound has played to
+  its end: it then sends the page a `playback-ended` event with the number the page gave to that
+  sound (`play` command's `id`), and the page ignores the end of a sound already replaced by another
+  one. The audio thread is started in Tauri's `setup`, to get the `AppHandle` it sends events with.
+  The header keeps the search box, Favorites, Type, + Folder, Folders… and Settings…
 - Playhead: a line over the waveform (a `<div>` moved in CSS, not a redraw of the canvas). The
   audio thread sends a `playback-position` event every 100 ms; in between, the page moves the line
   on the clock (`requestAnimationFrame`), times the speed. The position is in seconds of the file:
@@ -370,28 +371,27 @@ Audio pitfalls met so far:
   (`Player::get_pos` counts the time played, wrong once the speed changes during a sound). In loop
   mode the position is taken modulo the sample's length. No line when the length is unknown (some
   MP3s).
-- Pitch and tempo (`#pitch-options` in the playback bar): Pitch in semitones (-24 to +24) and
-  Fine in cents (±50), a double-click on a slider brings it back to 0, its value shown in
-  `--signal` when not 0; BPM, the tempo the samples whose tempo is known are played at (empty:
-  their own; a sample without a tempo is left alone); Tape. Off, pitch and tempo change one
-  without the other through Signalsmith Stretch (`src-tauri/src/stretch.rs`, unit-tested): a
-  rodio source around the decoder, reading `Shape` (tempo factor and semitones, atomics shared
-  with the audio thread) at each block of 512 frames, so that a change is heard at once; the
-  sound is still read as it plays. A sound starts untouched, and the stretcher only comes in
-  when the settings leave their neutral values, then stays for that sound; it is started with
-  its input latency's worth of sound (`seek`) and its output latency dropped, as Signalsmith's
-  own `exact` does, so that the sound starts on time instead of after a silence. It reports a
-  span per block (`current_span_len`): rodio reads a source's sample rate again only at a span's
-  start, and a span to the end made it ignore any later change of the player's speed (Tape turned
-  on during a stretched sound; `player_speed_changes_while_stretched` plays it through a real
-  `Player`). Tape on, both
-  change together as a varispeed (`Player::set_speed`, lighter, and sometimes the sound
-  wanted): speed = tempo factor × 2^(semitones / 12). The page works out the shape for each
-  sound (`shapeFor`, sent with `play` so that it starts already shaped, and by `set_playback`
-  on a change), and moves the playhead at speed × tempo. A seek is divided by the player's
-  speed, its seek being in time played. The bar shows the tempo and key heard, the file's own
-  between brackets ("100 BPM (120) · Bm (Am)"). Only Tape is remembered (`localStorage`): a
-  library heard out of tune or out of tempo at the next start would mislead.
+- Pitch and tempo (`#pitch-options` in the playback bar): Pitch in semitones (-24 to +24) and Fine
+  in cents (±50), a double-click on a slider brings it back to 0, its value shown in `--signal` when
+  not 0; BPM, the tempo the samples whose tempo is known are played at (empty: their own; a sample
+  without a tempo is left alone); Tape. Off, pitch and tempo change one without the other through
+  Signalsmith Stretch (`src-tauri/src/stretch.rs`, unit-tested): a rodio source around the decoder,
+  reading `Shape` (tempo factor and semitones, atomics shared with the audio thread) at each block
+  of 512 frames, so that a change is heard at once; the sound is still read as it plays. A sound
+  starts untouched, and the stretcher only comes in when the settings leave their neutral values,
+  then stays for that sound; it is started with its input latency's worth of sound (`seek`) and its
+  output latency dropped, as Signalsmith's own `exact` does, so that the sound starts on time
+  instead of after a silence. It reports a span per block (`current_span_len`): rodio reads a
+  source's sample rate again only at a span's start, and a span to the end made it ignore any later
+  change of the player's speed (Tape turned on during a stretched sound;
+  `player_speed_changes_while_stretched` plays it through a real `Player`). Tape on, both change
+  together as a varispeed (`Player::set_speed`, lighter, and sometimes the sound wanted): speed =
+  tempo factor × 2^(semitones / 12). The page works out the shape for each sound (`shapeFor`, sent
+  with `play` so that it starts already shaped, and by `set_playback` on a change), and moves the
+  playhead at speed × tempo. A seek is divided by the player's speed, its seek being in time played.
+  The bar shows the tempo and key heard, the file's own between brackets ("100 BPM (120) · Bm
+  (Am)"). Only Tape is remembered (`localStorage`): a library heard out of tune or out of tempo at
+  the next start would mislead.
 - A click on the waveform plays the sample from that point (`play` command's `start`, applied
   with `Player::try_seek` right after `append`), in the current mode (once or loop). Ignored
   when the length is unknown.
@@ -464,32 +464,32 @@ Audio pitfalls met so far:
   names and colours from its `collections` list, so a colour change needs no new search. After
   adding to, removing from or deleting a collection, the list is refreshed
   (`refresh({ stopIfGone: false })`, selection and scroll kept).
-- Sorting: a click on a column header (★, Name, Length, BPM, Key, Collections, Tags, Folder) sorts
-  the list, a second click reverses it (▲/▼ on the header). Done in the page (`sortSamples`), kept
-  across searches and refreshes; with no column chosen, the database's order (by path). Natural
-  order, case ignored (`Intl.Collator` with `numeric`): "kick 2" before "kick 10". Missing values
-  (unknown length, no tag) stay last whichever the direction; equal values fall back to the path.
+- Sorting: a click on any column header sorts the list, a second click reverses it (▲/▼ on the
+  header). Done in the page (`sortSamples`), kept across searches and refreshes; with no column
+  chosen, the database's order (by path). Natural order, case ignored (`Intl.Collator` with
+  `numeric`): "kick 2" before "kick 10". Missing values (unknown length, no tag) stay last whichever
+  the direction; equal values fall back to the path.
 - Column widths: the table has a fixed layout (`table-layout: fixed`), its widths come from the
-  `<col>` elements. Columns in this order: ★, Name, Length, BPM, Key, Loop, LUFS, Ch (channels),
-  Codec, Collections, Tags, Folder (last: the longest and least read), then the × in a collection.
-  A handle on the right edge of every header but Folder changes the width by dragging (pointer
-  capture), a double-click brings the default back (Tags: 200 px); Folder takes the rest, at least
-  120 px (`minFolderWidth`), ★ and × have fixed widths. Tags is narrowed like any other column,
-  its tags then ending with an ellipsis (it used to take the rest and never be narrower than every
-  sample's tags, measured over the whole library at each change; dropped). When the chosen widths
-  plus Folder's minimum do not fit, the table grows wider than the list, which scrolls sideways.
-  `applyColumnWidths` sets the tables' `width` in pixels (the larger of the list's width and what
-  the columns need), recomputed on window resize and folding: WebKit ignores `min-width` on a
-  fixed-layout table. The virtual list's spacer rows span exactly the columns shown, counted on
+  `<col>` elements. Columns in this order: ★, Name, Length, BPM, Key, Loop, Type, LUFS, Ch
+  (channels), Codec, Collections, Tags, Folder (last: the longest and least read), then the × in a
+  collection. A handle on the right edge of every header but Folder changes the width by dragging
+  (pointer capture), a double-click brings the default back (Tags: 200 px); Folder takes the rest,
+  at least 120 px (`minFolderWidth`), ★ and × have fixed widths. Tags is narrowed like any other
+  column, its tags then ending with an ellipsis (it used to take the rest and never be narrower than
+  every sample's tags, measured over the whole library at each change; dropped). When the chosen
+  widths plus Folder's minimum do not fit, the table grows wider than the list, which scrolls
+  sideways. `applyColumnWidths` sets the tables' `width` in pixels (the larger of the list's width
+  and what the columns need), recomputed on window resize and folding: WebKit ignores `min-width` on
+  a fixed-layout table. The virtual list's spacer rows span exactly the columns shown, counted on
   the header: one more made a phantom column that took a share of the free width. Widths are never
   shrunk to fit. Widths kept in `localStorage` (`columnWidths`; a width stored for Folder by an
   older samplr is dropped). A click on a handle does not sort. Outside a collection the × column's
   `<col>` is taken out of the tables: a zero-width `<col>` is treated as automatic by WebKit and
   would share the free width. Text too long for its cell ends with an ellipsis. One row in two is
   slightly darker (`striped`, `--stripe` mixed from the text and background colours), after the
-  sample's place in the list rather than `nth-child`: the virtual list's rows alternate
-  differently as it scrolls. Every row has a background of its own (`--bg` otherwise): WebKitGTK
-  smooths the text of a row without one differently, and it looked bold next to a striped one.
+  sample's place in the list rather than `nth-child`: the virtual list's rows alternate differently
+  as it scrolls. Every row has a background of its own (`--bg` otherwise): WebKitGTK smooths the
+  text of a row without one differently, and it looked bold next to a striped one.
 - Hiding columns: a right-click on the list's header opens a menu of the columns, each with a ✓
   when shown (`openColumnMenu`, it stays open to switch several), and "Show all columns". Name is
   always shown; with Folder hidden, Name takes the rest (at least its own width, its handle
@@ -638,30 +638,30 @@ Audio pitfalls met so far:
   so that one gap separates them all; only the chips are replaced when the selection changes
   (moving the input would take the focus from it).
 - Tempo and key (`src/analysis.rs`, unit-tested: `cargo test -p samplr --lib analysis`): from the
-  file name, in the two conventions of sample packs ("Djembe 100BPM D#m", "YCE_120_Gm_Horns": a
-  bare number right before a key), else from the file's ACID chunk (`src/acid.rs`, unit-tested:
-  its length in beats × 60 ÷ the length, shown without "≈", tooltip "From the file"; its root note
-  for the key, a note without major or minor), else the tempo from the length when a loop's length
-  gives a whole tempo (60 × beats ÷ seconds for 4 to 128 beats, between 70 and 180, nearest 120).
-  A lone letter is a key only next to a tempo ("Kick_A" is not in A) or with a quality ("Cmaj",
-  "F#m"); the note's letter must be upper case. Keys in sharps ("A#m" for "Bbm"). Worked out at
-  each search (`db::search` fills `SampleInfo::bpm`, `bpm_source` "name", "file", "length",
-  "sound" or "manual", `key`), not stored: a renamed file needs nothing; the ACID chunk is read with the file
+  file name, in the two conventions of sample packs ("Djembe 100BPM D#m", "YCE_120_Gm_Horns": a bare
+  number right before a key), else from the file's ACID chunk (`src/acid.rs`, unit-tested: its
+  length in beats × 60 ÷ the length, shown without "≈", tooltip "From the file"; its root note for
+  the key, a note without major or minor), else the tempo from the length when a loop's length gives
+  a whole tempo (60 × beats ÷ seconds for 4 to 128 beats, between 70 and 180, nearest 120). A lone
+  letter is a key only next to a tempo ("Kick_A" is not in A) or with a quality ("Cmaj", "F#m"); the
+  note's letter must be upper case. Keys in sharps ("A#m" for "Bbm"). Worked out at each search
+  (`db::search` fills `SampleInfo::bpm`, `bpm_source` "name", "file", "length", "sound" or "manual",
+  `key`), not stored: a renamed file needs nothing; the ACID chunk is read with the file
   (`read_info`, chunk headers only, never the sound) and kept in `files`. The chunk's own tempo
   field is not used: 120 in 461 of the 466 files of the Linux library having one, whatever the
   sample, while beats ÷ length gave the tempo of the name 348 times out of 348, and the root note
   the key of the name 348 times out of 348; on that library it gives an exact tempo to 118 samples
   more (113 of them were estimates from the length). Splice's samples carry no such chunk: their
   tempo, key and tags stay in the Splice app. symphonia's tags were measured too: only 18 files
-  (music MP3 and FLAC, no WAV) have any. Set by hand: a double-click on a BPM or Key cell edits
-  it, for the whole selection when the row is in it (Enter or leaving the box saves, Esc cancels;
-  a value refused after Enter keeps the box open, outlined in `--error` red, the reason in its
-  tooltip and the status line; refused on leaving the box, the old value comes back; empty or `-`
-  means none, to silence a wrong guess; back to automatic through the row menu, "Automatic" at the
-  top of Detect BPM… and "Automatic key", `"auto"` for `set_tempo` and `set_key`: emptying the box
-  used to mean automatic, which with the detection gave a tempo back at once). A click on these cells (and on Loop
-  and Type) selects the row and, with Autoplay, plays it only after `doubleClickDelay` (400 ms,
-  GTK's double-click time) if no second click came: editing stays silent, and these cells no
+  (music MP3 and FLAC, no WAV) have any. Set by hand: a double-click on a BPM or Key cell edits it,
+  for the whole selection when the row is in it (Enter or leaving the box saves, Esc cancels; a
+  value refused after Enter keeps the box open, outlined in `--error` red, the reason in its tooltip
+  and the status line; refused on leaving the box, the old value comes back; empty or `-` means
+  none, to silence a wrong guess; back to automatic through the row menu, "Automatic" at the top of
+  Detect BPM… and "Automatic key", `"auto"` for `set_tempo` and `set_key`: emptying the box used to
+  mean automatic, which with the detection gave a tempo back at once). A click on these cells (and
+  on Loop and Type) selects the row and, with Autoplay, plays it only after `doubleClickDelay` (400
+  ms, GTK's double-click time) if no second click came: editing stays silent, and these cells no
   longer silence a third of the row (Autoplay seemed broken once the Type column was added). The
   second click of the double-click does nothing (`event.detail`); elsewhere quick clicks on a row
   still retrigger the sound, like a pad. On a row of a multiple selection, such a click reduces the
@@ -669,44 +669,45 @@ Audio pitfalls met so far:
   and an edit "for the whole selection" never reached more than one row. Stored in `files.bpm` and
   `files.key` (migration 5): NULL automatic, 0 and '' none; commands `set_tempo` (20 to 400) and
   `set_key` (any spelling, kept in sharps). The edit box has no border nor vertical padding: a
-  taller row would break the virtual list's fixed height. A `library-changed` event while a cell
-  is edited or the type picker is open waits for the edit to end (`refreshWaiting`,
-  `refreshIfWaiting`): drawing the rows again closed the box at once while the background pass
-  told its progress every 5 s. Columns BPM ("≈ 100" muted for an
-  estimate) and Key, sortable and resizable; search filters `bpm:120`, `bpm:118-124` (either
-  order, 20 to 400 like a tempo set by hand: `TEMPOS`), `key:Am` (any spelling: `key:bbm`),
-  applied in the `search` command after the SQL query. On the 3287 samples of the Linux library:
-  tempo from the name for 51 %, from the length for 11 %, key for 30 %.
+  taller row would break the virtual list's fixed height. A `library-changed` event while a cell is
+  edited or the type picker is open waits for the edit to end (`refreshWaiting`,
+  `refreshIfWaiting`): drawing the rows again closed the box at once while the background pass told
+  its progress every 5 s. Columns BPM ("≈ 100" muted for an estimate) and Key, sortable and
+  resizable; search filters `bpm:120`, `bpm:118-124` (either order, 20 to 400 like a tempo set by
+  hand: `analysis::MANUAL_TEMPOS`), `key:Am` (any spelling: `key:bbm`), applied after the SQL query
+  by `samplr::query` (`Query::keeps`), which the interface's `search` command and `samplr search`
+  share. On the 3287 samples of the Linux library: tempo from the name for 51 %, from the length for
+  11 %, key for 30 %.
 - Tempo detected from the sound (`src/pulse.rs`, unit-tested), the last resort, for a loop only
-  (manual, name, ACID chunk first; it replaces the estimate from the length, and a one-shot keeps
-  no tempo, nor becomes a loop through it): a loop lasts a whole number of beats, so its length
-  gives a short list of tempos (1 to 64 beats, 60 to 200 BPM), and the one whose pulse best
-  matches the attacks wins (attack envelope: rises of energy in three bands, below 200 Hz, to 2
-  kHz, above, by steps of 256 samples; score: circular autocorrelation at the beat and the half
-  beat, plus the strength on the beat grid, times a likelihood: tempos around 110 within about
-  half an octave, beats in whole bars of four, better a power of two). Fed during the waveform's
-  decoding (`Onsets`), stored in `waveforms.detected_bpm`; nothing over 64 s, and the envelope
-  stops growing there. Measured on the 1670 loops of the Linux library whose name gives the tempo
-  (the experiment is not kept in the repository): right 62.9 % of the time, half or double 15.1
-  %, 63.7 % under 4 s; the tempo is among the candidates for 92.1 % of them. The tempo from the
-  length alone was right 44.1 % of the times it answered (64 % of them), not the 87 % measured
-  earlier on another set. The octave is the hard part: the likelihood decides it (moving its
-  centre took the "half" errors from 288 to 1 and the "double" ones up to 458), a dub groove
-  labelled 140 being as much a 70. On that library: 623 loops get a detected tempo, 376 of them
-  had none. Shown "≈ 100" like any estimate; the Info panel and the cell's tooltip say how it was
-  found ("detected from the sound: 8 beats in 4.00 s", `tempoOrigin`). "Detect BPM…" in the row
-  menu opens its methods there (`detectButton`), after "Automatic": from the name, from the file (ACID chunk), from
-  the length, from the sound; with a single sample each shows what it gives (`tempo_methods`, the
-  file's headers only), greyed when nothing, the sound being known only once decoded. The tempo
-  the method gives (`detect_tempo`, the selection; "sound" decodes each file again) is kept over
-  any other, even one typed by hand: stored in `files.bpm` with the method in `files.bpm_origin`
-  (migration 12; NULL typed by hand, which `set_tempo` writes back), shown as coming from that
-  method plus ", chosen with Detect BPM" (`SampleInfo::bpm_fixed`: stored, it no longer follows
-  a rename). The detection from the sound never overrides a stored tempo. stratum-dsp 1.0 (pure Rust),
-  measured before, found the right tempo for 34 % of the 795 samples whose name gives it (35 %
-  under 4 s), the right key for 13 % of 974 (mostly a fifth off), 158 ms and up to 600 MB per file
-  for two minutes of sound: not used. Never decode a whole file into memory for an analysis: a
-  3-hour recording took the machine's memory.
+  (manual, name, ACID chunk first; it replaces the estimate from the length, and a one-shot keeps no
+  tempo, nor becomes a loop through it): a loop lasts a whole number of beats, so its length gives a
+  short list of tempos (1 to 64 beats, 60 to 200 BPM), and the one whose pulse best matches the
+  attacks wins (attack envelope: rises of energy in three bands, below 200 Hz, to 2 kHz, above, by
+  steps of 256 samples; score: circular autocorrelation at the beat and the half beat, plus the
+  strength on the beat grid, times a likelihood: tempos around 110 within about half an octave,
+  beats in whole bars of four, better a power of two). Fed during the waveform's decoding
+  (`Onsets`), stored in `waveforms.detected_bpm`; nothing over 64 s, and the envelope stops growing
+  there. Measured on the 1670 loops of the Linux library whose name gives the tempo (the experiment
+  is not kept in the repository): right 62.9 % of the time, half or double 15.1 %, 63.7 % under 4 s;
+  the tempo is among the candidates for 92.1 % of them. The tempo from the length alone was right
+  44.1 % of the times it answered (64 % of them), not the 87 % measured earlier on another set. The
+  octave is the hard part: the likelihood decides it (moving its centre took the "half" errors from
+  288 to 1 and the "double" ones up to 458), a dub groove labelled 140 being as much a 70. On that
+  library: 623 loops get a detected tempo, 376 of them had none. Shown "≈ 100" like any estimate;
+  the Info panel and the cell's tooltip say how it was found ("detected from the sound: 8 beats in
+  4.00 s", `tempoOrigin`). "Detect BPM…" in the row menu opens its methods there (`detectButton`),
+  after "Automatic": from the name, from the file (ACID chunk), from the length, from the sound;
+  with a single sample each shows what it gives (`tempo_methods`, the file's headers only), greyed
+  when nothing, the sound being known only once decoded. The tempo the method gives (`detect_tempo`,
+  the selection; "sound" decodes each file again) is kept over any other, even one typed by hand:
+  stored in `files.bpm` with the method in `files.bpm_origin` (migration 12; NULL typed by hand,
+  which `set_tempo` writes back), shown as coming from that method plus ", chosen with Detect BPM"
+  (`SampleInfo::bpm_fixed`: stored, it no longer follows a rename). The detection from the sound
+  never overrides a stored tempo. stratum-dsp 1.0 (pure Rust), measured before, found the right
+  tempo for 34 % of the 795 samples whose name gives it (35 % under 4 s), the right key for 13 % of
+  974 (mostly a fifth off), 158 ms and up to 600 MB per file for two minutes of sound: not used.
+  Never decode a whole file into memory for an analysis: a 3-hour recording took the machine's
+  memory.
 - Bars (`barsText`): a loop's length in bars of four beats, tempo × length ÷ 240, shown after the
   length in the Info panel, in the playback bar ("2.00 s (1 bar)") and in the Length cell's
   tooltip: "4 bars", "1 bar", "2 beats" under a bar, "≈ 4.5 bars" when not whole (a tail of
@@ -749,19 +750,19 @@ Audio pitfalls met so far:
   file follows its new name. Hovering a family redraws only the right pane: replacing the button
   under the pointer lost the click.
 - Info panel (`#info`, on the right of the list, folds with its › button or Ctrl+I, remembered in
-  `localStorage`, `infoFolded`): the current sample's name, folder, format ("WAV · 24 bit · 44.1
-  kHz · stereo"), length, size and modification date, tempo, key and loop with where they come
-  from, its tags, then under "In the file" what the file says of itself (`file_info` command →
+  `localStorage`, `infoFolded`): the current sample's name, folder, format ("WAV · 24 bit · 44.1 kHz
+  · stereo"), length, size and modification date, tempo, key and loop with where they come from, its
+  tags, then under "In the file" what the file says of itself (`file_info` command →
   `samplr::info::file_tags`, read when the current sample changes, not stored: `renderInfo` is
-  called by `renderTags`, the file read again only for another sample). WAV: the `LIST/INFO`
-  chunk, read by samplr since symphonia does not (title, album = the pack, artist, album artist,
-  genre, comment, copyright, software, source…; 2092 of the 3198 WAV files of the Linux library
-  have one, Future Loops and Splice among them). Other formats: symphonia's tags (ID3 of MP3,
-  Vorbis comments of FLAC and OGG). symphonia 0.5 does not read the ID3 chunk of an AIFF (Splice's
-  KSHMR loops carry only a URL there): not read yet. Its labels and values have a background of
-  their own (`--bg`): when the panel overflows, WebKitGTK draws it on a scrolling layer of its
-  own, where text on no background looked bold (a background on the panel itself did not help;
-  checked in MiniBrowser).
+  called by `renderTags`, the file read again only for another sample). WAV: the `LIST/INFO` chunk,
+  read by samplr since symphonia does not (title, album = the pack, artist, album artist, genre,
+  comment, copyright, software, source…; 2092 of the 3198 WAV files of the Linux library have one,
+  Future Loops and Splice among them). Other formats: symphonia's tags (ID3 of MP3, Vorbis comments
+  of FLAC and OGG). symphonia 0.5 reads neither the `ID3 ` nor the `NAME` chunk of an AIFF (Splice's
+  KSHMR loops carry only a URL there; `no_tags_read_from_an_aiff` says when it does): not read yet.
+  Its labels and values have a background of their own (`--bg`): when the panel overflows, WebKitGTK
+  draws it on a scrolling layer of its own, where text on no background looked bold (a background on
+  the panel itself did not help; checked in MiniBrowser).
 - Errors: `showError` in `base.js` shows them in a red box above the status line (`#error-box`,
   `--error` the same red in every theme, closed by its × or after 10 s, not while the pointer is
   on it; its text can be selected and copied) and in the status line; every failure reported to
