@@ -547,7 +547,8 @@ Audio pitfalls met so far:
   the freedesktop `org.freedesktop.FileManager1.ShowItems` D-Bus method through `gdbus` (part of
   GLib, which Tauri needs anyway; Nautilus, Dolphin, Nemo answer it), with the files as `file://`
   URIs percent-encoded byte by byte (`file_uri`, unit-tested), and the first file's folder opened
-  with `xdg-open` when nothing answers. No crate added: `tauri-plugin-opener` would do the same.
+  with `xdg-open` when nothing answers; on Windows `explorer /select`, which selects the first
+  file only. No crate added: `tauri-plugin-opener` would do the same.
 - Conversion: "Convert file(s)…" in the row menu (the selection; greyed when ffmpeg is not
   found, `ffmpeg_available`) opens a window (`#convert`) asking the format (WAV, AIFF, FLAC,
   MP3, OGG Vorbis), its settings (bit depth 16, 24 or as the original for the lossless ones, MP3
@@ -746,10 +747,9 @@ Audio pitfalls met so far:
 
 ## Known limitations
 
-- Windows: the interface does not compile there yet. `reveal` and `file_uri` (Show in file
-  manager, `src-tauri/src/main.rs`) take any system but macOS for Linux: `std::os::unix`, `gdbus`,
-  `xdg-open`; Windows needs `explorer /select,<path>`. The library and the CLI have never been
-  built on Windows either.
+- Windows: never built nor run there. `reveal` has a Windows branch (`explorer /select`, the
+  first file of the selection only), written but not compiled; nothing else is known to be
+  missing, the rest having no code for one system only.
 - Path case: on Mac (by default) and on Windows, `Kick.wav` and `kick.wav` are the same file,
   but the database compares paths as case-sensitive text. A rename that only changes case, or a
   path typed with another case in `tag`, may not find the sample. Needs a design decision.

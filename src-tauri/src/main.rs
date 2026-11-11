@@ -490,7 +490,8 @@ fn library_problems(library: State<Library>) -> Vec<String> {
 /// on Mac (`open -R`); on Linux the file manager answering the freedesktop
 /// `FileManager1` D-Bus interface (Nautilus, Dolphin, Nemo…), through
 /// `gdbus`, which comes with GLib, already needed by Tauri; failing that,
-/// the folder of the first file is opened.
+/// the folder of the first file is opened. On Windows, the Explorer with the
+/// first file selected: `explorer /select` takes a single file.
 #[tauri::command(async)]
 fn reveal(paths: Vec<PathBuf>) -> Result<(), String> {
     let first = paths.first().ok_or("no file to show")?;
@@ -508,7 +509,18 @@ fn reveal(paths: Vec<PathBuf>) -> Result<(), String> {
             return Err(format!("the Finder could not show {}", first.display()));
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // The Explorer wants `/select,"C:\a b.wav"`, quotes round the path
+        // only: Rust's own quoting would wrap the whole argument. Its exit
+        // code is 1 even when it worked: only a failure to start counts.
+        std::process::Command::new("explorer")
+            .raw_arg(format!("/select,\"{}\"", first.display()))
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
     {
         let uris: Vec<String> = paths
             .iter()
@@ -546,7 +558,7 @@ fn reveal(paths: Vec<PathBuf>) -> Result<(), String> {
 /// `file:///home/me/kick%20%231.wav`: every byte but letters, digits, `-._~`
 /// and `/` percent-encoded, so that a space, a `#` or a quote in a name
 /// cannot break the URI nor the D-Bus argument holding it.
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn file_uri(path: &Path) -> String {
     use std::os::unix::ffi::OsStrExt;
     let mut uri = String::from("file://");
@@ -1020,7 +1032,7 @@ fn main() {
 mod tests {
     use super::*;
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn file_uris() {
         assert_eq!(
