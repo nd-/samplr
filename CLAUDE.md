@@ -24,8 +24,10 @@ tag and organise samples (for musicians, alongside a DAW). Windows is not built 
     `UNCREDITED` list for a small helper.
   - Interface, `cd tests/ui && npm install && npx playwright test`: in Chromium, the page opened
     from `ui/index.html` with the Tauri API faked by `tests/ui/fake-tauri.js` (a library of 50
-    samples; `window.__calls` records the commands). Node is for these tests only: the interface
-    itself still has no build tool.
+    samples; `window.__calls` records the commands). The page believes it runs on Linux whatever
+    the machine (`navigator.platform`, set by `helpers.js`; `mac.spec.js` sets the Mac), and
+    shortcuts are pressed with `ControlOrMeta`: on a Mac, Ctrl+click is a right-click. Node is for
+    these tests only: the interface itself still has no build tool.
   - The real app, `node --test tests/app/app.test.mjs` (no dependency: WebDriver over `fetch`):
     through `tauri-driver` and WebKitGTK's `WebKitWebDriver` (the `webkitgtk6.0` package's drives
     the app's `webkit2gtk4.1` too), Linux only, with a display; `run.sh` skips it otherwise. Each

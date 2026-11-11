@@ -53,7 +53,7 @@ test("Backspace in an empty box takes off the last tag of the bar", async ({ pag
   // Kicks 1 and 2: the last tag they both carry is "dry", not "punchy",
   // which only Kick 1 has.
   await select(page, 0, 1);
-  await page.keyboard.press("Control+t");
+  await page.keyboard.press("ControlOrMeta+t");
   await page.keyboard.press("Backspace");
   expect((await calls(page, "remove_tag")).at(-1).tag).toBe("dry");
   await expect(chips(page)).toHaveCount(0);
@@ -62,14 +62,14 @@ test("Backspace in an empty box takes off the last tag of the bar", async ({ pag
   // Kick 1 alone: its last tag.
   await page.keyboard.press("Escape");
   await select(page, 0);
-  await page.keyboard.press("Control+t");
+  await page.keyboard.press("ControlOrMeta+t");
   await page.keyboard.press("Backspace");
   await expect(row(page, 0).locator("td.tags")).toHaveText("");
 });
 
 test("Backspace in a box with text only edits the text", async ({ page }) => {
   await select(page, 0);
-  await page.keyboard.press("Control+t");
+  await page.keyboard.press("ControlOrMeta+t");
   await page.keyboard.type("ab");
   await page.keyboard.press("Backspace");
   await expect(page.locator("#new-tags")).toHaveValue("a");
@@ -78,7 +78,7 @@ test("Backspace in a box with text only edits the text", async ({ page }) => {
 
 test("Esc in the tag box goes back to the search box", async ({ page }) => {
   await select(page, 0);
-  await page.keyboard.press("Control+t");
+  await page.keyboard.press("ControlOrMeta+t");
   await page.keyboard.press("Escape");
   await expect(page.locator("#search")).toBeFocused();
 });

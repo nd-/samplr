@@ -69,7 +69,7 @@ test("columns wider than the list make it scroll sideways", async ({ page }) => 
 test("Ctrl+B folds the collections column, remembered", async ({ page }) => {
   const column = page.locator("#collections");
   const toggle = page.locator("#toggle-collections");
-  await page.keyboard.press("Control+b");
+  await page.keyboard.press("ControlOrMeta+b");
   await expect(column).toHaveClass(/collapsed/);
   await expect(toggle).toHaveText("›");
   await expect(page.locator("#collection-list")).toBeHidden();

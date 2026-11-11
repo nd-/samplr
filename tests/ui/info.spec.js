@@ -66,7 +66,7 @@ test("a multiple selection is counted", async ({ page }) => {
 test("Ctrl+I folds the panel, which then reads no file, and is remembered", async ({ page }) => {
   await select(page, KICK);
   await expect(value(page, "Artist")).toHaveText("Hutch");
-  await page.keyboard.press("Control+i");
+  await page.keyboard.press("ControlOrMeta+i");
   await expect(panel(page)).toHaveClass(/collapsed/);
   await expect(list(page)).toBeHidden();
 

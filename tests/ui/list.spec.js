@@ -47,12 +47,12 @@ test("multiple selection with Shift, Ctrl and Ctrl+A", async ({ page }) => {
   await name(page, 5).click({ modifiers: ["Shift"] });
   await expect(page.locator("#samples tr.selected")).toHaveCount(4);
   // Ctrl+click takes one out.
-  await name(page, 3).click({ modifiers: ["Control"] });
+  await name(page, 3).click({ modifiers: ["ControlOrMeta"] });
   await expect(page.locator("#samples tr.selected")).toHaveCount(3);
   await expect(row(page, 3)).not.toHaveClass(/selected/);
 
   // Ctrl+A: every sample, those off screen included.
-  await page.keyboard.press("Control+a");
+  await page.keyboard.press("ControlOrMeta+a");
   await expect(page.locator("#new-tags")).toHaveAttribute("placeholder", "Add tags to 50 samples");
 });
 
@@ -129,7 +129,7 @@ test("tags added from the tag bar, to the whole selection", async ({ page }) => 
   await page.locator("#autoplay").uncheck();
   await name(page, 0).click();
   await name(page, 1).click({ modifiers: ["Shift"] });
-  await page.keyboard.press("Control+t");
+  await page.keyboard.press("ControlOrMeta+t");
   await expect(page.locator("#new-tags")).toBeFocused();
   await page.keyboard.type("Punchy dry");
   await page.keyboard.press("Enter");

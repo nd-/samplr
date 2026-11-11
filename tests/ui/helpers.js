@@ -18,6 +18,15 @@ function openFakeLibrary() {
   test.beforeEach(async ({ page }) => {
     scriptErrors = [];
     page.on("pageerror", (error) => scriptErrors.push(error.message));
+    // Linux whatever the machine running the tests: on a Mac the page would
+    // name the Mac's keys and the Finder. mac.spec.js sets the Mac after this,
+    // hence `configurable`.
+    await page.addInitScript(() => {
+      Object.defineProperty(Navigator.prototype, "platform", {
+        get: () => "Linux x86_64",
+        configurable: true,
+      });
+    });
     await page.addInitScript({ path: path.join(__dirname, "fake-tauri.js") });
     await page.goto(pageUrl);
     await expect(page.locator("#status")).toHaveText("50 sample(s)");

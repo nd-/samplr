@@ -63,7 +63,7 @@ test("Space plays even with the focus left on a checkbox", async ({ page }) => {
 test("Ctrl+A in the search box selects its text, not the samples", async ({ page }) => {
   await page.locator("#search").fill("kick");
   await expect(page.locator("#status")).toHaveText("12 sample(s)");
-  await page.keyboard.press("Control+a");
+  await page.keyboard.press("ControlOrMeta+a");
   await expect(selectedRows(page)).toHaveCount(0);
   const selection = await page.locator("#search").evaluate(
     (box) => [box.selectionStart, box.selectionEnd],

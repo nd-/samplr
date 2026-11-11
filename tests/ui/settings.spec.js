@@ -123,7 +123,7 @@ test("deleting a colour says what uses it, and can be declined", async ({ page }
   // A tag coloured from the tag bar's right-click menu.
   await page.locator("#autoplay").uncheck();
   await name(page, 0).click();
-  await page.keyboard.press("Control+t");
+  await page.keyboard.press("ControlOrMeta+t");
   await page.keyboard.type("punchy");
   await page.keyboard.press("Enter");
   await page.locator("#tagbar .tag", { hasText: "punchy" }).click({ button: "right" });

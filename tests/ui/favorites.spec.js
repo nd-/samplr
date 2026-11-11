@@ -16,7 +16,7 @@ test("Ctrl+D makes the whole selection favorites, unless all already are", async
   // One of the three is already a favorite: all become favorites.
   await star(page, 1).click();
   await select(page, 0, 2);
-  await page.keyboard.press("Control+d");
+  await page.keyboard.press("ControlOrMeta+d");
   for (const index of [0, 1, 2]) await expect(star(page, index)).toHaveText("★");
   expect((await calls(page, "set_favorite")).at(-1)).toEqual({
     paths: ["/lib/Drums/Kick 1.wav", "/lib/Drums/Kick 2.wav", "/lib/Drums/Kick 3.wav"],
@@ -24,14 +24,14 @@ test("Ctrl+D makes the whole selection favorites, unless all already are", async
   });
 
   // All of them are: none is any more.
-  await page.keyboard.press("Control+d");
+  await page.keyboard.press("ControlOrMeta+d");
   for (const index of [0, 1, 2]) await expect(star(page, index)).toHaveText("☆");
   expect((await calls(page, "set_favorite")).at(-1).favorite).toBe(false);
 });
 
 test("Ctrl+D with nothing selected does nothing", async ({ page }) => {
   await page.locator("#list").focus();
-  await page.keyboard.press("Control+d");
+  await page.keyboard.press("ControlOrMeta+d");
   expect(await calls(page, "set_favorite")).toHaveLength(0);
 });
 
