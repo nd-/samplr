@@ -3,6 +3,9 @@ name = "samplr"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+description = "Audio sample manager: scan, tag, search, listen."
+repository = "https://github.com/nd-/samplr"
+readme = "README.md"
 
 [dependencies]
 # Command-line argument parsing, described by a `struct`

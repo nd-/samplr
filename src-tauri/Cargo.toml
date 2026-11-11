@@ -3,6 +3,9 @@ name = "samplr-app"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+description = "samplr's graphical interface: the sample list, preview, tags and collections."
+repository = "https://github.com/nd-/samplr"
+readme = "../README.md"
 
 [build-dependencies]
 # Reads tauri.conf.json at build time
