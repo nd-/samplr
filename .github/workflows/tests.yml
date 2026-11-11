@@ -16,7 +16,7 @@ jobs:
   linux:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: System packages
         run: |
@@ -33,7 +33,7 @@ jobs:
           pactl load-module module-null-sink sink_name=silent
           pactl set-default-sink silent
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -53,11 +53,11 @@ jobs:
         run: xvfb-run -a ./tests/run.sh
 
   macos:
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
