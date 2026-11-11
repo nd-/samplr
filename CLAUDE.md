@@ -643,42 +643,43 @@ Audio pitfalls met so far:
   number right before a key), else from the file's ACID chunk (`src/acid.rs`, unit-tested: its
   length in beats × 60 ÷ the length, shown without "≈", tooltip "From the file"; its root note for
   the key, a note without major or minor), else the tempo from the length when a loop's length gives
-  a whole tempo (60 × beats ÷ seconds for 4 to 128 beats, between 70 and 180, nearest 120). A lone
-  letter is a key only next to a tempo ("Kick_A" is not in A) or with a quality ("Cmaj", "F#m"); the
-  note's letter must be upper case. Keys in sharps ("A#m" for "Bbm"). Worked out at each search
-  (`db::search` fills `SampleInfo::bpm`, `bpm_source` "name", "file", "length", "sound" or "manual",
-  `key`), not stored: a renamed file needs nothing; the ACID chunk is read with the file
-  (`read_info`, chunk headers only, never the sound) and kept in `files`. The chunk's own tempo
-  field is not used: 120 in 461 of the 466 files of the Linux library having one, whatever the
-  sample, while beats ÷ length gave the tempo of the name 348 times out of 348, and the root note
-  the key of the name 348 times out of 348; on that library it gives an exact tempo to 118 samples
-  more (113 of them were estimates from the length). Splice's samples carry no such chunk: their
-  tempo, key and tags stay in the Splice app. symphonia's tags were measured too: only 18 files
-  (music MP3 and FLAC, no WAV) have any. Set by hand: a double-click on a BPM or Key cell edits it,
-  for the whole selection when the row is in it (Enter or leaving the box saves, Esc cancels; a
-  value refused after Enter keeps the box open, outlined in `--error` red, the reason in its tooltip
-  and the status line; refused on leaving the box, the old value comes back; empty or `-` means
-  none, to silence a wrong guess; back to automatic through the row menu, "Automatic" at the top of
-  Detect BPM… and "Automatic key", `"auto"` for `set_tempo` and `set_key`: emptying the box used to
-  mean automatic, which with the detection gave a tempo back at once). A click on these cells (and
-  on Loop and Type) selects the row and, with Autoplay, plays it only after `doubleClickDelay` (400
-  ms, GTK's double-click time) if no second click came: editing stays silent, and these cells no
-  longer silence a third of the row (Autoplay seemed broken once the Type column was added). The
-  second click of the double-click does nothing (`event.detail`); elsewhere quick clicks on a row
-  still retrigger the sound, like a pad. On a row of a multiple selection, such a click reduces the
-  selection to the row only after the same delay: otherwise the double-click's first click did it,
-  and an edit "for the whole selection" never reached more than one row. Stored in `files.bpm` and
-  `files.key` (migration 5): NULL automatic, 0 and '' none; commands `set_tempo` (20 to 400) and
-  `set_key` (any spelling, kept in sharps). The edit box has no border nor vertical padding: a
-  taller row would break the virtual list's fixed height. A `library-changed` event while a cell is
-  edited or the type picker is open waits for the edit to end (`refreshWaiting`,
-  `refreshIfWaiting`): drawing the rows again closed the box at once while the background pass told
-  its progress every 5 s. Columns BPM ("≈ 100" muted for an estimate) and Key, sortable and
-  resizable; search filters `bpm:120`, `bpm:118-124` (either order, 20 to 400 like a tempo set by
-  hand: `analysis::MANUAL_TEMPOS`), `key:Am` (any spelling: `key:bbm`), applied after the SQL query
-  by `samplr::query` (`Query::keeps`), which the interface's `search` command and `samplr search`
-  share. On the 3287 samples of the Linux library: tempo from the name for 51 %, from the length for
-  11 %, key for 30 %.
+  a whole tempo (60 × beats ÷ seconds for 4 to 128 beats, between 70 and 180, nearest 120). A
+  one-shot (by hand, its chunk or its words) gets no tempo from its length; a sample nothing
+  describes keeps it, and that tempo makes it a guessed loop (`db::search`). A lone letter is a key
+  only next to a tempo ("Kick_A" is not in A) or with a quality ("Cmaj", "F#m"); the note's letter
+  must be upper case. Keys in sharps ("A#m" for "Bbm"). Worked out at each search (`db::search`
+  fills `SampleInfo::bpm`, `bpm_source` "name", "file", "length", "sound" or "manual", `key`), not
+  stored: a renamed file needs nothing; the ACID chunk is read with the file (`read_info`, chunk
+  headers only, never the sound) and kept in `files`. The chunk's own tempo field is not used: 120
+  in 461 of the 466 files of the Linux library having one, whatever the sample, while beats ÷ length
+  gave the tempo of the name 348 times out of 348, and the root note the key of the name 348 times
+  out of 348; on that library it gives an exact tempo to 118 samples more (113 of them were
+  estimates from the length). Splice's samples carry no such chunk: their tempo, key and tags stay
+  in the Splice app. symphonia's tags were measured too: only 18 files (music MP3 and FLAC, no WAV)
+  have any. Set by hand: a double-click on a BPM or Key cell edits it, for the whole selection when
+  the row is in it (Enter or leaving the box saves, Esc cancels; a value refused after Enter keeps
+  the box open, outlined in `--error` red, the reason in its tooltip and the status line; refused on
+  leaving the box, the old value comes back; empty or `-` means none, to silence a wrong guess; back
+  to automatic through the row menu, "Automatic" at the top of Detect BPM… and "Automatic key",
+  `"auto"` for `set_tempo` and `set_key`: emptying the box used to mean automatic, which with the
+  detection gave a tempo back at once). A click on these cells (and on Loop and Type) selects the
+  row and, with Autoplay, plays it only after `doubleClickDelay` (400 ms, GTK's double-click time)
+  if no second click came: editing stays silent, and these cells no longer silence a third of the
+  row (Autoplay seemed broken once the Type column was added). The second click of the double-click
+  does nothing (`event.detail`); elsewhere quick clicks on a row still retrigger the sound, like a
+  pad. On a row of a multiple selection, such a click reduces the selection to the row only after
+  the same delay: otherwise the double-click's first click did it, and an edit "for the whole
+  selection" never reached more than one row. Stored in `files.bpm` and `files.key` (migration 5):
+  NULL automatic, 0 and '' none; commands `set_tempo` (20 to 400) and `set_key` (any spelling, kept
+  in sharps). The edit box has no border nor vertical padding: a taller row would break the virtual
+  list's fixed height. A `library-changed` event while a cell is edited or the type picker is open
+  waits for the edit to end (`refreshWaiting`, `refreshIfWaiting`): drawing the rows again closed
+  the box at once while the background pass told its progress every 5 s. Columns BPM ("≈ 100" muted
+  for an estimate) and Key, sortable and resizable; search filters `bpm:120`, `bpm:118-124` (either
+  order, 20 to 400 like a tempo set by hand: `analysis::MANUAL_TEMPOS`), `key:Am` (any spelling:
+  `key:bbm`), applied after the SQL query by `samplr::query` (`Query::keeps`), which the interface's
+  `search` command and `samplr search` share. On the 3287 samples of the Linux library: tempo from
+  the name for 51 %, from the length for 11 %, key for 30 %.
 - Tempo detected from the sound (`src/pulse.rs`, unit-tested), the last resort, for a loop only
   (manual, name, ACID chunk first; it replaces the estimate from the length, and a one-shot keeps no
   tempo, nor becomes a loop through it): a loop lasts a whole number of beats, so its length gives a

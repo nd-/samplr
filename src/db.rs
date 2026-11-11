@@ -1012,6 +1012,14 @@ pub fn search(
             Some(looped) => (looped, analysis::Source::Manual),
             None => analysis::looped(&path, acid_loop, tempo.is_some()),
         };
+        // The length gives a tempo to a loop only: a one-shot (by hand, its
+        // chunk or its words) whose length happens to give a whole tempo
+        // keeps none. Nothing else saying it, that tempo is what made it a
+        // guessed loop, and stays.
+        let tempo = match tempo {
+            Some((_, analysis::Source::Length)) if !looped => None,
+            tempo => tempo,
+        };
         // Last resort, for a loop only: the tempo detected from the sound,
         // better than the one from the length alone (see `pulse`). A one-shot
         // keeps none, and the detection does not make it a loop.
@@ -1698,5 +1706,58 @@ mod tests {
         add_folder(&db, Path::new("/lib")).unwrap();
         add(&db, "/lib/a.wav");
         assert_eq!(collections(&db).unwrap()[0].samples, 1);
+    }
+
+    /// A sample of `seconds`, to work out a tempo from its length.
+    fn add_lasting(db: &Connection, path: &str, seconds: f64) -> i64 {
+        let id = add(db, path);
+        db.execute(
+            "UPDATE files SET duration_secs = ?1 WHERE id = ?2",
+            params![seconds, id],
+        )
+        .unwrap();
+        id
+    }
+
+    #[test]
+    fn a_one_shot_gets_no_tempo_from_its_length() {
+        let db = new_db();
+        // 1.5 s: four beats at 160, but its folder says it is a one-shot.
+        add_lasting(&db, "/lib/One Shots/FX/Impact.wav", 1.5);
+        let impact = shown(&db, "Impact");
+        assert!(!impact.looped);
+        assert_eq!((impact.bpm, impact.bpm_source), (None, None));
+
+        // Set as a one-shot by hand: no tempo from its length either.
+        let id = add_lasting(&db, "/lib/Boom.wav", 1.5);
+        set_loop(&db, id, Some(false)).unwrap();
+        assert_eq!(shown(&db, "Boom").bpm, None);
+    }
+
+    #[test]
+    fn nothing_else_saying_it_the_length_still_guesses_a_loop() {
+        let db = new_db();
+        // No word, no chunk: the whole tempo of its length makes it a loop,
+        // a guess shown as such.
+        add_lasting(&db, "/lib/Groove.wav", 1.5);
+        let groove = shown(&db, "Groove");
+        assert_eq!(groove.bpm, Some(160));
+        assert_eq!(groove.bpm_source, Some(analysis::Source::Length));
+        assert_eq!(
+            (groove.looped, groove.loop_source),
+            (true, Some(analysis::Source::Length))
+        );
+    }
+
+    #[test]
+    fn a_one_shot_keeps_a_tempo_from_its_name() {
+        let db = new_db();
+        add_lasting(&db, "/lib/One Shots/Stab 128BPM Am.wav", 1.5);
+        let stab = shown(&db, "Stab");
+        assert!(!stab.looped);
+        assert_eq!(
+            (stab.bpm, stab.bpm_source),
+            (Some(128), Some(analysis::Source::Name))
+        );
     }
 }
