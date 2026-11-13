@@ -212,11 +212,13 @@ document.getElementById("show-folders").addEventListener("click", showFolders);
 // it is still in the library, its sound keeps playing.
 async function refresh({ stopIfGone = true } = {}) {
   refreshWaiting = false;
-  const selectedPath = samples[selected]?.path;
   const statusText = status.textContent;
+  let selectedPath;
   try {
     const found = await fetchSamples();
     if (found === null) return;
+    // Read once the answer is there: a row clicked meanwhile is the one kept.
+    selectedPath = samples[selected]?.path;
     samples = found;
     sortSamples();
   } catch (error) {
