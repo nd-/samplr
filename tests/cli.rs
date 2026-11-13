@@ -527,3 +527,20 @@ fn watching_reports_each_change_as_a_line_of_json() {
 
     assert_eq!(names(&library.json(&["list"])), ["kick.wav"]);
 }
+
+#[test]
+fn a_wav_declaring_no_sample_rate_is_unreadable_not_a_crash() {
+    let library = Library::new();
+    library.add("kick.wav");
+    let broken = library.samples().join("zero rate.wav");
+    write_wav(&broken);
+    let mut bytes = fs::read(&broken).unwrap();
+    // The `fmt ` chunk's sample rate.
+    bytes[24..28].copy_from_slice(&0u32.to_le_bytes());
+    fs::write(&broken, bytes).unwrap();
+
+    // Expected: the scan ends, the damaged file counted as unreadable.
+    let scan = library.scan();
+    assert_eq!(scan["unreadable"], 1);
+    assert_eq!(scan["samples"].as_array().unwrap().len(), 1);
+}

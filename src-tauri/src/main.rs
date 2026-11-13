@@ -780,15 +780,17 @@ fn play(
         // Goes back to the start of the file at each end, without loading the
         // whole sound into memory. Same settings as `Decoder::try_from(file)`.
         let length = file.metadata().map_err(|e| error(&e))?.len();
-        let decoder = Decoder::builder()
-            .with_data(BufReader::new(file))
-            .with_byte_len(length)
-            .with_seekable(true)
-            .build_looped()
-            .map_err(|e| error(&e))?;
+        let decoder = samplr::unless_it_panics(|| {
+            Ok(Decoder::builder()
+                .with_data(BufReader::new(file))
+                .with_byte_len(length)
+                .with_seekable(true)
+                .build_looped()?)
+        })
+        .map_err(|e| error(&e))?;
         Box::new(decoder)
     } else {
-        Box::new(Decoder::try_from(file).map_err(|e| error(&e))?)
+        Box::new(samplr::unless_it_panics(|| Ok(Decoder::try_from(file)?)).map_err(|e| error(&e))?)
     };
     let shape = Playback::new(speed, tempo, semitones);
     send(

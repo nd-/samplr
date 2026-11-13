@@ -74,6 +74,7 @@ Audio pitfalls met so far:
 - Apple `.m4r` ringtones (AAC in MP4, e.g. `/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Opening.m4r`) are not decoded by symphonia 0.5: length found, channels unknown, no sample. The same sound re-encoded by `afconvert` (AAC or WAV) plays fine: AAC is supported, the structure of these files is the problem.
 - MP3 and OGG lengths: read with the encoder's delay and padding, a one-second sound lasted 1.045 s (MP3) or 1.012 s (OGG), enough to miss a loop's tempo from its length. `probe` turns on symphonia's `enable_gapless`: exact lengths (checked by `every_format_read_without_decoding`). Playback and waveforms go through rodio and are not concerned.
 - When the decoder produces no sample, `play` reports it ("no sound decoded"): it checks this on a throwaway decoder before opening the audio output.
+- symphonia 0.5 panics on some damaged headers instead of returning an error (a WAV or an AIFF declaring 0 Hz: "TimeBase cannot have 0 numerator or denominator"), which stopped a whole scan. Every opening of a file by symphonia or rodio goes through `samplr::unless_it_panics`, which turns the panic into an error (the file counts as unreadable); the default panic message still appears on stderr.
 
 ## Roadmap
 

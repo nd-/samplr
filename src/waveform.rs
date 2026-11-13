@@ -36,7 +36,8 @@ pub struct Measures {
 /// Every channel goes into the same peaks: the drawing shows the loudest
 /// channel at each moment.
 pub fn compute(path: &Path) -> Result<(Vec<Peak>, Measures), Box<dyn Error>> {
-    let decoder = rodio::Decoder::try_from(File::open(path)?)?;
+    let file = File::open(path)?;
+    let decoder = crate::unless_it_panics(|| Ok(rodio::Decoder::try_from(file)?))?;
     // `get()` turns the `NonZero<u16>` returned by rodio into a plain number.
     let channels = decoder.channels().get() as usize;
     let mut meter = ebur128::EbuR128::new(

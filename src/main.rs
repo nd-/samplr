@@ -543,7 +543,8 @@ fn play(path: &Path, json: bool) -> Result<(), Box<dyn Error>> {
     // `.m4r` ringtones). This is checked on a throwaway decoder: reading the
     // first sample on the one that plays would consume it, and would swap
     // the left and right channels of a stereo file.
-    let mut probe = rodio::Decoder::try_from(File::open(path)?)?;
+    let file = File::open(path)?;
+    let mut probe = samplr::unless_it_panics(|| Ok(rodio::Decoder::try_from(file)?))?;
     if probe.next().is_none() {
         return Err("no sound decoded (format recognised, but content unreadable)".into());
     }
