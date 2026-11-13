@@ -93,6 +93,9 @@ function visibleRange() {
 }
 
 function drawRows() {
+  // A box being edited leaves with its row: saved as when leaving it. WebKit
+  // sends no `blur` for an element taken out of the page, Chromium does.
+  tbody.querySelector("input")?.blur();
   const [first, last] = visibleRange();
   firstDrawn = Math.max(0, first - overscan);
   lastDrawn = Math.min(samples.length - 1, last + overscan);

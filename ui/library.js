@@ -211,7 +211,14 @@ document.getElementById("show-folders").addEventListener("click", showFolders);
 // `stopIfGone: false` when the selected sample only left the open collection:
 // it is still in the library, its sound keeps playing.
 async function refresh({ stopIfGone = true } = {}) {
-  refreshWaiting = false;
+  // Drawing the rows again would close a cell being edited: the refresh
+  // waits for the edit to end. Of the refreshes waiting, a sample that only
+  // left a collection keeps its sound.
+  if (editing()) {
+    refreshWaiting = { stopIfGone: stopIfGone && (refreshWaiting?.stopIfGone ?? true) };
+    return;
+  }
+  refreshWaiting = null;
   const statusText = status.textContent;
   let selectedPath;
   try {
@@ -249,21 +256,18 @@ async function refresh({ stopIfGone = true } = {}) {
 // A change on disk, or the background pass telling its progress (every 5 s
 // while it measures), draws the rows again: a tempo or key being edited in
 // its cell, or a type being chosen, would be lost. The refresh then waits
-// for the edit to end.
-let refreshWaiting = false;
+// for the edit to end, with its options (see `refresh`).
+let refreshWaiting = null;
 
 function editing() {
   return tbody.querySelector("input") !== null || picker !== null;
 }
 
 function refreshIfWaiting() {
-  if (refreshWaiting && !editing()) refresh();
+  if (refreshWaiting && !editing()) refresh(refreshWaiting);
 }
 
-window.__TAURI__.event.listen("library-changed", () => {
-  if (editing()) refreshWaiting = true;
-  else refresh();
-});
+window.__TAURI__.event.listen("library-changed", () => refresh());
 
 // Following the folders goes on when one of them fails (cannot be watched,
 // a change not applied): the problems are kept on the Rust side and shown

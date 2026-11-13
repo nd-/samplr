@@ -163,6 +163,8 @@ function editCell(index, td, command) {
       input.select();
       return;
     }
+    // The box closes before the refresh, which would otherwise wait for it.
+    if (td.isConnected) td.replaceWith(command === "set_tempo" ? bpmCell(sample) : keyCell(sample));
     await refresh({ stopIfGone: false });
     flash(rowsOf(paths));
   }
