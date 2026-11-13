@@ -119,7 +119,8 @@ fn loudness(meter: &ebur128::EbuR128, channels: usize) -> (Option<f64>, Option<f
     let peak = (0..channels as u32)
         .filter_map(|channel| meter.sample_peak(channel).ok())
         .fold(0.0, f64::max);
-    let peak_db = (peak > 0.0).then(|| 20.0 * peak.log10());
+    // A float WAV may hold infinite values, which are no level.
+    let peak_db = (peak > 0.0 && peak.is_finite()).then(|| 20.0 * peak.log10());
     (lufs, peak_db)
 }
 
@@ -330,5 +331,187 @@ mod tests {
         let path = dir.path().join("text.wav");
         std::fs::write(&path, "not a sound").unwrap();
         assert!(compute(&path).is_err());
+    }
+
+    /// A WAV of any format: 1 PCM, 3 float; `data` already encoded.
+    fn write_raw(path: &Path, format: u16, channels: u16, bits: u16, data: &[u8]) {
+        let align = channels * bits / 8;
+        let mut bytes = b"RIFF".to_vec();
+        bytes.extend((36 + data.len() as u32).to_le_bytes());
+        bytes.extend(b"WAVEfmt ");
+        bytes.extend(16u32.to_le_bytes());
+        bytes.extend(format.to_le_bytes());
+        bytes.extend(channels.to_le_bytes());
+        bytes.extend(44_100u32.to_le_bytes());
+        bytes.extend((44_100 * u32::from(align)).to_le_bytes());
+        bytes.extend(align.to_le_bytes());
+        bytes.extend(bits.to_le_bytes());
+        bytes.extend(b"data");
+        bytes.extend((data.len() as u32).to_le_bytes());
+        bytes.extend(data);
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    /// Deterministic samples spread over the whole 16-bit range.
+    fn scattered(count: usize, seed: u32) -> Vec<i16> {
+        let mut state = seed;
+        (0..count)
+            .map(|_| {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                (state >> 16) as u16 as i16
+            })
+            .collect()
+    }
+
+    #[test]
+    fn peaks_hold_the_extremes_whatever_the_length_and_channels() {
+        let dir = TempDir::new();
+        let path = dir.path().join("any.wav");
+        for channels in [1u16, 2, 3] {
+            for frames in [1, 2, 3, 1023, 1024, 1025, 2047, 2048, 2049, 4097, 44_100] {
+                let samples = scattered(frames * usize::from(channels), frames as u32);
+                write_sound(&path, channels, &samples);
+                let (peaks, _) = compute(&path).unwrap();
+                let what = format!("{channels} channel(s), {frames} frame(s)");
+                assert_eq!(peaks.len(), frames.min(POINTS), "{what}");
+                assert!(
+                    peaks
+                        .iter()
+                        .all(|&(low, high)| -1.0 <= low && low <= high && high <= 1.0),
+                    "{what}"
+                );
+                let lowest = f32::from(*samples.iter().min().unwrap()) / 32_768.0;
+                let highest = f32::from(*samples.iter().max().unwrap()) / 32_768.0;
+                assert_eq!(merge(&peaks), (lowest, highest), "{what}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_single_click_shows_where_it_is() {
+        let dir = TempDir::new();
+        let path = dir.path().join("click.wav");
+        for frames in [3000, 44_100, 100_000] {
+            for at in [0, 1, frames / 3, frames / 2, frames - 1] {
+                let mut samples = vec![0i16; frames];
+                samples[at] = HALF;
+                write_sound(&path, 1, &samples);
+                let (peaks, _) = compute(&path).unwrap();
+                let lit: Vec<usize> = (0..peaks.len()).filter(|&i| peaks[i].1 > 0.0).collect();
+                assert_eq!(lit.len(), 1, "{frames} frames, click at {at}: {lit:?}");
+                let expected = at * POINTS / frames;
+                assert!(
+                    lit[0].abs_diff(expected) <= 1,
+                    "{frames} frames, click at {at}: point {} instead of {expected}",
+                    lit[0]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn full_scale_is_one_and_zero_dbfs() {
+        let dir = TempDir::new();
+        let path = dir.path().join("full.wav");
+        let samples: Vec<i16> = (0..44_100)
+            .map(|i| if i % 2 == 0 { i16::MAX } else { i16::MIN })
+            .collect();
+        write_sound(&path, 1, &samples);
+        let (peaks, measures) = compute(&path).unwrap();
+        assert!(peaks.iter().all(|&(low, high)| low == -1.0 && high > 0.999));
+        assert!(measures.peak_db.unwrap().abs() < 0.01);
+        // Stored as bytes, nothing beyond -127..127.
+        let bytes = to_bytes(&peaks);
+        assert!(bytes.iter().all(|&b| b as i8 >= -127));
+    }
+
+    #[test]
+    fn bytes_stay_within_full_scale_whatever_the_value() {
+        let values = [
+            -2.0,
+            -1.0,
+            -0.999,
+            -1.0 / 254.0,
+            -0.0,
+            0.0,
+            1.0 / 254.0,
+            0.5,
+            1.0,
+            7.0,
+            f32::MIN,
+            f32::MAX,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NAN,
+        ];
+        for value in values {
+            let (low, high) = from_bytes(&to_bytes(&[(value, value)]))[0];
+            assert!((-1.0..=1.0).contains(&low) && low == high, "{value}");
+        }
+    }
+
+    #[test]
+    fn the_loudness_needs_one_block_of_400_ms() {
+        let dir = TempDir::new();
+        let path = dir.path().join("tone.wav");
+        let tone = |frames: usize| -> Vec<i16> {
+            (0..frames)
+                .map(|i| (8000.0 * (i as f32 * 0.0627).sin()) as i16)
+                .collect()
+        };
+        // 0.385 s, then 0.408 s.
+        write_sound(&path, 1, &tone(17_000));
+        assert_eq!(compute(&path).unwrap().1.lufs, None);
+        write_sound(&path, 1, &tone(18_000));
+        assert!(compute(&path).unwrap().1.lufs.is_some());
+    }
+
+    #[test]
+    fn silence_of_8_bits_is_the_middle_value() {
+        let dir = TempDir::new();
+        let path = dir.path().join("8bit.wav");
+        // Unsigned: 128 is silence, 0 and 255 the extremes.
+        write_raw(&path, 1, 1, 8, &[128; 1000]);
+        let (peaks, measures) = compute(&path).unwrap();
+        assert!(peaks.iter().all(|&peak| peak == (0.0, 0.0)));
+        assert_eq!(measures.peak_db, None);
+        write_raw(&path, 1, 1, 8, &[0, 255].repeat(500));
+        let (low, high) = merge(&compute(&path).unwrap().0);
+        assert!(close(low, -1.0) && close(high, 1.0), "{low} {high}");
+    }
+
+    #[test]
+    fn a_24_bit_wav_reaches_full_scale() {
+        let dir = TempDir::new();
+        let path = dir.path().join("24bit.wav");
+        let mut data = Vec::new();
+        for i in 0..4410 {
+            let value: i32 = if i % 2 == 0 { 0x7f_ffff } else { -0x80_0000 };
+            data.extend(&value.to_le_bytes()[..3]);
+        }
+        write_raw(&path, 1, 1, 24, &data);
+        let (peaks, _) = compute(&path).unwrap();
+        assert_eq!(merge(&peaks).0, -1.0);
+        assert!(merge(&peaks).1 > 0.9999);
+    }
+
+    #[test]
+    fn a_float_wav_with_values_that_are_not_sound() {
+        let dir = TempDir::new();
+        let path = dir.path().join("float.wav");
+        let mut samples = vec![0.25f32; 44_100];
+        samples[10] = f32::NAN;
+        samples[20] = f32::INFINITY;
+        samples[30] = 4.0;
+        let data: Vec<u8> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+        write_raw(&path, 3, 1, 32, &data);
+        let (peaks, measures) = compute(&path).unwrap();
+        // Over full scale is legitimate in float: kept, clamped when stored.
+        assert!(peaks.iter().all(|&(low, high)| low <= high));
+        // Expected: a measure that is a number or none, never infinite (it
+        // would reach the database and be shown).
+        for value in [measures.lufs, measures.peak_db].into_iter().flatten() {
+            assert!(value.is_finite(), "{measures:?}");
+        }
     }
 }
