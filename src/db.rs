@@ -1824,3 +1824,324 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod edge_case_tests {
+    use super::*;
+    use crate::test_support::{TempDir, memory_db, save_sample};
+    use std::time::Duration;
+
+    fn strings(words: &[&str]) -> Vec<String> {
+        words.iter().map(|w| w.to_string()).collect()
+    }
+
+    fn found(db: &Connection, tags: &[&str], words: &[&str]) -> Vec<String> {
+        search(db, &strings(tags), words, false, None)
+            .unwrap()
+            .into_iter()
+            .map(|sample| sample.path.display().to_string())
+            .collect()
+    }
+
+    /// File names a sample pack or a user could give, each with a word that
+    /// only it holds.
+    const ODD_NAMES: [(&str, &str); 9] = [
+        ("/lib/Été/caisse claire.wav", "claire"),
+        ("/lib/E\u{301}te\u{301}/nfd.wav", "e\u{301}te\u{301}"),
+        ("/lib/🥁 kits/boom.wav", "🥁"),
+        ("/lib/鼓/キック.wav", "キック"),
+        ("/lib/100% wet.wav", "100%"),
+        ("/lib/a_b.wav", "a_b"),
+        ("/lib/#1 snare.wav", "#1"),
+        ("/lib/it's \"loud\".wav", "\"loud\""),
+        ("/lib/back\\slash.wav", "back\\"),
+    ];
+
+    #[test]
+    fn odd_characters_in_paths_are_saved_and_found_literally() {
+        let db = memory_db();
+        for (path, _) in ODD_NAMES {
+            save_sample(&db, path);
+        }
+        for (path, word) in ODD_NAMES {
+            assert_eq!(found(&db, &[], &[word]), [path], "{word}");
+            assert!(file_id(&db, Path::new(path)).unwrap().is_some());
+        }
+        // Neither `%` nor `_` acts as a wildcard.
+        assert_eq!(found(&db, &[], &["%"]), ["/lib/100% wet.wav"]);
+        assert_eq!(found(&db, &[], &["_"]), ["/lib/a_b.wav"]);
+        assert!(found(&db, &[], &["a%b"]).is_empty());
+    }
+
+    #[test]
+    fn odd_characters_survive_tagging_and_counting() {
+        let db = memory_db();
+        for (path, _) in ODD_NAMES {
+            let id = save_sample(&db, path);
+            add_tags(&db, id, &strings(&["odd"])).unwrap();
+        }
+        assert_eq!(list_tags(&db).unwrap(), [("odd".to_string(), 9)]);
+        assert_eq!(found(&db, &["odd"], &[]).len(), 9);
+        assert_eq!(count_under(&db, Path::new("/lib/🥁 kits")).unwrap(), 1);
+        assert_eq!(count_under(&db, Path::new("/lib/鼓")).unwrap(), 1);
+    }
+
+    #[test]
+    fn renaming_a_folder_with_multibyte_names_keeps_ids_and_namesakes() {
+        let db = memory_db();
+        let inside = save_sample(&db, "/lib/Été 🥁/ß.wav");
+        let deeper = save_sample(&db, "/lib/Été 🥁/鼓/kick.wav");
+        let namesake = save_sample(&db, "/lib/Été 🥁x/a.wav");
+        add_tags(&db, inside, &strings(&["kept"])).unwrap();
+
+        let renamed = rename(&db, Path::new("/lib/Été 🥁"), Path::new("/lib/S")).unwrap();
+        assert_eq!(renamed, 2);
+        // `length` and `substr` count characters, not bytes: the new paths
+        // must not lose or keep a byte of the old folder's name.
+        assert_eq!(
+            file_id(&db, Path::new("/lib/S/ß.wav")).unwrap(),
+            Some(inside)
+        );
+        assert_eq!(
+            file_id(&db, Path::new("/lib/S/鼓/kick.wav")).unwrap(),
+            Some(deeper)
+        );
+        assert_eq!(
+            file_id(&db, Path::new("/lib/Été 🥁x/a.wav")).unwrap(),
+            Some(namesake)
+        );
+        assert_eq!(tags_of(&db, inside).unwrap(), ["kept"]);
+
+        // And back, to a longer multibyte name.
+        rename(&db, Path::new("/lib/S"), Path::new("/lib/日本語のフォルダ")).unwrap();
+        assert_eq!(
+            file_id(&db, Path::new("/lib/日本語のフォルダ/鼓/kick.wav")).unwrap(),
+            Some(deeper)
+        );
+    }
+
+    #[test]
+    fn renaming_a_single_file_keeps_its_id() {
+        let db = memory_db();
+        let id = save_sample(&db, "/lib/kick.wav");
+        // `kick.wav` is not a folder: `kick.wav2` is not inside it.
+        let other = save_sample(&db, "/lib/kick.wav2/x.wav");
+        assert_eq!(
+            rename(&db, Path::new("/lib/kick.wav"), Path::new("/lib/🥁.wav")).unwrap(),
+            1
+        );
+        assert_eq!(file_id(&db, Path::new("/lib/🥁.wav")).unwrap(), Some(id));
+        assert_eq!(
+            file_id(&db, Path::new("/lib/kick.wav2/x.wav")).unwrap(),
+            Some(other)
+        );
+    }
+
+    #[test]
+    fn removing_a_folder_with_wildcard_characters_hides_only_its_samples() {
+        let db = memory_db();
+        save_sample(&db, "/lib/100%_drums/kick.wav");
+        save_sample(&db, "/lib/100x-drums/kick.wav");
+        save_sample(&db, "/lib/100%_drums2/kick.wav");
+        add_folder(&db, Path::new("/lib/100%_drums")).unwrap();
+        add_folder(&db, Path::new("/lib/100x-drums")).unwrap();
+
+        assert_eq!(remove_folder(&db, Path::new("/lib/100%_drums")).unwrap(), 1);
+        assert_eq!(
+            found(&db, &[], &[]),
+            ["/lib/100%_drums2/kick.wav", "/lib/100x-drums/kick.wav"]
+        );
+        // Removed already: refused the second time.
+        assert!(remove_folder(&db, Path::new("/lib/100%_drums")).is_err());
+    }
+
+    #[test]
+    fn nested_scanned_folders_are_removed_one_at_a_time() {
+        let db = memory_db();
+        save_sample(&db, "/lib/top.wav");
+        save_sample(&db, "/lib/inner/deep.wav");
+        add_folder(&db, Path::new("/lib")).unwrap();
+        add_folder(&db, Path::new("/lib/inner")).unwrap();
+
+        // Still inside `/lib`: nothing hidden.
+        assert_eq!(remove_folder(&db, Path::new("/lib/inner")).unwrap(), 0);
+        assert_eq!(found(&db, &[], &[]).len(), 2);
+
+        add_folder(&db, Path::new("/lib/inner")).unwrap();
+        // `/lib/inner` stays scanned: only `top.wav` goes.
+        assert_eq!(remove_folder(&db, Path::new("/lib")).unwrap(), 1);
+        assert_eq!(found(&db, &[], &[]), ["/lib/inner/deep.wav"]);
+        assert_eq!(folders(&db).unwrap(), [PathBuf::from("/lib/inner")]);
+    }
+
+    #[test]
+    fn saving_the_same_path_twice_keeps_one_row_and_shows_it_again() {
+        let db = memory_db();
+        let id = save_sample(&db, "/lib/x/kick.wav");
+        add_folder(&db, Path::new("/lib/x")).unwrap();
+        remove_folder(&db, Path::new("/lib/x")).unwrap();
+        assert!(found(&db, &[], &[]).is_empty());
+        assert_eq!(save_sample(&db, "/lib/x/kick.wav"), id);
+        assert_eq!(found(&db, &[], &[]), ["/lib/x/kick.wav"]);
+        assert_eq!(all_files(&db).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn tags_fold_case_beyond_ascii() {
+        let db = memory_db();
+        let id = save_sample(&db, "/lib/kick.wav");
+        assert_eq!(
+            add_tags(&db, id, &strings(&["Été", "ÉTÉ", "été"])).unwrap(),
+            1
+        );
+        assert_eq!(tags_of(&db, id).unwrap(), ["été"]);
+        // `ß` has no single upper-case letter: `SS` is another tag.
+        add_tags(&db, id, &strings(&["Straße", "STRASSE"])).unwrap();
+        assert_eq!(tags_of(&db, id).unwrap(), ["strasse", "straße", "été"]);
+        assert_eq!(found(&db, &["ÉTÉ"], &[]), ["/lib/kick.wav"]);
+        assert_eq!(found(&db, &[], &["ÉT"]), ["/lib/kick.wav"]);
+        assert_eq!(found(&db, &[], &["STRAßE"]), ["/lib/kick.wav"]);
+        assert_eq!(remove_tags(&db, id, &strings(&["ÉTÉ"])).unwrap(), 1);
+        assert_eq!(tags_of(&db, id).unwrap(), ["strasse", "straße"]);
+    }
+
+    #[test]
+    fn blank_tags_are_refused_and_change_nothing() {
+        let db = memory_db();
+        let id = save_sample(&db, "/lib/kick.wav");
+        for bad in [
+            "",
+            "   ",
+            "two words",
+            "tab\there",
+            "line\nbreak",
+            "nb\u{a0}sp",
+        ] {
+            assert!(add_tags(&db, id, &strings(&[bad])).is_err(), "{bad:?}");
+            assert!(search(&db, &strings(&[bad]), &[], false, None).is_err());
+        }
+        assert!(tags_of(&db, id).unwrap().is_empty());
+        assert!(list_tags(&db).unwrap().is_empty());
+    }
+
+    #[test]
+    fn collection_names_fold_case_beyond_ascii() {
+        let db = memory_db();
+        create_collection(&db, "  Été ").unwrap();
+        assert!(create_collection(&db, "ÉTÉ").is_err());
+        assert!(create_collection(&db, " \t ").is_err());
+        let names: Vec<String> = collections(&db)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        assert_eq!(names, ["été"]);
+    }
+
+    /// `count` samples, saved in one transaction to stay quick.
+    fn many_samples(db: &mut Connection, count: usize) -> Vec<i64> {
+        let transaction = db.transaction().unwrap();
+        let ids = (0..count)
+            .map(|i| save_sample(&transaction, &format!("/lib/{i:06}.wav")))
+            .collect();
+        transaction.commit().unwrap();
+        ids
+    }
+
+    #[test]
+    fn collections_holding_across_its_parts() {
+        let mut db = memory_db();
+        let ids = many_samples(&mut db, 10_001);
+        let all = create_collection(&db, "all").unwrap();
+        let first_part = create_collection(&db, "first part").unwrap();
+        let last_only = create_collection(&db, "last only").unwrap();
+        add_to_collection(&db, all, &ids).unwrap();
+        add_to_collection(&db, first_part, &ids[..10_000]).unwrap();
+        add_to_collection(&db, last_only, &ids[10_000..]).unwrap();
+
+        assert_eq!(collections_holding(&db, &ids).unwrap(), [all]);
+        let mut holding = collections_holding(&db, &ids[..10_000]).unwrap();
+        holding.sort();
+        assert_eq!(holding, [all, first_part]);
+        assert!(collections_holding(&db, &[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn collections_holding_beyond_sqlite_s_parameter_limit() {
+        let mut db = memory_db();
+        let ids = many_samples(&mut db, 32_767);
+        let all = create_collection(&db, "all").unwrap();
+        add_to_collection(&db, all, &ids).unwrap();
+        assert_eq!(collections_holding(&db, &ids).unwrap(), [all]);
+    }
+
+    #[test]
+    fn collections_holding_a_sample_named_twice() {
+        let db = memory_db();
+        let id = save_sample(&db, "/lib/kick.wav");
+        let drums = create_collection(&db, "drums").unwrap();
+        add_to_collection(&db, drums, &[id]).unwrap();
+        // Expected: a collection holding the sample holds "every one" of
+        // `[id, id]`; `HAVING COUNT(*) = part.len()` counts the duplicate.
+        assert_eq!(collections_holding(&db, &[id, id]).unwrap(), [drums]);
+    }
+
+    #[test]
+    fn opening_an_up_to_date_database_needs_no_write_lock() {
+        let dir = TempDir::new();
+        let path = dir.path().join("samplr.db");
+        let writer = Connection::open(&path).unwrap();
+        set_up(&writer).unwrap();
+        save_sample(&writer, "/lib/kick.wav");
+        // Another process in the middle of a long write (a scan's batch).
+        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+        save_sample(&writer, "/lib/snare.wav");
+
+        // Without waiting at all: any write lock asked for would fail at once.
+        let reader = Connection::open(&path).unwrap();
+        reader.busy_timeout(Duration::ZERO).unwrap();
+        set_up(&reader).unwrap();
+        assert_eq!(found(&reader, &[], &[]), ["/lib/kick.wav"]);
+        writer.execute_batch("COMMIT").unwrap();
+    }
+
+    #[test]
+    fn two_connections_migrating_a_new_database_together() {
+        let dir = TempDir::new();
+        let path = dir.path().join("samplr.db");
+        let openers: Vec<_> = (0..4)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let db = Connection::open(&path).unwrap();
+                    set_up(&db).map_err(|e| e.to_string())
+                })
+            })
+            .collect();
+        for opener in openers {
+            assert_eq!(opener.join().unwrap(), Ok(()));
+        }
+        let db = Connection::open(&path).unwrap();
+        set_up(&db).unwrap();
+        let version: i64 = db
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        // Each step ran once: the palette was filled once.
+        assert_eq!(colors(&db).unwrap().len(), 10);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_that_is_not_utf8_is_refused_without_panicking() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        let db = memory_db();
+        let path = Path::new(OsStr::from_bytes(b"/lib/k\xffck.wav"));
+        assert!(file_id(&db, path).is_err());
+        assert!(add_folder(&db, path).is_err());
+        let id = save_sample(&db, "/lib/a.wav");
+        assert!(rename(&db, Path::new("/lib/a.wav"), path).is_err());
+        assert_eq!(file_id(&db, Path::new("/lib/a.wav")).unwrap(), Some(id));
+    }
+}

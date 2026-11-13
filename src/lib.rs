@@ -1343,3 +1343,351 @@ mod reading_tests {
         assert_eq!((samples.len(), unreadable), (1, 3));
     }
 }
+
+#[cfg(test)]
+mod edge_case_tests {
+    use super::*;
+    use crate::test_support::{TempDir, memory_db, write_sound, write_wav};
+    use crate::timbre::{DIMENSIONS, Fingerprint};
+    use std::fs;
+
+    fn scan_quietly(db: &mut Connection, folder: &Path) -> Scan {
+        scan(db, folder, &mut |_, _| {}).unwrap()
+    }
+
+    fn shown(db: &Connection) -> Vec<PathBuf> {
+        db::all_files(db)
+            .unwrap()
+            .into_iter()
+            .map(|(_, path)| path)
+            .collect()
+    }
+
+    const ODD_NAMES: [&str; 8] = [
+        "Été/caisse claire.wav",
+        "E\u{301}te\u{301}/nfd.wav",
+        "🥁 kits/boom.wav",
+        "鼓/キック.wav",
+        "100% wet.wav",
+        "a_b.wav",
+        "#1 snare.wav",
+        "it's \"loud\".wav",
+    ];
+
+    #[test]
+    fn odd_file_names_go_through_scan_tag_search_move_and_removal() {
+        let dir = TempDir::new();
+        let library = dir.path().join("lib");
+        for name in ODD_NAMES {
+            write_wav(&library.join(name));
+        }
+        let mut db = memory_db();
+        let scan = scan_quietly(&mut db, &library);
+        assert_eq!((scan.samples.len(), scan.unreadable), (ODD_NAMES.len(), 0));
+
+        for name in ODD_NAMES {
+            let path = library.join(name);
+            let id = db::require_file_id(&db, &path).unwrap();
+            db::add_tags(&db, id, &["odd".to_string()]).unwrap();
+            let stem = path.file_stem().unwrap().to_str().unwrap();
+            let found = db::search(&db, &[], &[stem], false, None).unwrap();
+            assert!(found.iter().any(|s| s.path == path), "{name}");
+        }
+
+        let old = library.join("🥁 kits/boom.wav");
+        let new = library.join("鼓/ドン 💥.wav");
+        let id = db::require_file_id(&db, &old).unwrap();
+        move_sample(&db, &old, &new).unwrap();
+        assert_eq!(db::file_id(&db, &new).unwrap(), Some(id));
+        assert_eq!(db::tags_of(&db, id).unwrap(), ["odd"]);
+
+        // A second scan finds the same files and keeps every row.
+        let again = scan_quietly(&mut db, &library);
+        assert_eq!(again.samples.len(), ODD_NAMES.len());
+        assert_eq!(shown(&db).len(), ODD_NAMES.len());
+
+        assert_eq!(remove_folder(&mut db, &library).unwrap(), ODD_NAMES.len());
+        assert!(shown(&db).is_empty());
+        assert_eq!(db::list_tags(&db).unwrap(), []);
+    }
+
+    fn write_many(folder: &Path, count: usize) {
+        for i in 0..count {
+            write_sound(&folder.join(format!("{i:04}.wav")), 1, &[0; 4]);
+        }
+    }
+
+    #[test]
+    fn indexing_around_one_batch() {
+        for count in [SAVE_BATCH - 1, SAVE_BATCH, SAVE_BATCH + 1] {
+            let dir = TempDir::new();
+            write_many(dir.path(), count);
+            let db = memory_db();
+            let mut reported = Vec::new();
+            let (samples, unreadable) = index(&db, dir.path(), &mut |done| reported.push(done));
+            assert_eq!((samples.len(), unreadable), (count, 0), "{count}");
+            assert_eq!(reported, (1..=count).collect::<Vec<_>>(), "{count}");
+            assert_eq!(shown(&db).len(), count, "{count}");
+        }
+    }
+
+    #[test]
+    fn indexing_inside_a_transaction_counts_every_file_unreadable() {
+        // `save_batch` must not be called inside a transaction: when it is,
+        // nothing is lost silently, every file is counted.
+        let dir = TempDir::new();
+        write_many(dir.path(), 3);
+        let db = memory_db();
+        db.execute_batch("BEGIN").unwrap();
+        let (samples, unreadable) = index(&db, dir.path(), &mut |_| {});
+        assert_eq!(samples.len() + unreadable, 3);
+    }
+
+    #[test]
+    fn an_empty_folder_and_a_folder_of_unreadable_files() {
+        let dir = TempDir::new();
+        let empty = dir.path().join("empty");
+        fs::create_dir(&empty).unwrap();
+        let broken = dir.path().join("broken");
+        fs::create_dir(&broken).unwrap();
+        fs::write(broken.join("a.wav"), "").unwrap();
+        fs::write(broken.join("b.flac"), "not a sound").unwrap();
+        fs::write(broken.join("c.MP3"), [0xff; 64]).unwrap();
+        let mut db = memory_db();
+
+        let scan = scan_quietly(&mut db, &empty);
+        assert_eq!((scan.samples.len(), scan.unreadable), (0, 0));
+        assert_eq!(count_audio_files(&broken), 3);
+        let scan = scan_quietly(&mut db, &broken);
+        assert_eq!((scan.samples.len(), scan.unreadable), (0, 3));
+        // Both are followed all the same, without a sample.
+        assert_eq!(db::folders(&db).unwrap(), [broken, empty]);
+        assert!(shown(&db).is_empty());
+    }
+
+    #[test]
+    fn scanning_twice_and_nested_folders_keep_one_row_per_file() {
+        let dir = TempDir::new();
+        let lib = dir.path().join("lib");
+        write_wav(&lib.join("top.wav"));
+        write_wav(&lib.join("inner/deep.wav"));
+        let mut db = memory_db();
+        let id = db::save(&db, &read_info(&lib.join("inner/deep.wav")).unwrap()).unwrap();
+
+        scan_quietly(&mut db, &lib);
+        scan_quietly(&mut db, &lib);
+        scan_quietly(&mut db, &lib.join("inner"));
+        assert_eq!(shown(&db).len(), 2);
+        assert_eq!(
+            db::file_id(&db, &lib.join("inner/deep.wav")).unwrap(),
+            Some(id)
+        );
+        assert_eq!(db::folders(&db).unwrap(), [lib.clone(), lib.join("inner")]);
+        let counts: Vec<u32> = folders(&db).unwrap().iter().map(|f| f.samples).collect();
+        assert_eq!(counts, [2, 1]);
+    }
+
+    #[test]
+    fn a_relative_or_dotted_folder_is_saved_absolute() {
+        let dir = TempDir::new();
+        write_wav(&dir.path().join("lib/kick.wav"));
+        let mut db = memory_db();
+        let scan = scan_quietly(&mut db, &dir.path().join("lib/../lib/."));
+        assert_eq!(scan.folder, dir.path().join("lib"));
+        assert_eq!(db::folders(&db).unwrap(), [dir.path().join("lib")]);
+    }
+
+    #[test]
+    fn hidden_things_below_a_scanned_folder_are_skipped_but_a_hidden_scanned_folder_is_not() {
+        let dir = TempDir::new();
+        let hidden_root = dir.path().join(".stash");
+        write_wav(&hidden_root.join("kick.wav"));
+        write_wav(&hidden_root.join(".Trash-1000/files/old.wav"));
+        write_wav(&hidden_root.join("drums/.kick.wav.part"));
+        write_wav(&hidden_root.join("drums/._snare.wav"));
+        write_wav(&hidden_root.join("drums/snare.wav"));
+        let mut db = memory_db();
+
+        assert_eq!(count_audio_files(&hidden_root), 2);
+        let scan = scan_quietly(&mut db, &hidden_root);
+        assert_eq!((scan.samples.len(), scan.unreadable), (2, 0));
+        assert_eq!(
+            shown(&db),
+            [
+                hidden_root.join("drums/snare.wav"),
+                hidden_root.join("kick.wav")
+            ]
+        );
+    }
+
+    #[test]
+    fn scanning_a_missing_folder_is_refused_and_saves_nothing() {
+        let dir = TempDir::new();
+        let mut db = memory_db();
+        assert!(scan(&mut db, &dir.path().join("unplugged"), &mut |_, _| {}).is_err());
+        assert!(db::folders(&db).unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_unplugged_folder_keeps_its_samples_and_says_so() {
+        let dir = TempDir::new();
+        let disk = dir.path().join("disk");
+        write_wav(&disk.join("kick.wav"));
+        let mut db = memory_db();
+        scan_quietly(&mut db, &disk);
+        let id = db::require_file_id(&db, &disk.join("kick.wav")).unwrap();
+        db::add_tags(&db, id, &["kept".to_string()]).unwrap();
+        fs::rename(&disk, dir.path().join("elsewhere")).unwrap();
+
+        let listed = folders(&db).unwrap();
+        assert_eq!((listed[0].samples, listed[0].found), (1, false));
+        assert_eq!(db::tags_of(&db, id).unwrap(), ["kept"]);
+        // The waveform pass leaves it alone.
+        assert!(matches!(
+            update_waveform(&db, id, &disk.join("kick.wav")).unwrap(),
+            WaveformUpdate::Missing
+        ));
+        assert_eq!(shown(&db).len(), 1);
+    }
+
+    #[test]
+    fn hidden_below_compares_whole_names() {
+        let roots = [PathBuf::from("/lib")];
+        // `/lib.old` is not inside `/lib`, whatever its dots.
+        assert!(!is_hidden_below(Path::new("/lib.old/.x/kick.wav"), &roots));
+        assert!(!is_hidden_below(Path::new("/lib/kick.wav"), &roots));
+        assert!(!is_hidden_below(Path::new("/lib/a.b/kick.wav"), &roots));
+        assert!(is_hidden_below(Path::new("/lib/.a/b/kick.wav"), &roots));
+        assert!(!is_hidden_below(Path::new("/lib"), &roots));
+        assert!(!is_hidden_below(Path::new("/lib/kick.wav"), &[]));
+    }
+
+    #[test]
+    fn moving_never_overwrites_a_folder_nor_onto_itself() {
+        let dir = TempDir::new();
+        let old = dir.path().join("kick.wav");
+        write_wav(&old);
+        let folder = dir.path().join("taken.wav");
+        fs::create_dir(&folder).unwrap();
+        let db = memory_db();
+        let id = db::save(&db, &read_info(&old).unwrap()).unwrap();
+
+        assert!(move_sample(&db, &old, &folder).is_err());
+        // Onto itself: refused, nothing lost.
+        assert!(move_sample(&db, &old, &old).is_err());
+        assert!(old.is_file() && folder.is_dir());
+        assert_eq!(db::file_id(&db, &old).unwrap(), Some(id));
+    }
+
+    #[test]
+    fn moving_a_file_the_database_does_not_know() {
+        let dir = TempDir::new();
+        let (old, new) = (dir.path().join("a.wav"), dir.path().join("b.wav"));
+        write_wav(&old);
+        let db = memory_db();
+        move_sample(&db, &old, &new).unwrap();
+        assert!(new.is_file());
+        assert!(shown(&db).is_empty());
+    }
+
+    #[test]
+    fn moving_keeps_the_waveform_and_collections() {
+        let dir = TempDir::new();
+        let (old, new) = (dir.path().join("a.wav"), dir.path().join("sub/é.wav"));
+        write_wav(&old);
+        fs::create_dir(dir.path().join("sub")).unwrap();
+        let db = memory_db();
+        let id = db::save(&db, &read_info(&old).unwrap()).unwrap();
+        let drums = db::create_collection(&db, "drums").unwrap();
+        db::add_to_collection(&db, drums, &[id]).unwrap();
+        db::set_favorite(&db, id, true).unwrap();
+        assert!(matches!(
+            update_waveform(&db, id, &old).unwrap(),
+            WaveformUpdate::Computed
+        ));
+
+        move_sample(&db, &old, &new).unwrap();
+        // A rename keeps the modification date: nothing to compute again.
+        assert!(matches!(
+            update_waveform(&db, id, &new).unwrap(),
+            WaveformUpdate::UpToDate
+        ));
+        assert_eq!(db::collections_holding(&db, &[id]).unwrap(), [drums]);
+        let found = db::search(&db, &[], &[], true, Some(drums)).unwrap();
+        assert_eq!(found[0].path, new);
+    }
+
+    /// A sample whose timbre is stored as `values`, its waveform up to date
+    /// for the file written at `path`.
+    fn with_timbre(db: &Connection, path: &Path, values: Option<[f32; DIMENSIONS]>) -> i64 {
+        write_wav(path);
+        let id = db::save(db, &read_info(path).unwrap()).unwrap();
+        let measures = waveform::Measures {
+            timbre: values.map(Fingerprint),
+            ..Default::default()
+        };
+        let stamp = db::FileStamp::read(path).unwrap();
+        db::save_waveform(db, id, stamp, &[(0.0, 0.0)], measures).unwrap();
+        id
+    }
+
+    fn ramp(offset: f32) -> [f32; DIMENSIONS] {
+        std::array::from_fn(|i| i as f32 + offset)
+    }
+
+    #[test]
+    fn similar_alone_in_the_library() {
+        let dir = TempDir::new();
+        let db = memory_db();
+        let path = dir.path().join("only.wav");
+        let id = with_timbre(&db, &path, Some(ramp(0.0)));
+        assert!(similar(&db, id, &path).unwrap().is_empty());
+    }
+
+    #[test]
+    fn similar_without_a_timbre_of_its_own_is_an_error() {
+        let dir = TempDir::new();
+        let db = memory_db();
+        let path = dir.path().join("silent.wav");
+        let id = with_timbre(&db, &path, None);
+        with_timbre(&db, &dir.path().join("other.wav"), Some(ramp(0.0)));
+        assert!(similar(&db, id, &path).is_err());
+        assert!(similar(&db, id, &dir.path().join("gone.wav")).is_err());
+    }
+
+    #[test]
+    fn similar_with_identical_fingerprints() {
+        let dir = TempDir::new();
+        let db = memory_db();
+        let path = dir.path().join("a.wav");
+        let id = with_timbre(&db, &path, Some(ramp(1.0)));
+        for name in ["b.wav", "c.wav"] {
+            with_timbre(&db, &dir.path().join(name), Some(ramp(1.0)));
+        }
+        let ranked = similar(&db, id, &path).unwrap();
+        let names: Vec<_> = ranked.iter().map(|(p, _)| p.file_name().unwrap()).collect();
+        assert_eq!(names, ["b.wav", "c.wav"]);
+        // No spread at all: every distance 0, never NaN.
+        assert!(ranked.iter().all(|(_, distance)| *distance == 0.0));
+    }
+
+    #[test]
+    fn similar_leaves_out_hidden_samples_and_ranks_the_rest() {
+        let dir = TempDir::new();
+        let db = memory_db();
+        let path = dir.path().join("lib/a.wav");
+        let id = with_timbre(&db, &path, Some(ramp(0.0)));
+        with_timbre(&db, &dir.path().join("lib/near.wav"), Some(ramp(0.1)));
+        with_timbre(&db, &dir.path().join("lib/far.wav"), Some(ramp(5.0)));
+        with_timbre(&db, &dir.path().join("gone/x.wav"), Some(ramp(0.0)));
+        db::add_folder(&db, &dir.path().join("lib")).unwrap();
+        db::add_folder(&db, &dir.path().join("gone")).unwrap();
+        db::remove_folder(&db, &dir.path().join("gone")).unwrap();
+
+        let ranked = similar(&db, id, &path).unwrap();
+        let names: Vec<_> = ranked.iter().map(|(p, _)| p.file_name().unwrap()).collect();
+        assert_eq!(names, ["near.wav", "far.wav"]);
+        assert!(ranked.iter().all(|(_, distance)| distance.is_finite()));
+        assert!(ranked[0].1 < ranked[1].1);
+    }
+}

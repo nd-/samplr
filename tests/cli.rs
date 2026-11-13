@@ -544,3 +544,113 @@ fn a_wav_declaring_no_sample_rate_is_unreadable_not_a_crash() {
     assert_eq!(scan["unreadable"], 1);
     assert_eq!(scan["samples"].as_array().unwrap().len(), 1);
 }
+
+#[test]
+fn odd_file_names_through_the_command_line() {
+    let library = Library::new();
+    let names_on_disk = [
+        "Été/caisse claire.wav",
+        "🥁 kits/boom.wav",
+        "鼓/キック.wav",
+        "100% wet.wav",
+        "a_b.wav",
+        "#1 snare.wav",
+        "it's \"loud\".wav",
+    ];
+    for name in names_on_disk {
+        library.add(name);
+    }
+    let scan = library.scan();
+    assert_eq!(
+        scan["samples"].as_array().unwrap().len(),
+        names_on_disk.len()
+    );
+
+    let boom = library.samples().join("🥁 kits/boom.wav");
+    assert_eq!(library.json(&["tag", text(&boom), "ÉTÉ"])["added"], 1);
+    assert_eq!(names(&library.json(&["search", "#été"])), ["boom.wav"]);
+    assert_eq!(names(&library.json(&["search", "🥁"])), ["boom.wav"]);
+    assert_eq!(names(&library.json(&["search", "キック"])), ["キック.wav"]);
+    assert_eq!(names(&library.json(&["search", "%"])), ["100% wet.wav"]);
+    assert_eq!(names(&library.json(&["search", "_"])), ["a_b.wav"]);
+    assert_eq!(
+        names(&library.json(&["search", "'s"])),
+        ["it's \"loud\".wav"]
+    );
+    assert_eq!(
+        library.json(&["tags"]),
+        serde_json::json!([{ "name": "été", "count": 1 }])
+    );
+
+    let removed = library.json(&["remove-folder", text(&library.samples())]);
+    assert_eq!(removed["hidden"], names_on_disk.len());
+    assert!(names(&library.json(&["list"])).is_empty());
+}
+
+#[test]
+fn odd_searches_filter_nothing_by_mistake() {
+    let library = Library::new();
+    library.add("kick.wav");
+    library.add("snare.wav");
+    library.scan();
+    for text in [
+        "#",
+        "bpm:abc",
+        "bpm:5-",
+        "key:zzz",
+        "type:nothing",
+        "loop:maybe",
+        "",
+    ] {
+        assert_eq!(names(&library.json(&["search", text])).len(), 2, "{text:?}");
+    }
+    assert!(names(&library.json(&["search", "##"])).is_empty());
+}
+
+#[test]
+fn an_unplugged_folder_keeps_its_samples() {
+    let library = Library::new();
+    let kick = library.add("kick.wav");
+    library.scan();
+    library.json(&["tag", text(&kick), "kept"]);
+    let folder = text(&library.samples()).to_string();
+    let away = library.dir.0.join("unplugged");
+    fs::rename(library.samples(), &away).unwrap();
+
+    assert_eq!(
+        library.json(&["folders"]),
+        serde_json::json!([{ "path": folder, "samples": 1, "found": false }])
+    );
+    // Nothing forgotten: plugged back, the tags are there.
+    fs::rename(&away, library.samples()).unwrap();
+    assert_eq!(
+        library.json(&["list"])[0]["tags"],
+        serde_json::json!(["kept"])
+    );
+}
+
+#[test]
+fn scanning_a_missing_folder_fails_without_saving_it() {
+    let library = Library::new();
+    let missing = library.dir.0.join("missing");
+    let output = library.run(&["scan", text(&missing)]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("is not a folder"));
+    assert_eq!(library.json(&["folders"]), serde_json::json!([]));
+}
+
+#[test]
+fn reading_while_another_process_writes() {
+    let library = Library::new();
+    library.add("kick.wav");
+    library.scan();
+
+    // The interface or a scan in the middle of a write: an up-to-date
+    // database is read without waiting for the write lock.
+    let writer = rusqlite::Connection::open(library.dir.0.join("samplr.db")).unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    // Needing the lock, each would fail with "database is locked".
+    assert_eq!(names(&library.json(&["list"])), ["kick.wav"]);
+    assert_eq!(names(&library.json(&["search", "kick"])), ["kick.wav"]);
+    writer.execute_batch("ROLLBACK").unwrap();
+}
