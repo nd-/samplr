@@ -15,7 +15,10 @@ function watchForDrag(event, sample) {
   function onMove(move) {
     if (Math.hypot(move.clientX - startX, move.clientY - startY) < 5) return;
     stopWatching();
-    startDrag(sample);
+    // A refresh since the button went down may have taken the sample out of
+    // the list (deleted, renamed): its old path would be dragged.
+    const current = samples.find((s) => s.path === sample.path);
+    if (current) startDrag(current);
   }
   function stopWatching() {
     document.removeEventListener("mousemove", onMove);
