@@ -125,7 +125,10 @@ impl Timbre {
         if self.frames as f64 > MAX_SECONDS * self.sample_rate {
             return;
         }
-        self.pending.push(sample);
+        // A float WAV may hold NaN or infinite values: one would turn every
+        // number of the fingerprint into NaN.
+        self.pending
+            .push(if sample.is_finite() { sample } else { 0.0 });
         if self.pending.len() == FRAME {
             self.analyse();
             self.pending.drain(..HOP);
@@ -253,15 +256,21 @@ impl Timbre {
 /// the library), so that none weighs more for its unit: a distance of 1 is a
 /// difference of one standard deviation on every number.
 pub fn rank<K: Copy>(target: &Fingerprint, library: &[(K, Fingerprint)]) -> Vec<(K, f32)> {
+    // A fingerprint holding NaN (measured by an older samplr, see `push`)
+    // would make the library's scale NaN, hence every distance 0.
+    let library: Vec<&(K, Fingerprint)> = library
+        .iter()
+        .filter(|(_, fingerprint)| fingerprint.0.iter().all(|value| value.is_finite()))
+        .collect();
     let count = library.len().max(1) as f64;
     let mut means = [0.0f64; DIMENSIONS];
     let mut spreads = [0.0f64; DIMENSIONS];
-    for (_, fingerprint) in library {
+    for (_, fingerprint) in &library {
         for (mean, value) in means.iter_mut().zip(fingerprint.0) {
             *mean += f64::from(value) / count;
         }
     }
-    for (_, fingerprint) in library {
+    for (_, fingerprint) in &library {
         for ((spread, mean), value) in spreads.iter_mut().zip(means).zip(fingerprint.0) {
             *spread += (f64::from(value) - mean).powi(2) / count;
         }
@@ -481,5 +490,169 @@ mod tests {
         assert_eq!(timbre.analysed, (64 * 8000 - FRAME) / HOP + 1);
         let length = 2f32.powf(timbre.finish().unwrap().0[LENGTH]) - 1.0;
         assert!((length - 70.0).abs() < 0.01, "{length}");
+    }
+
+    fn finite(fingerprint: &Fingerprint) -> bool {
+        fingerprint.0.iter().all(|value| value.is_finite())
+    }
+
+    #[test]
+    fn sounds_around_one_frame_long() {
+        // A single frame falls where the window is zero: nothing to measure.
+        if let Some(one) = fingerprint([0.5]) {
+            assert!(finite(&one), "{one:?}");
+        }
+        assert!(finite(&fingerprint(vec![0.5; 44]).unwrap()));
+        assert_eq!(fingerprint([0.0]), None);
+        // Under the silence threshold once padded to a frame.
+        assert_eq!(fingerprint([0.001]), None);
+        for frames in [FRAME - 1, FRAME, FRAME + 1, FRAME + HOP] {
+            let sound = fingerprint(noise(frames as f64 / f64::from(RATE), 0.5)).unwrap();
+            assert!(finite(&sound), "{frames}: {sound:?}");
+        }
+    }
+
+    #[test]
+    fn a_constant_offset_is_measured_without_nan() {
+        for level in [0.5, -1.0, 1e-3] {
+            if let Some(dc) = fingerprint(vec![level; RATE as usize]) {
+                assert!(finite(&dc), "{level}: {dc:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn odd_sample_rates_do_not_panic() {
+        for rate in [0, 1, 100, 8000, 192_000, u32::MAX] {
+            let mut timbre = Timbre::new(rate);
+            for sample in noise(0.1, 0.5) {
+                timbre.push(sample);
+            }
+            if let Some(fingerprint) = timbre.finish() {
+                assert!(finite(&fingerprint), "{rate}: {fingerprint:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn full_scale_and_clipped_sounds_are_finite() {
+        let square = (0..RATE).map(|i| if (i / 50) % 2 == 0 { 1.0 } else { -1.0 });
+        assert!(finite(&fingerprint(square).unwrap()));
+        assert!(finite(&fingerprint(noise(1.0, 1000.0)).unwrap()));
+    }
+
+    #[test]
+    fn a_non_finite_sample_does_not_poison_the_fingerprint() {
+        // Expected: a NaN or infinite sample (a float WAV may hold one) is
+        // skipped or zeroed, so that the fingerprint stays finite.
+        for bad in [f32::NAN, f32::INFINITY] {
+            let mut sound = noise(1.0, 0.5);
+            sound[10_000] = bad;
+            let fingerprint = fingerprint(sound).unwrap();
+            assert!(finite(&fingerprint), "{bad}: {fingerprint:?}");
+        }
+    }
+
+    /// Fingerprints spread around, the same at each run.
+    fn random_fingerprints(count: usize, seed: u32) -> Vec<(usize, Fingerprint)> {
+        let mut state = seed;
+        (0..count)
+            .map(|key| {
+                let mut values = [0.0; DIMENSIONS];
+                for value in values.iter_mut() {
+                    state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    *value = (state as f32 / u32::MAX as f32 - 0.5) * 20.0;
+                }
+                (key, Fingerprint(values))
+            })
+            .collect()
+    }
+
+    fn assert_well_ranked(target: &Fingerprint, library: &[(usize, Fingerprint)]) {
+        let ranked = rank(target, library);
+        assert_eq!(ranked, rank(target, library));
+        assert_eq!(ranked.len(), library.len());
+        assert!(
+            ranked
+                .iter()
+                .all(|(_, distance)| distance.is_finite() && *distance >= 0.0),
+            "{ranked:?}"
+        );
+        assert!(ranked.windows(2).all(|pair| pair[0].1 <= pair[1].1));
+        let mut keys: Vec<usize> = ranked.iter().map(|(key, _)| *key).collect();
+        keys.sort();
+        let mut expected: Vec<usize> = library.iter().map(|(key, _)| *key).collect();
+        expected.sort();
+        assert_eq!(keys, expected);
+    }
+
+    #[test]
+    fn rank_is_sorted_finite_and_the_same_at_each_call() {
+        for seed in 0..20 {
+            let library = random_fingerprints(50, seed);
+            for (_, target) in &library {
+                assert_well_ranked(target, &library);
+            }
+            // A target from outside the library.
+            let outside = random_fingerprints(1, seed + 1000)[0].1;
+            assert_well_ranked(&outside, &library);
+        }
+    }
+
+    #[test]
+    fn rank_of_a_lone_or_repeated_fingerprint() {
+        let one = random_fingerprints(1, 3)[0].1;
+        assert_eq!(rank(&one, &[(0, one)]), [(0, 0.0)]);
+        // Every number the same over the library: nothing tells them apart.
+        let same: Vec<(usize, Fingerprint)> = (0..5).map(|key| (key, one)).collect();
+        let ranked = rank(&one, &same);
+        assert_well_ranked(&one, &same);
+        assert!(ranked.iter().all(|(_, distance)| *distance == 0.0));
+        // Ties keep the library's order.
+        let keys: Vec<usize> = ranked.iter().map(|(key, _)| *key).collect();
+        assert_eq!(keys, [0, 1, 2, 3, 4]);
+        let other = random_fingerprints(1, 4)[0].1;
+        assert_well_ranked(&other, &same);
+        assert!(rank(&other, &same).iter().all(|(_, d)| *d == 0.0));
+    }
+
+    #[test]
+    fn rank_with_extreme_finite_numbers() {
+        let mut low = Fingerprint([0.0; DIMENSIONS]);
+        let mut high = Fingerprint([0.0; DIMENSIONS]);
+        low.0[CENTROID] = -f32::MAX;
+        high.0[CENTROID] = f32::MAX;
+        let mut tiny = Fingerprint([0.0; DIMENSIONS]);
+        tiny.0[FLATNESS] = f32::MIN_POSITIVE;
+        let library = [(0, low), (1, high), (2, tiny)];
+        for (_, target) in &library {
+            let ranked = rank(target, &library);
+            assert!(ranked.iter().all(|(_, d)| !d.is_nan()), "{ranked:?}");
+            assert!(ranked.windows(2).all(|pair| pair[0].1 <= pair[1].1));
+        }
+    }
+
+    #[test]
+    fn a_nan_fingerprint_does_not_blind_the_others() {
+        // Expected: a fingerprint holding NaN (see above) is left out of the
+        // library's scale, so the others are still told apart.
+        let mut library = random_fingerprints(10, 5);
+        library.push((10, Fingerprint([f32::NAN; DIMENSIONS])));
+        let ranked = rank(&library[0].1, &library);
+        let others: Vec<f32> = ranked
+            .iter()
+            .filter(|(key, _)| *key != 0 && *key != 10)
+            .map(|(_, distance)| *distance)
+            .collect();
+        assert!(others.iter().all(|d| *d > 0.0), "{ranked:?}");
+    }
+
+    #[test]
+    fn bytes_of_odd_lengths() {
+        assert_eq!(Fingerprint::from_bytes(&[]), None);
+        assert_eq!(Fingerprint::from_bytes(&[0; DIMENSIONS * 4 + 1]), None);
+        assert_eq!(Fingerprint::from_bytes(&[0; DIMENSIONS * 4 - 1]), None);
+        let zero = Fingerprint::from_bytes(&[0; DIMENSIONS * 4]).unwrap();
+        assert_eq!(zero, Fingerprint([0.0; DIMENSIONS]));
     }
 }
