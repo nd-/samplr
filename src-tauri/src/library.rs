@@ -116,13 +116,6 @@ impl Library {
         watching.roots = watched;
         Ok(added)
     }
-
-    fn roots(&self) -> Vec<PathBuf> {
-        match self.watching.lock() {
-            Ok(guard) => guard.as_ref().map(|w| w.roots.clone()).unwrap_or_default(),
-            Err(_) => Vec::new(),
-        }
-    }
 }
 
 /// Starts following the folders, in a thread of its own: first catches up
@@ -176,10 +169,10 @@ fn follow(app: &AppHandle) -> Result<(), Box<dyn Error>> {
         let mut note = |_: String| changed = true;
         match batch {
             Ok(batch) => {
-                // Read at each batch: `add_folder` may have added a folder.
-                let roots = library.roots();
+                // Read at each batch: a folder may have been added or removed.
+                let folders = db::folders(&db).unwrap_or_default();
                 for event in &batch {
-                    if let Err(error) = watch::handle_event(&db, &roots, event, &mut note) {
+                    if let Err(error) = watch::handle_event(&db, &folders, event, &mut note) {
                         let paths: Vec<String> = event
                             .paths
                             .iter()

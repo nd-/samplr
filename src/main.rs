@@ -229,8 +229,11 @@ fn watch(json: bool) -> Result<(), Box<dyn Error>> {
     for batch in receiver {
         match batch {
             Ok(events) => {
+                // Read at each batch: `remove-folder` may have run meanwhile.
+                let folders = db::folders(&db).unwrap_or_default();
                 for event in &events {
-                    if let Err(error) = samplr::watch::handle_event(&db, &roots, event, &mut print)
+                    if let Err(error) =
+                        samplr::watch::handle_event(&db, &folders, event, &mut print)
                     {
                         eprintln!("Error: {error}");
                     }

@@ -161,12 +161,20 @@ fn is_hidden(name: &std::ffi::OsStr) -> bool {
 /// where a sample moved to the trash would otherwise come back), the system
 /// folders of external disks (`.Spotlight-V100`, `.fseventsd`), a conversion
 /// being written (`.kick.wav.part`). A scanned folder may itself be hidden:
-/// only what lies below it counts.
+/// only what lies below it counts, judged from the deepest scanned folder
+/// holding `path` (`lib/.private` scanned on its own inside `lib` is kept).
 pub fn is_hidden_below(path: &Path, roots: &[PathBuf]) -> bool {
-    roots
+    scanned_folder_of(path, roots)
+        .and_then(|root| path.strip_prefix(root).ok())
+        .is_some_and(|below| below.components().any(|part| is_hidden(part.as_os_str())))
+}
+
+/// The deepest of `folders` holding `path` (or equal to it), if any.
+pub fn scanned_folder_of<'a>(path: &Path, folders: &'a [PathBuf]) -> Option<&'a PathBuf> {
+    folders
         .iter()
-        .filter_map(|root| path.strip_prefix(root).ok())
-        .any(|below| below.components().any(|part| is_hidden(part.as_os_str())))
+        .filter(|folder| path.starts_with(folder))
+        .max_by_key(|folder| folder.components().count())
 }
 
 /// The entries of a walk of `folder` that `index` looks at: hidden files and

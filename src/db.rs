@@ -355,6 +355,15 @@ pub fn forget(db: &Connection, path: &Path) -> Result<usize, Box<dyn Error>> {
     Ok(forgotten)
 }
 
+/// Forgets the sample recorded at exactly `path`, not those below it.
+pub fn forget_file(db: &Connection, path: &Path) -> Result<usize, Box<dyn Error>> {
+    let forgotten = db.execute("DELETE FROM files WHERE path = ?1", [path_as_text(path)?])?;
+    if forgotten > 0 {
+        delete_orphan_tags(db)?;
+    }
+    Ok(forgotten)
+}
+
 /// Applies a rename or a move to the database: the sample (or every sample in
 /// the folder) changes path but keeps its `id`, hence its tags. Returns the
 /// number of samples renamed.
