@@ -52,6 +52,10 @@ fn find<R: Read + Seek>(file: &mut R) -> Option<Acid> {
     while file.read_exact(&mut chunk).is_ok() {
         let size = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
         if &chunk[0..4] == b"acid" {
+            // Shorter, its fields would be read from the next chunk.
+            if size < 24 {
+                return None;
+            }
             let mut body = [0u8; 24];
             file.read_exact(&mut body).ok()?;
             return Some(parse(&body));
@@ -161,5 +165,168 @@ mod tests {
         assert_eq!(tempo(400, 60.0), Some(400));
         assert_eq!(tempo(19, 60.0), None);
         assert_eq!(tempo(401, 60.0), None);
+    }
+
+    #[test]
+    fn tempo_from_odd_lengths_or_beats() {
+        for seconds in [
+            -4.0,
+            -0.0,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::MIN_POSITIVE,
+            5e-324,
+            f64::MAX,
+        ] {
+            assert_eq!(tempo(8, seconds), None, "{seconds}");
+            assert_eq!(tempo(u32::MAX, seconds), None, "{seconds}");
+        }
+        assert_eq!(tempo(u32::MAX, 1.0), None);
+        // Rounded first: 19.5 is taken as 20, 400.49 as 400.
+        assert_eq!(tempo(13, 40.0), Some(20));
+        assert_eq!(tempo(40_049, 6000.0), Some(400));
+    }
+
+    #[test]
+    fn tempo_from_beats_stays_in_its_range() {
+        for beats in [1, 2, 3, 4, 7, 8, 16, 64, 128, 1000, u32::MAX] {
+            for centis in 1..20_000 {
+                let seconds = f64::from(centis) / 100.0;
+                if let Some(tempo) = tempo(beats, seconds) {
+                    assert!(
+                        analysis::MANUAL_TEMPOS.contains(&tempo),
+                        "{beats} beats in {seconds} s: {tempo}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A RIFF/WAVE file of the given chunks, each written with `size` as
+    /// its declared size whatever its body, padded to an even length.
+    fn chunks(list: &[(&[u8; 4], u32, Vec<u8>)]) -> Vec<u8> {
+        let mut file = b"RIFF\0\0\0\0WAVE".to_vec();
+        for (id, size, body) in list {
+            file.extend(*id);
+            file.extend(size.to_le_bytes());
+            file.extend(body);
+            if body.len() % 2 == 1 {
+                file.push(0);
+            }
+        }
+        file
+    }
+
+    fn body(flags: u32, root: u16, beats: u32) -> Vec<u8> {
+        let mut body = flags.to_le_bytes().to_vec();
+        body.extend(root.to_le_bytes());
+        body.extend([0u8; 6]);
+        body.extend(beats.to_le_bytes());
+        body.extend([4, 0, 4, 0]);
+        body.extend(120f32.to_le_bytes());
+        body
+    }
+
+    #[test]
+    fn after_the_sound_and_odd_chunks() {
+        // A megabyte of sound skipped with a seek, then odd-sized chunks.
+        let file = chunks(&[
+            (b"fmt ", 16, vec![0; 16]),
+            (b"data", 1 << 20, vec![0; 1 << 20]),
+            (b"junk", 1, vec![7]),
+            (b"bext", 5, vec![1; 5]),
+            (b"acid", 24, body(0, 61, 16)),
+        ]);
+        let acid = find(&mut Cursor::new(file)).unwrap();
+        assert_eq!((acid.beats, acid.root, acid.looped), (16, None, true));
+    }
+
+    #[test]
+    fn any_root_note_is_a_note() {
+        for root in [0, 11, 12, 127, 128, u16::MAX] {
+            let file = chunks(&[(b"acid", 24, body(ROOT_NOTE_SET, root, 4))]);
+            let acid = find(&mut Cursor::new(file)).unwrap();
+            assert!(analysis::NOTES.contains(&acid.root.as_deref().unwrap()));
+        }
+        // MIDI 60 is C, 69 is A.
+        let note = |root| find(&mut Cursor::new(chunks(&[(b"acid", 24, body(2, root, 4))])));
+        assert_eq!(note(60).unwrap().root.as_deref(), Some("C"));
+        assert_eq!(note(69).unwrap().root.as_deref(), Some("A"));
+    }
+
+    #[test]
+    fn a_chunk_cut_short_is_not_read() {
+        // The file ends inside the chunk.
+        let mut file = chunks(&[(b"acid", 24, body(0, 60, 8))]);
+        file.truncate(file.len() - 4);
+        assert_eq!(find(&mut Cursor::new(file)), None);
+    }
+
+    #[test]
+    fn a_chunk_declared_shorter_than_its_fields_is_not_read() {
+        // 8 bytes declared, then a data chunk: its bytes are not the acid
+        // chunk's beats. Expected: `None`, the chunk being too short.
+        let file = chunks(&[
+            (b"acid", 8, body(0, 60, 8)[..8].to_vec()),
+            (b"data", 16, vec![0xff; 16]),
+        ]);
+        assert_eq!(find(&mut Cursor::new(file)), None);
+    }
+
+    #[test]
+    fn absurd_chunk_sizes_end_the_walk() {
+        for size in [u32::MAX, u32::MAX - 1, 1 << 31] {
+            let file = chunks(&[(b"junk", size, vec![0; 8]), (b"acid", 24, body(0, 60, 8))]);
+            assert_eq!(find(&mut Cursor::new(file)), None, "{size}");
+        }
+        // Zero-sized chunks are walked through, one by one.
+        let mut list: Vec<(&[u8; 4], u32, Vec<u8>)> = vec![(b"junk", 0, Vec::new()); 10_000];
+        list.push((b"acid", 24, body(0, 60, 8)));
+        assert!(find(&mut Cursor::new(chunks(&list))).is_some());
+    }
+
+    #[test]
+    fn only_a_riff_wave_is_read() {
+        let acid = body(0, 60, 8);
+        for header in [&b"RIFX\0\0\0\0WAVE"[..], b"RIFF\0\0\0\0AVI ", b"RIFF", b""] {
+            let mut file = header.to_vec();
+            file.extend(b"acid");
+            file.extend(24u32.to_le_bytes());
+            file.extend(&acid);
+            assert_eq!(find(&mut Cursor::new(file)), None, "{header:?}");
+        }
+    }
+
+    #[test]
+    fn read_after_the_extension_whatever_its_case() {
+        let dir = crate::test_support::TempDir::new();
+        let file = chunks(&[(b"acid", 24, body(ROOT_NOTE_SET, 60, 8))]);
+        for name in ["a.wav", "B.WAV", "c.Wav", "été 🥁 #1.wav"] {
+            std::fs::write(dir.path().join(name), &file).unwrap();
+            assert!(read(&dir.path().join(name)).is_some(), "{name}");
+        }
+        // The same bytes under another extension are not looked at.
+        for name in ["a.aiff", "a.wav.txt", "wav"] {
+            std::fs::write(dir.path().join(name), &file).unwrap();
+            assert_eq!(read(&dir.path().join(name)), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn tempo_of_lengths_that_are_not_numbers() {
+        for seconds in [
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            -1.0,
+            f64::MIN_POSITIVE,
+        ] {
+            assert_eq!(tempo(8, seconds), None, "{seconds}");
+        }
+        assert_eq!(tempo(u32::MAX, 1.0), None);
+        // Rounded to the nearest: 119.6 and 120.4 are 120.
+        assert_eq!(tempo(4, 4.0 * 60.0 / 119.6), Some(120));
+        assert_eq!(tempo(4, 4.0 * 60.0 / 120.4), Some(120));
     }
 }
