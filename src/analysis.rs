@@ -130,14 +130,16 @@ pub fn tempo_from_name(stem: &str) -> Option<u32> {
 
 /// The key written in a file name (without its extension), in sharps ("A#m"
 /// rather than "Bbm"), if any. A lone letter counts only next to a tempo,
-/// as sample packs write it: "Kick_A" is not in A.
+/// as sample packs write it: "Kick_A" is not in A. A key with its quality
+/// wins over a lone letter wherever they stand ("Kit_A_Loop_120_Gm" is in Gm).
 pub fn key_from_name(stem: &str) -> Option<String> {
-    let has_tempo = tempo_from_name(stem).is_some();
-    words(stem).iter().find_map(|word| match key_word(word)? {
-        (key, true) => Some(key),
-        (key, false) if has_tempo => Some(key),
-        _ => None,
-    })
+    let keys: Vec<(String, bool)> = words(stem)
+        .iter()
+        .filter_map(|word| key_word(word))
+        .collect();
+    let qualified = keys.iter().find(|(_, qualified)| *qualified);
+    let lone = keys.first().filter(|_| tempo_from_name(stem).is_some());
+    qualified.or(lone).map(|(key, _)| key.clone())
 }
 
 /// The tempo of a loop from its length: a loop lasts a whole number of
@@ -379,5 +381,280 @@ mod tests {
         assert_eq!(normalize_key(" am ").as_deref(), Some("Am"));
         assert_eq!(normalize_key("F#").as_deref(), Some("F#"));
         assert_eq!(normalize_key("H"), None);
+    }
+
+    /// Pseudo-random strings, the same at each run, from pieces a sample's
+    /// name may hold: separators, digits, notes, "bpm", accents, emoji.
+    fn random_names(count: usize) -> Vec<String> {
+        const PIECES: &[&str] = &[
+            "_",
+            " ",
+            "-",
+            "(",
+            ")",
+            ".",
+            ",",
+            "[",
+            "]",
+            "1",
+            "2",
+            "0",
+            "9",
+            "120",
+            "50",
+            "250",
+            "251",
+            "49",
+            "bpm",
+            "BPM",
+            "Bpm",
+            "A",
+            "Bb",
+            "C#",
+            "m",
+            "min",
+            "maj",
+            "major",
+            "b",
+            "#",
+            "Kick",
+            "Loop",
+            "é",
+            "e\u{301}",
+            "🎹",
+            "İ",
+            "ß",
+            "１２０",
+            "\u{0}",
+            "Cb",
+            "E#",
+        ];
+        let mut state: u32 = 7;
+        (0..count)
+            .map(|_| {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let length = (state >> 28) as usize;
+                (0..length)
+                    .map(|_| {
+                        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                        PIECES[(state >> 8) as usize % PIECES.len()]
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn is_a_key(key: &str) -> bool {
+        let note = key.strip_suffix('m').unwrap_or(key);
+        NOTES.contains(&note)
+    }
+
+    #[test]
+    fn names_never_give_a_tempo_or_key_out_of_their_range() {
+        for name in random_names(20_000) {
+            if let Some(tempo) = tempo_from_name(&name) {
+                assert!(TEMPOS.contains(&tempo), "{name:?}: {tempo}");
+            }
+            if let Some(key) = key_from_name(&name) {
+                assert!(is_a_key(&key), "{name:?}: {key}");
+                assert_eq!(normalize_key(&key).as_deref(), Some(key.as_str()));
+            }
+            if let Some(key) = normalize_key(&name) {
+                assert!(is_a_key(&key), "{name:?}: {key}");
+            }
+        }
+    }
+
+    #[test]
+    fn bpm_in_any_case() {
+        assert_eq!(tempo_from_name("Loop 120Bpm"), Some(120));
+        assert_eq!(tempo_from_name("Loop 120 BpM"), Some(120));
+        assert_eq!(tempo_from_name("Loop_120_BPM"), Some(120));
+        assert_eq!(tempo_from_name("Loop (120bPm)"), Some(120));
+    }
+
+    #[test]
+    fn tempos_in_names_at_the_edges_of_their_range() {
+        assert_eq!(tempo_from_name("Loop 49bpm"), None);
+        assert_eq!(tempo_from_name("Loop 50bpm"), Some(50));
+        assert_eq!(tempo_from_name("Loop 250 BPM"), Some(250));
+        assert_eq!(tempo_from_name("Loop 251bpm"), None);
+        assert_eq!(tempo_from_name("Loop 1000bpm"), None);
+        assert_eq!(tempo_from_name("Loop 9bpm"), None);
+        assert_eq!(tempo_from_name("Loop_300_Gm"), None);
+        assert_eq!(tempo_from_name("Loop_0bpm"), None);
+        assert_eq!(tempo_from_name("bpm"), None);
+        assert_eq!(tempo_from_name(""), None);
+    }
+
+    #[test]
+    fn several_numbers_in_a_name() {
+        assert_eq!(tempo_from_name("Pack 2 Loop 03 128bpm 44"), Some(128));
+        // The written tempo wins over a bare number before a key.
+        assert_eq!(tempo_from_name("Loop_140_Gm_120bpm"), Some(120));
+        assert_eq!(tempo_from_name("MP2_84_Drums_120_Am"), Some(120));
+        assert_eq!(tempo_from_name("Vol 3 Kick 808 909"), None);
+    }
+
+    #[test]
+    fn numbers_glued_to_letters_are_no_tempo() {
+        assert_eq!(tempo_from_name("Kick120"), None);
+        assert_eq!(tempo_from_name("V120_Gm"), None);
+        assert_eq!(tempo_from_name("120Gm"), None);
+        assert_eq!(key_from_name("Kick120"), None);
+    }
+
+    #[test]
+    fn unicode_in_names() {
+        assert_eq!(tempo_from_name("Café 🎹 120bpm Am"), Some(120));
+        assert_eq!(key_from_name("Café 🎹 120bpm Am").as_deref(), Some("Am"));
+        assert_eq!(tempo_from_name("Été_120_Dm"), Some(120));
+        // Decomposed accents (NFD, as HFS+ writes them).
+        assert_eq!(tempo_from_name("Re\u{301}gion_120_Dm"), Some(120));
+        assert_eq!(key_from_name("Re\u{301}gion_120_Dm").as_deref(), Some("Dm"));
+        // "É" decomposed starts with an E, but is no key.
+        assert_eq!(key_from_name("Loop 120bpm E\u{301}te\u{301}"), None);
+        // Digits of other scripts are not a tempo.
+        assert_eq!(tempo_from_name("Loop １２０bpm"), None);
+        assert_eq!(tempo_from_name("Loop ١٢٠ bpm"), None);
+        assert_eq!(tempo_from_name("🎹120bpm"), None);
+        assert_eq!(key_from_name("B♭m 120bpm"), None);
+    }
+
+    #[test]
+    fn keys_in_flats_and_sharps() {
+        let key = |name: &str| key_from_name(&format!("Loop 120bpm {name}"));
+        assert_eq!(key("Cb").as_deref(), Some("B"));
+        assert_eq!(key("Fb").as_deref(), Some("E"));
+        assert_eq!(key("B#").as_deref(), Some("C"));
+        assert_eq!(key("E#").as_deref(), Some("F"));
+        assert_eq!(key("Abmin").as_deref(), Some("G#m"));
+        assert_eq!(key("Gbmajor").as_deref(), Some("F#"));
+        assert_eq!(key("Dminor").as_deref(), Some("Dm"));
+        assert_eq!(key("C##"), None);
+        assert_eq!(key("Cbb"), None);
+        assert_eq!(key("H"), None);
+        // Lower case is a word, not a key, even next to a tempo.
+        assert_eq!(key("am"), None);
+        assert_eq!(tempo_from_name("Loop_120_am"), None);
+    }
+
+    #[test]
+    fn a_key_with_a_quality_wins_over_a_lone_letter_elsewhere() {
+        // Expected Gm: "A" is not next to the tempo, "Gm" is.
+        assert_eq!(key_from_name("Kit_A_Loop_120_Gm").as_deref(), Some("Gm"));
+    }
+
+    #[test]
+    fn keys_typed_by_hand_in_odd_spellings() {
+        for key in NOTES {
+            assert_eq!(normalize_key(key).as_deref(), Some(key));
+            let minor = format!("{key}m");
+            assert_eq!(normalize_key(&minor), Some(minor.clone()));
+            assert_eq!(normalize_key(&minor.to_lowercase()), Some(minor));
+        }
+        assert_eq!(normalize_key(""), None);
+        assert_eq!(normalize_key("   "), None);
+        assert_eq!(normalize_key("é"), None);
+        assert_eq!(normalize_key("ébm"), None);
+        assert_eq!(normalize_key("🎹"), None);
+        assert_eq!(normalize_key("b♭"), None);
+        assert_eq!(normalize_key("\u{0}"), None);
+    }
+
+    #[test]
+    fn tempo_from_odd_lengths() {
+        for seconds in [
+            0.0,
+            -0.0,
+            -4.0,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::MIN_POSITIVE,
+            5e-324,
+            f64::MAX,
+        ] {
+            assert_eq!(tempo_from_length(seconds), None, "{seconds}");
+            assert_eq!(tempo("Loop", Some(seconds), Some(8)), None, "{seconds}");
+        }
+    }
+
+    #[test]
+    fn tempo_from_length_stays_in_its_range() {
+        let beats = [4, 8, 12, 16, 24, 32, 48, 64, 96, 128];
+        for millis in 1..200_000 {
+            let seconds = f64::from(millis) / 1000.0;
+            let Some(tempo) = tempo_from_length(seconds) else {
+                continue;
+            };
+            assert!((70..=180).contains(&tempo), "{seconds} s: {tempo}");
+            // A whole number of the beats looked at, at that tempo.
+            assert!(
+                beats.iter().any(|b| {
+                    let exact = 60.0 * f64::from(*b) / seconds;
+                    exact.round() as u32 == tempo
+                }),
+                "{seconds} s: {tempo}"
+            );
+        }
+    }
+
+    #[test]
+    fn tempo_from_length_at_the_edges_of_its_range() {
+        // 4 beats at 180 BPM; 8 beats would be 360.
+        assert_eq!(tempo_from_length(60.0 * 4.0 / 180.0), Some(180));
+        assert_eq!(tempo_from_length(60.0 * 4.0 / 181.0), None);
+        // 96 beats at 70 BPM, no other count of beats giving a whole tempo.
+        assert_eq!(tempo_from_length(60.0 * 96.0 / 70.0), Some(70));
+        assert_eq!(tempo_from_length(60.0 * 128.0 / 69.0), None);
+        // 128 beats, the most looked at.
+        assert_eq!(tempo_from_length(60.0 * 128.0 / 75.0), Some(75));
+    }
+
+    #[test]
+    fn odd_acid_beats_fall_back_to_the_length() {
+        assert_eq!(
+            tempo("Loop", Some(4.0), Some(0)),
+            Some((120, Source::Length))
+        );
+        assert_eq!(
+            tempo("Loop", Some(4.0), Some(u32::MAX)),
+            Some((120, Source::Length))
+        );
+        assert_eq!(tempo("Loop", None, Some(8)), None);
+        // The chunk's tempo may lie outside the length's range.
+        assert_eq!(tempo("Loop", Some(24.0), Some(8)), Some((20, Source::File)));
+    }
+
+    #[test]
+    fn loop_words_in_odd_paths() {
+        use std::path::Path;
+        assert_eq!(loop_from_words(Path::new("")), None);
+        assert_eq!(loop_from_words(Path::new("/")), None);
+        assert_eq!(loop_from_words(Path::new("/s/.wav")), None);
+        assert_eq!(
+            loop_from_words(Path::new("/s/Kick One-Shot.wav")),
+            Some(false)
+        );
+        assert_eq!(
+            loop_from_words(Path::new("/s/ONE_SHOTS/x.wav")),
+            Some(false)
+        );
+        // One-shot words win over loop words in the same part.
+        assert_eq!(loop_from_words(Path::new("/s/Loop Hits.wav")), Some(false));
+        assert_eq!(loop_from_words(Path::new("/s/🎹 Loop é.wav")), Some(true));
+        assert_eq!(loop_from_words(Path::new("/s/LOOPS/x.wav")), Some(true));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn loop_words_in_a_path_not_in_utf8() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        use std::path::Path;
+        let path = Path::new(OsStr::from_bytes(b"/s/Loops/\xff\xfe.wav"));
+        assert_eq!(loop_from_words(path), Some(true));
+        assert_eq!(looped(path, None, false), (true, Source::Name));
     }
 }
