@@ -121,8 +121,10 @@ function play(start = 0) {
   status.textContent = `▶ ${splitPath(sample.path).name}`;
   stopButton.disabled = false;
   const shape = shapeFor(sample);
-  invoke("play", { path: sample.path, id: playId, looping: loopBox.checked, start, ...shape }).catch((error) => {
-    stopPlayhead();
+  const id = playId;
+  invoke("play", { path: sample.path, id, looping: loopBox.checked, start, ...shape }).catch((error) => {
+    // A newer sound may already be playing.
+    if (id === playId) showStopped();
     showError(error);
   });
 }
