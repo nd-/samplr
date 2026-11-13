@@ -302,6 +302,7 @@ async function loadWaveform() {
     if (samples[selected]?.path !== path) return;
     peaks = result;
   } catch (error) {
+    if (samples[selected]?.path !== path) return;
     showError(error);
   }
   drawWaveform();
