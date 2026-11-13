@@ -909,6 +909,10 @@ pub fn collections_holding(db: &Connection, file_ids: &[i64]) -> Result<Vec<i64>
     // One `?` per sample, and SQLite takes at most 32766 of them in a query:
     // a big selection is asked by parts, and only the collections holding
     // every part are kept.
+    // A sample named twice would be counted twice by `HAVING`.
+    let mut file_ids = file_ids.to_vec();
+    file_ids.sort_unstable();
+    file_ids.dedup();
     let mut holding: Option<Vec<i64>> = None;
     for part in file_ids.chunks(10_000) {
         let marks = vec!["?"; part.len()].join(", ");
