@@ -1108,7 +1108,9 @@ mod tests {
         assert_eq!(known(&db, root), [kick, snare]);
     }
 
-    #[cfg(unix)]
+    // inotify refuses a folder holding one it cannot read; FSEvents, on a
+    // Mac, watches it all the same.
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_folder_that_cannot_be_watched_leaves_the_others_followed() {
         let dir = TempDir::new();

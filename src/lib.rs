@@ -1365,7 +1365,8 @@ mod edge_case_tests {
 
     const ODD_NAMES: [&str; 8] = [
         "Été/caisse claire.wav",
-        "E\u{301}te\u{301}/nfd.wav",
+        // Not "Été" again: on a Mac both forms name the same folder.
+        "Cafe\u{301}/nfd.wav",
         "🥁 kits/boom.wav",
         "鼓/キック.wav",
         "100% wet.wav",
