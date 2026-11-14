@@ -13,6 +13,10 @@
 /// Samples per step of the attack envelope: 5.8 ms at 44.1 kHz.
 const HOP: usize = 256;
 
+/// The smallest rise of the envelope (in nepers of energy, about 0.4 dB)
+/// counted as an attack when deciding whether a sound has a pulse at all.
+const MIN_ATTACK: f32 = 0.1;
+
 /// The longest loop looked at: 64 beats at 60 BPM. Longer, no tempo, and the
 /// envelope stops growing (a recording of hours would otherwise fill memory).
 const MAX_SECONDS: f64 = 64.0;
@@ -86,14 +90,17 @@ impl Onsets {
         if self.envelope.len() < 8 || seconds > MAX_SECONDS {
             return None;
         }
+        // No attack (silence) or only the sound's start (a steady drone, whose
+        // filters settle during the first steps, and whose level wobbles a
+        // little from step to step): every tempo would score about alike,
+        // and the likelihood alone would choose one for nothing.
+        let clear_rises = self.envelope.iter().filter(|&&rise| rise > MIN_ATTACK);
+        if clear_rises.count() < 2 {
+            return None;
+        }
         // What stands above the mean: the attacks.
         let mean = self.envelope.iter().sum::<f32>() / self.envelope.len() as f32;
         let attacks: Vec<f32> = self.envelope.iter().map(|v| (v - mean).max(0.0)).collect();
-        // No attack (silence, a steady drone): every tempo would score 0, and
-        // the first candidate would win for nothing.
-        if attacks.iter().all(|&attack| attack == 0.0) {
-            return None;
-        }
         let steps_per_second = self.sample_rate / HOP as f64;
         let mut best: Option<(f32, f64)> = None;
         for beats in 1..=64u32 {
@@ -223,5 +230,120 @@ mod tests {
             long.push(0.0);
         }
         assert_eq!(long.tempo(), None);
+    }
+
+    fn pushed(rate: u32, samples: impl IntoIterator<Item = f32>) -> Onsets {
+        let mut onsets = Onsets::new(rate);
+        for sample in samples {
+            onsets.push(sample);
+        }
+        onsets
+    }
+
+    /// A short click on every beat, at any sample rate, for `frames` frames.
+    fn click_train(rate: u32, tempo: f64, frames: usize) -> Onsets {
+        let beat = 60.0 / tempo * f64::from(rate);
+        let click = (f64::from(rate) / 100.0) as usize;
+        pushed(
+            rate,
+            (0..frames).map(|frame| {
+                if (frame as f64 % beat) < click as f64 {
+                    0.8 * ((frame as f32) * 0.3).sin()
+                } else {
+                    0.0
+                }
+            }),
+        )
+    }
+
+    #[test]
+    fn nothing_pushed_or_less_than_eight_steps() {
+        assert_eq!(Onsets::new(44_100).tempo(), None);
+        assert_eq!(pushed(44_100, [0.9]).tempo(), None);
+        assert_eq!(pushed(44_100, vec![0.9; HOP - 1]).tempo(), None);
+        assert_eq!(click_train(44_100, 120.0, 8 * HOP - 1).tempo(), None);
+        // Eight steps, but 46 ms: every candidate tempo is far above 200.
+        assert_eq!(click_train(44_100, 120.0, 8 * HOP).tempo(), None);
+    }
+
+    #[test]
+    fn odd_sample_rates_do_not_panic() {
+        assert_eq!(pushed(0, vec![0.5; 10_000]).tempo(), None);
+        assert_eq!(Onsets::new(0).tempo(), None);
+        assert_eq!(pushed(1, vec![0.5; 100]).tempo(), None);
+        if let Some(tempo) = click_train(1000, 120.0, 4000).tempo() {
+            assert!((60..=200).contains(&tempo), "{tempo}");
+        }
+    }
+
+    #[test]
+    fn non_finite_samples_do_not_panic() {
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX] {
+            let mut onsets = clicks(120.0, 8);
+            onsets.push(bad);
+            if let Some(tempo) = onsets.tempo() {
+                assert!((60..=200).contains(&tempo), "{bad}: {tempo}");
+            }
+            let tempo = pushed(
+                44_100,
+                (0..176_400).map(|i| if i == 1000 { bad } else { 0.0 }),
+            )
+            .tempo();
+            if let Some(tempo) = tempo {
+                assert!((60..=200).contains(&tempo), "{bad}: {tempo}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_constant_offset_has_no_tempo() {
+        // 4 s of DC: a steady sound, no attack after its start.
+        assert_eq!(pushed(44_100, vec![0.5; 176_400]).tempo(), None);
+    }
+
+    #[test]
+    fn a_steady_tone_has_no_tempo() {
+        let tone = (0..176_400)
+            .map(|i| 0.5 * (i as f32 * 2.0 * std::f32::consts::PI * 440.0 / 44_100.0).sin());
+        assert_eq!(pushed(44_100, tone).tempo(), None);
+    }
+
+    #[test]
+    fn click_trains_give_their_tempo_or_an_octave_of_it() {
+        for tempo in (70..=180u32).step_by(5) {
+            for beats in [4, 8, 16] {
+                let frames = (60.0 / f64::from(tempo) * 44_100.0 * f64::from(beats)) as usize;
+                let found = click_train(44_100, f64::from(tempo), frames).tempo();
+                let Some(found) = found else {
+                    panic!("{tempo} BPM, {beats} beats: no tempo");
+                };
+                assert!((60..=200).contains(&found), "{tempo}: {found}");
+                assert!(
+                    [tempo, tempo / 2, tempo * 2u32]
+                        .iter()
+                        .any(|expected| expected.abs_diff(found) <= 1),
+                    "{tempo} BPM, {beats} beats: {found}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_longest_loop_looked_at() {
+        let rate = 4000;
+        // 64 beats at 60 BPM, 64 s: the only candidate is 60.
+        assert_eq!(
+            click_train(rate, 60.0, 64 * rate as usize).tempo(),
+            Some(60)
+        );
+        assert_eq!(
+            click_train(rate, 60.0, 64 * rate as usize + 1).tempo(),
+            None
+        );
+    }
+
+    #[test]
+    fn the_same_sound_gives_the_same_tempo() {
+        assert_eq!(clicks(97.0, 8).tempo(), clicks(97.0, 8).tempo());
     }
 }

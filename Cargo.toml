@@ -20,6 +20,8 @@ ebur128 = "0.1"
 # Folder watching (inotify on Linux, FSEvents on Mac), with event grouping
 # and matching of both ends of a rename
 notify-debouncer-full = "0.7"
+# Spectra of a sound (FFT of real samples, over RustFFT), for its timbre
+realfft = "3.5"
 # Audio playback (relies on CoreAudio on Mac, ALSA on Linux)
 rodio = { version = "0.23", features = ["symphonia-all"] }
 # SQLite database; `bundled` compiles SQLite with the project, nothing to install on Mac or Linux;

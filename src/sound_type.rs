@@ -670,4 +670,137 @@ mod tests {
         assert!(matches("guitar/electric", "guitar"));
         assert!(!matches("guitar/electric", "bass"));
     }
+
+    /// Every word of the list, with the family it is listed under.
+    fn all_words() -> Vec<(&'static str, &'static Family)> {
+        let mut words = Vec::new();
+        for family in FAMILIES {
+            words.extend(family.words.iter().map(|word| (*word, family)));
+            for subtype in family.subtypes {
+                words.extend(subtype.words.iter().map(|word| (*word, family)));
+            }
+        }
+        words
+    }
+
+    fn assert_valid(path: &Path) {
+        if let Some(value) = from_path(path) {
+            assert!(parse(&value).is_some(), "{path:?}: {value}");
+            assert!(is_known(&value), "{path:?}: {value}");
+            let (family, _) = value.split_once('/').unwrap_or((&value, ""));
+            assert!(matches(&value, family), "{path:?}: {value}");
+        }
+    }
+
+    #[test]
+    fn arbitrary_words_never_panic_and_give_a_listed_type() {
+        let mut pieces: Vec<&str> = vec![
+            "/", " ", "_", "-", ".", "(", ")", "é", "e\u{301}", "🎹", "İ", "ß", "ǅ", "\u{0}",
+            "\u{200b}", "١٢٠", "120", "BPM", "Loop", "One Shot", "x",
+        ];
+        let words = all_words();
+        pieces.extend(words.iter().map(|(word, _)| *word));
+        let mut state: u32 = 11;
+        let mut next = || {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            state >> 8
+        };
+        for _ in 0..20_000 {
+            let length = next() as usize % 10;
+            let mut path = String::new();
+            for _ in 0..length {
+                let piece = pieces[next() as usize % pieces.len()];
+                if next() % 2 == 0 {
+                    path.push_str(&piece.to_uppercase());
+                } else {
+                    path.push_str(piece);
+                }
+            }
+            path.push_str(".wav");
+            assert_valid(Path::new(&path));
+        }
+    }
+
+    #[test]
+    fn every_listed_word_gives_a_type() {
+        for (word, _) in all_words() {
+            for name in [
+                word.to_string(),
+                word.to_uppercase(),
+                word.replace(' ', "_"),
+            ] {
+                let path = format!("/s/{name}.wav");
+                assert!(of(&path).is_some(), "{path}");
+                assert_valid(Path::new(&path));
+            }
+        }
+    }
+
+    #[test]
+    fn listed_words_can_be_met() {
+        // The words are matched against lower-case alphanumeric tokens, a
+        // phrase against two of them joined by one space.
+        for (word, family) in all_words() {
+            let parts: Vec<&str> = word.split(' ').collect();
+            assert!(parts.len() <= 2, "{}: {word:?}", family.id);
+            assert!(
+                parts.iter().all(|part| {
+                    !part.is_empty()
+                        && part.chars().all(char::is_alphanumeric)
+                        && part.to_lowercase() == *part
+                }),
+                "{}: {word:?}",
+                family.id
+            );
+        }
+    }
+
+    #[test]
+    fn ids_are_unique() {
+        let mut families: Vec<&str> = FAMILIES.iter().map(|family| family.id).collect();
+        families.sort();
+        families.dedup();
+        assert_eq!(families.len(), FAMILIES.len());
+        for family in FAMILIES {
+            let mut subtypes: Vec<&str> = family.subtypes.iter().map(|s| s.id).collect();
+            subtypes.sort();
+            subtypes.dedup();
+            assert_eq!(subtypes.len(), family.subtypes.len(), "{}", family.id);
+            assert!(!family.id.contains('/'), "{}", family.id);
+            assert!(
+                family.subtypes.iter().all(|s| !s.id.contains('/')),
+                "{}",
+                family.id
+            );
+            for subtype in family.subtypes {
+                let value = format!("{}/{}", family.id, subtype.id);
+                assert!(parse(&value).is_some(), "{value}");
+            }
+        }
+    }
+
+    #[test]
+    fn odd_paths() {
+        assert_eq!(of(""), None);
+        assert_eq!(of("/"), None);
+        assert_eq!(of("/s/.wav"), None);
+        assert_eq!(of("/s/🎹🎹.wav"), None);
+        assert_eq!(of("KICK"), Some("drums/kick".to_string()));
+        assert!(parse("").is_none());
+        assert!(parse("/").is_none());
+        assert!(parse("drums/").is_none());
+        assert!(parse("drums/kick/extra").is_none());
+        assert!(!is_known(""));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_not_in_utf8() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        let path = Path::new(OsStr::from_bytes(b"/s/Kick/\xff\xfe.wav"));
+        assert_eq!(from_path(path).as_deref(), Some("drums/kick"));
+        let path = Path::new(OsStr::from_bytes(b"/s/\xff/Kick.wav"));
+        assert_eq!(from_path(path).as_deref(), Some("drums/kick"));
+    }
 }

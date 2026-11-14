@@ -93,7 +93,27 @@ impl Library {
 /// Writes a WAV (16 bit, stereo, 44.1 kHz, 0.1 s of a quiet ramp) at `path`,
 /// creating its folders.
 fn write_wav(path: &Path) {
-    let frames = 4410u32;
+    write_frames(path, 4410, |frame| ((frame % 100) * 50) as i16);
+}
+
+/// Half a second of a tone at `hz`.
+fn write_tone(path: &Path, hz: f64) {
+    write_frames(path, 22_050, |frame| {
+        (8000.0 * (2.0 * std::f64::consts::PI * hz * f64::from(frame) / 44_100.0).sin()) as i16
+    });
+}
+
+/// Half a second of white noise.
+fn write_noise(path: &Path) {
+    let mut state: u32 = 12345;
+    write_frames(path, 22_050, |_| {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (state >> 16) as i16 / 4
+    });
+}
+
+/// Writes `frames` of the same sample on both channels at `path`.
+fn write_frames(path: &Path, frames: u32, mut sample: impl FnMut(u32) -> i16) {
     let data = frames * 4;
     let mut bytes = Vec::new();
     bytes.extend(b"RIFF");
@@ -109,9 +129,9 @@ fn write_wav(path: &Path) {
     bytes.extend(b"data");
     bytes.extend(data.to_le_bytes());
     for frame in 0..frames {
-        let sample = ((frame % 100) * 50) as i16;
-        bytes.extend(sample.to_le_bytes());
-        bytes.extend(sample.to_le_bytes());
+        let value = sample(frame);
+        bytes.extend(value.to_le_bytes());
+        bytes.extend(value.to_le_bytes());
     }
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, bytes).unwrap();
@@ -385,6 +405,52 @@ fn the_waveform_drawn_in_the_terminal() {
 }
 
 #[test]
+fn similar_samples_nearest_first() {
+    let library = Library::new();
+    let low = library.samples().join("low.wav");
+    let samples = [
+        (low.clone(), 200.0),
+        (library.samples().join("near.wav"), 220.0),
+        (library.samples().join("high.wav"), 3000.0),
+    ];
+    for (path, hz) in &samples {
+        write_tone(path, *hz);
+    }
+    write_noise(&library.samples().join("hiss.wav"));
+    write_wav(&library.samples().join("ramp.wav"));
+    library.scan();
+
+    // Not measured yet: only the sample asked about is, on the way.
+    let answer = library.json(&["similar", text(&low)]);
+    assert_eq!(answer["file"], text(&low));
+    assert!(answer["similar"].as_array().unwrap().is_empty());
+
+    library.json(&["waveforms"]);
+    let answer = library.json(&["similar", text(&low), "-n", "2"]);
+    let similar = answer["similar"].as_array().unwrap();
+    assert_eq!(names(&answer["similar"]), ["near.wav", "high.wav"]);
+    let distances: Vec<f64> = similar
+        .iter()
+        .map(|sample| sample["distance"].as_f64().unwrap())
+        .collect();
+    assert!(distances[0] < distances[1]);
+
+    let output = library.run(&["similar", text(&low)]);
+    let table = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        table.lines().nth(2).unwrap().starts_with("DIST."),
+        "{table}"
+    );
+    assert_eq!(table.lines().count(), 3 + 4);
+
+    let outside = library.dir.0.join("outside.wav");
+    write_wav(&outside);
+    let output = library.run(&["similar", text(&outside)]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("is not in the database"));
+}
+
+#[test]
 fn watching_needs_a_scanned_folder() {
     let library = Library::new();
     let output = library.run(&["watch"]);
@@ -460,4 +526,131 @@ fn watching_reports_each_change_as_a_line_of_json() {
     drop(watch);
 
     assert_eq!(names(&library.json(&["list"])), ["kick.wav"]);
+}
+
+#[test]
+fn a_wav_declaring_no_sample_rate_is_unreadable_not_a_crash() {
+    let library = Library::new();
+    library.add("kick.wav");
+    let broken = library.samples().join("zero rate.wav");
+    write_wav(&broken);
+    let mut bytes = fs::read(&broken).unwrap();
+    // The `fmt ` chunk's sample rate.
+    bytes[24..28].copy_from_slice(&0u32.to_le_bytes());
+    fs::write(&broken, bytes).unwrap();
+
+    // Expected: the scan ends, the damaged file counted as unreadable.
+    let scan = library.scan();
+    assert_eq!(scan["unreadable"], 1);
+    assert_eq!(scan["samples"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn odd_file_names_through_the_command_line() {
+    let library = Library::new();
+    let names_on_disk = [
+        "Été/caisse claire.wav",
+        "🥁 kits/boom.wav",
+        "鼓/キック.wav",
+        "100% wet.wav",
+        "a_b.wav",
+        "#1 snare.wav",
+        "it's \"loud\".wav",
+    ];
+    for name in names_on_disk {
+        library.add(name);
+    }
+    let scan = library.scan();
+    assert_eq!(
+        scan["samples"].as_array().unwrap().len(),
+        names_on_disk.len()
+    );
+
+    let boom = library.samples().join("🥁 kits/boom.wav");
+    assert_eq!(library.json(&["tag", text(&boom), "ÉTÉ"])["added"], 1);
+    assert_eq!(names(&library.json(&["search", "#été"])), ["boom.wav"]);
+    assert_eq!(names(&library.json(&["search", "🥁"])), ["boom.wav"]);
+    assert_eq!(names(&library.json(&["search", "キック"])), ["キック.wav"]);
+    assert_eq!(names(&library.json(&["search", "%"])), ["100% wet.wav"]);
+    assert_eq!(names(&library.json(&["search", "_"])), ["a_b.wav"]);
+    assert_eq!(
+        names(&library.json(&["search", "'s"])),
+        ["it's \"loud\".wav"]
+    );
+    assert_eq!(
+        library.json(&["tags"]),
+        serde_json::json!([{ "name": "été", "count": 1 }])
+    );
+
+    let removed = library.json(&["remove-folder", text(&library.samples())]);
+    assert_eq!(removed["hidden"], names_on_disk.len());
+    assert!(names(&library.json(&["list"])).is_empty());
+}
+
+#[test]
+fn odd_searches_filter_nothing_by_mistake() {
+    let library = Library::new();
+    library.add("kick.wav");
+    library.add("snare.wav");
+    library.scan();
+    for text in [
+        "#",
+        "bpm:abc",
+        "bpm:5-",
+        "key:zzz",
+        "type:nothing",
+        "loop:maybe",
+        "",
+    ] {
+        assert_eq!(names(&library.json(&["search", text])).len(), 2, "{text:?}");
+    }
+    assert!(names(&library.json(&["search", "##"])).is_empty());
+}
+
+#[test]
+fn an_unplugged_folder_keeps_its_samples() {
+    let library = Library::new();
+    let kick = library.add("kick.wav");
+    library.scan();
+    library.json(&["tag", text(&kick), "kept"]);
+    let folder = text(&library.samples()).to_string();
+    let away = library.dir.0.join("unplugged");
+    fs::rename(library.samples(), &away).unwrap();
+
+    assert_eq!(
+        library.json(&["folders"]),
+        serde_json::json!([{ "path": folder, "samples": 1, "found": false }])
+    );
+    // Nothing forgotten: plugged back, the tags are there.
+    fs::rename(&away, library.samples()).unwrap();
+    assert_eq!(
+        library.json(&["list"])[0]["tags"],
+        serde_json::json!(["kept"])
+    );
+}
+
+#[test]
+fn scanning_a_missing_folder_fails_without_saving_it() {
+    let library = Library::new();
+    let missing = library.dir.0.join("missing");
+    let output = library.run(&["scan", text(&missing)]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("is not a folder"));
+    assert_eq!(library.json(&["folders"]), serde_json::json!([]));
+}
+
+#[test]
+fn reading_while_another_process_writes() {
+    let library = Library::new();
+    library.add("kick.wav");
+    library.scan();
+
+    // The interface or a scan in the middle of a write: an up-to-date
+    // database is read without waiting for the write lock.
+    let writer = rusqlite::Connection::open(library.dir.0.join("samplr.db")).unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    // Needing the lock, each would fail with "database is locked".
+    assert_eq!(names(&library.json(&["list"])), ["kick.wav"]);
+    assert_eq!(names(&library.json(&["search", "kick"])), ["kick.wav"]);
+    writer.execute_batch("ROLLBACK").unwrap();
 }

@@ -4,35 +4,25 @@
 
 Audio sample manager for Linux and macOS (and Windows, maybe, someday).  
 Scan sample folders, tag them, find them again and listen to them.
-  
+
 ![samplr: the sample list with its tempo, key, type and loudness, collections and tags on the left, the Info panel on the right, the playback bar at the bottom](docs/screenshot.png)
 
 ## What it does
 
-samplr is for musicians whose sample packs pile up on their disks: it finds a sound again, lets
-you hear it at once, and drags it into your DAW.
+samplr is for musicians whose sample packs pile up on their disks: it finds a sound again, lets you hear it at once, and drags it into your DAW.
 
-- **Your folders, as they are.** Point samplr at your sample folders: it indexes them and
-  follows them live. Your files never move unless you ask, so your DAW projects keep finding
-  them, and an unplugged disk loses nothing.
-- **Worked out from your samples.** Tempo and key from the file names and the WAV files' ACID
-  chunk, loop or one-shot, the kind of sound (Drums › Kick, Bass, Keys…), the length in bars and
-  the loudness.
-- **Found in one search box.** Words in the names or the tags, and filters such as
-  `bpm:118-124`, `key:Am`, `loop:yes` or `type:kick`.
-- **Heard right away.** The arrow keys browse and play, with the pitch and the tempo changed one
-  without the other, to hear a loop in your track's key and tempo.
+- **Your folders, as they are.** Point samplr at your sample folders: it indexes them and follows them live. Your files never move unless you ask, so your DAW projects keep finding them, and an unplugged disk loses nothing.
+- **Worked out from your samples.** Tempo and key from the file names and the WAV files' ACID chunk, loop or one-shot, the kind of sound (Drums › Kick, Bass, Keys…), the length in bars and the loudness.
+- **Found in one search box.** Words in the names or the tags, and filters such as `bpm:118-124`, `key:Am`, `loop:yes` or `type:kick`.
+- **Heard right away.** The arrow keys browse and play, with the pitch and the tempo changed one without the other, to hear a loop in your track's key and tempo.
 - **Sorted your way.** Tags, favorites, collections gathered by hand, and colours.
-- **Used with your DAW.** Drag samples into it, rename, move, convert (WAV, AIFF, FLAC, MP3,
-  OGG) or trash their files from samplr.
+- **Used with your DAW.** Drag samples into it, rename, move, convert (WAV, AIFF, FLAC, MP3, OGG) or trash their files from samplr.
 
-A graphical interface, and a command line (`samplr`) for scripts. Every change is listed in
-[CHANGELOG.md](CHANGELOG.md).
+A graphical interface, and a command line (`samplr`) for scripts. Every change is listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Installation
 
-There is no installer yet: ready-made ones will come soon, a `.dmg` for the Mac and an
-AppImage or a `.deb` for Linux. Until then, samplr is built from its code.
+There is no installer yet: ready-made ones will come soon, a `.dmg` for the Mac and an AppImage or a `.deb` for Linux. Until then, samplr is built from its code.
 
 ### Getting the code
 
@@ -81,8 +71,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 brew install ffmpeg
 ```
 
-Close and reopen the terminal. Nothing else to install: sound goes through CoreAudio and the
-interface through WKWebView, both built into macOS.
+Close and reopen the terminal. Nothing else to install: sound goes through CoreAudio and the interface through WKWebView, both built into macOS.
 
 ## Running
 
@@ -94,13 +83,9 @@ From the project folder:
 cargo run -p samplr-app
 ```
 
-The first build takes a few minutes, as every dependency is compiled once; the next ones a few
-seconds. At the first launch, add your sample folders with **+ Folder** (samplr also offers the
-Splice folders it finds). Then the arrow keys browse and play, a double-click on a cell sets a
-sample's tempo, key, loop or type, and **Settings…** lists every keyboard shortcut.
+The first build takes a few minutes, as every dependency is compiled once; the next ones a few seconds. At the first launch, add your sample folders with **+ Folder** (samplr also offers the Splice folders it finds). Then the arrow keys browse and play, a double-click on a cell sets a sample's tempo, key, loop or type, and **Settings…** lists every keyboard shortcut.
 
-For an optimised build, faster on a big library: `cargo build --release -p samplr-app`, then
-`./target/release/samplr-app`.
+For an optimised build, faster on a big library: `cargo build --release -p samplr-app`, then `./target/release/samplr-app`.
 
 ### The command line
 
@@ -117,18 +102,15 @@ cargo run -- watch                           # updates the database live when sc
 cargo run -- play ~/Samples/kick.wav         # plays a file
 cargo run -- wave ~/Samples/kick.wav         # draws its waveform in the terminal
 cargo run -- waveforms                       # computes the missing waveforms
+cargo run -- similar ~/Samples/kick.wav      # the samples that sound most like it
 cargo run -- help                            # every command
 ```
 
-The `--` separates cargo's options from the program's. For an optimised build:
-`cargo build --release`, then `./target/release/samplr scan ~/Samples`.
+The `--` separates cargo's options from the program's. For an optimised build: `cargo build --release`, then `./target/release/samplr scan ~/Samples`.
 
 ### The library
 
-The app and the command line share their database, created on first launch, in
-`~/.local/share/samplr/samplr.db` on Linux and `~/Library/Application Support/samplr/samplr.db`
-on Mac. To experiment on a separate database:
-`SAMPLR_DB=/tmp/test.db cargo run -- scan ~/Samples`.
+The app and the command line share their database, created on first launch, in `~/.local/share/samplr/samplr.db` on Linux and `~/Library/Application Support/samplr/samplr.db` on Mac. To experiment on a separate database: `SAMPLR_DB=/tmp/test.db cargo run -- scan ~/Samples`.
 
 ## Contributing
 
@@ -142,26 +124,16 @@ WAV, AIFF (`.aif`, `.aiff`), FLAC, MP3, OGG, M4A.
 
 samplr stands on the work of others:
 
-- [Tauri](https://github.com/tauri-apps/tauri) for the window around the interface, with its
-  [dialog and window-state plugins](https://github.com/tauri-apps/plugins-workspace), and
-  CrabNebula's [drag](https://github.com/crabnebula-dev/drag-rs) to drag samples into a DAW.
-- [Symphonia](https://github.com/pdeljanov/Symphonia) reads and decodes the audio files,
-  [rodio](https://github.com/RustAudio/rodio) plays them.
-- [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) changes the
-  tempo and the pitch one without the other, through the
-  [ssstretch](https://github.com/bmisiak/ssstretch) binding.
+- [Tauri](https://github.com/tauri-apps/tauri) for the window around the interface, with its [dialog and window-state plugins](https://github.com/tauri-apps/plugins-workspace), and CrabNebula's [drag](https://github.com/crabnebula-dev/drag-rs) to drag samples into a DAW.
+- [Symphonia](https://github.com/pdeljanov/Symphonia) reads and decodes the audio files, [rodio](https://github.com/RustAudio/rodio) plays them.
+- [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) changes the tempo and the pitch one without the other, through the [ssstretch](https://github.com/bmisiak/ssstretch) binding.
 - [ebur128](https://github.com/sdroege/ebur128) measures the loudness (EBU R128).
-- [SQLite](https://sqlite.org), through [rusqlite](https://github.com/rusqlite/rusqlite), keeps
-  the library.
-- [notify](https://github.com/notify-rs/notify) follows the folders,
-  [walkdir](https://github.com/BurntSushi/walkdir) walks them,
-  [trash](https://github.com/ArturKovacs/trash) sends files to the system's trash, and
-  [clap](https://github.com/clap-rs/clap) reads the command line.
+- [RustFFT](https://github.com/ejmahler/RustFFT), through [realfft](https://github.com/HEnquist/realfft), computes the spectra that sound alike samples are compared on.
+- [SQLite](https://sqlite.org), through [rusqlite](https://github.com/rusqlite/rusqlite), keeps the library.
+- [notify](https://github.com/notify-rs/notify) follows the folders, [walkdir](https://github.com/BurntSushi/walkdir) walks them, [trash](https://github.com/ArturKovacs/trash) sends files to the system's trash, and [clap](https://github.com/clap-rs/clap) reads the command line.
 - [FFmpeg](https://ffmpeg.org), run as a separate program, converts samples.
-- [Playwright](https://playwright.dev) drives the interface's tests, and
-  [tauri-driver](https://github.com/tauri-apps/tauri) the real app's.
+- [Playwright](https://playwright.dev) drives the interface's tests, and [tauri-driver](https://github.com/tauri-apps/tauri) the real app's.
 
 ## License
 
-samplr is licensed under either of [the MIT license](LICENSE-MIT) or
-[the Apache License, Version 2.0](LICENSE-APACHE), at your option.
+samplr is licensed under either of [the MIT license](LICENSE-MIT) or [the Apache License, Version 2.0](LICENSE-APACHE), at your option.

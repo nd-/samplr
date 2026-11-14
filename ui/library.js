@@ -15,7 +15,10 @@ function watchForDrag(event, sample) {
   function onMove(move) {
     if (Math.hypot(move.clientX - startX, move.clientY - startY) < 5) return;
     stopWatching();
-    startDrag(sample);
+    // A refresh since the button went down may have taken the sample out of
+    // the list (deleted, renamed): its old path would be dragged.
+    const current = samples.find((s) => s.path === sample.path);
+    if (current) startDrag(current);
   }
   function stopWatching() {
     document.removeEventListener("mousemove", onMove);
@@ -208,12 +211,21 @@ document.getElementById("show-folders").addEventListener("click", showFolders);
 // `stopIfGone: false` when the selected sample only left the open collection:
 // it is still in the library, its sound keeps playing.
 async function refresh({ stopIfGone = true } = {}) {
-  refreshWaiting = false;
-  const selectedPath = samples[selected]?.path;
+  // Drawing the rows again would close a cell being edited: the refresh
+  // waits for the edit to end. Of the refreshes waiting, a sample that only
+  // left a collection keeps its sound.
+  if (editing()) {
+    refreshWaiting = { stopIfGone: stopIfGone && (refreshWaiting?.stopIfGone ?? true) };
+    return;
+  }
+  refreshWaiting = null;
   const statusText = status.textContent;
+  let selectedPath;
   try {
     const found = await fetchSamples();
     if (found === null) return;
+    // Read once the answer is there: a row clicked meanwhile is the one kept.
+    selectedPath = samples[selected]?.path;
     samples = found;
     sortSamples();
   } catch (error) {
@@ -244,21 +256,18 @@ async function refresh({ stopIfGone = true } = {}) {
 // A change on disk, or the background pass telling its progress (every 5 s
 // while it measures), draws the rows again: a tempo or key being edited in
 // its cell, or a type being chosen, would be lost. The refresh then waits
-// for the edit to end.
-let refreshWaiting = false;
+// for the edit to end, with its options (see `refresh`).
+let refreshWaiting = null;
 
 function editing() {
   return tbody.querySelector("input") !== null || picker !== null;
 }
 
 function refreshIfWaiting() {
-  if (refreshWaiting && !editing()) refresh();
+  if (refreshWaiting && !editing()) refresh(refreshWaiting);
 }
 
-window.__TAURI__.event.listen("library-changed", () => {
-  if (editing()) refreshWaiting = true;
-  else refresh();
-});
+window.__TAURI__.event.listen("library-changed", () => refresh());
 
 // Following the folders goes on when one of them fails (cannot be watched,
 // a change not applied): the problems are kept on the Rust side and shown

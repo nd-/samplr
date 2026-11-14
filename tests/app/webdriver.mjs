@@ -128,6 +128,14 @@ export async function startApp() {
       }
       throw new Error(`waited for ${JSON.stringify(expected)}, got ${JSON.stringify(value)}`);
     },
+    /// Waits for the background pass to have measured every sample of the
+    /// list and the page to have shown it: until then, its `library-changed`
+    /// draws the rows again, and an element just found may be gone when
+    /// clicked ("stale element reference"). Every test sample is long enough
+    /// to have a loudness.
+    async settled() {
+      await app.waitFor("return samples.every((sample) => sample.lufs !== null)", true, 20_000);
+    },
     /// Closes the app and starts it again on the same folder: what it
     /// remembered is found again.
     async restart() {
@@ -162,6 +170,7 @@ export async function startApp() {
     });
     session = created.sessionId;
     await app.waitFor('return document.getElementById("status").textContent', "3 sample(s)");
+    await app.settled();
   }
 
   try {

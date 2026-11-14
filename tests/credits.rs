@@ -10,6 +10,7 @@ use std::path::Path;
 const CREDITED: &[(&str, &str)] = &[
     ("clap", "clap"),
     ("ebur128", "ebur128"),
+    ("realfft", "realfft"),
     ("notify-debouncer-full", "notify-rs/notify"),
     ("rodio", "rodio"),
     ("rusqlite", "rusqlite"),

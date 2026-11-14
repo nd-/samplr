@@ -286,4 +286,185 @@ mod tests {
         };
         assert!(tags.is_empty(), "{tags:?}");
     }
+
+    /// A RIFF/WAVE file of the given chunks, each with `size` as its
+    /// declared size whatever its body, padded to an even length.
+    fn riff(list: &[(&[u8; 4], u32, Vec<u8>)]) -> Vec<u8> {
+        let mut file = b"RIFF\0\0\0\0WAVE".to_vec();
+        for (id, size, body) in list {
+            file.extend(*id);
+            file.extend(size.to_le_bytes());
+            file.extend(body);
+            if body.len() % 2 == 1 {
+                file.push(0);
+            }
+        }
+        file
+    }
+
+    /// A LIST/INFO chunk's body of the given fields.
+    fn info_list(fields: &[(&[u8; 4], &[u8])]) -> Vec<u8> {
+        let mut list = b"INFO".to_vec();
+        for (id, text) in fields {
+            list.extend(field(id, text));
+        }
+        list
+    }
+
+    fn pair(label: &str, value: &str) -> (String, String) {
+        (label.to_string(), value.to_string())
+    }
+
+    #[test]
+    fn found_after_other_lists_and_odd_chunks() {
+        let adtl = b"adtlx".to_vec();
+        let info = info_list(&[(b"INAM", b"Snare\0")]);
+        let file = riff(&[
+            (b"fmt ", 16, vec![0; 16]),
+            (b"junk", 3, vec![1, 2, 3]),
+            (b"LIST", adtl.len() as u32, adtl),
+            (b"data", 4, vec![0; 4]),
+            (b"LIST", info.len() as u32, info),
+        ]);
+        assert_eq!(riff_info(&mut Cursor::new(file)), [pair("Title", "Snare")]);
+    }
+
+    #[test]
+    fn the_first_info_list_only() {
+        let first = info_list(&[(b"INAM", b"First\0")]);
+        let second = info_list(&[(b"INAM", b"Second\0")]);
+        let file = riff(&[
+            (b"LIST", first.len() as u32, first),
+            (b"LIST", second.len() as u32, second),
+        ]);
+        assert_eq!(riff_info(&mut Cursor::new(file)), [pair("Title", "First")]);
+    }
+
+    #[test]
+    fn absurd_list_sizes_give_nothing_without_reading_them() {
+        let info = info_list(&[(b"INAM", b"Kick\0")]);
+        // Beyond a megabyte, or beyond the file: nothing, and no allocation
+        // of the size declared.
+        for size in [u32::MAX, (1 << 20) + 1, 1 << 20, info.len() as u32 + 100] {
+            let file = riff(&[(b"LIST", size, info.clone())]);
+            assert!(riff_info(&mut Cursor::new(file)).is_empty(), "{size}");
+        }
+        // Shorter than its "INFO" mark.
+        let file = riff(&[(b"LIST", 2, b"IN".to_vec())]);
+        assert!(riff_info(&mut Cursor::new(file)).is_empty());
+    }
+
+    #[test]
+    fn fields_with_absurd_sizes() {
+        // A field claiming more than the list holds keeps what is there,
+        // and ends the list.
+        let mut body = b"INAMxxxxKick\0\0".to_vec();
+        body[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert_eq!(info_fields(&body), [pair("Title", "Kick")]);
+        // A field of size 0, then another one.
+        let mut body = field(b"INAM", b"");
+        body.extend(field(b"IGNR", b"Dub\0"));
+        assert_eq!(
+            info_fields(&body),
+            [pair("Title", ""), pair("Genre", "Dub")]
+        );
+        // Too short for a field's header.
+        assert!(info_fields(b"INAM").is_empty());
+        assert!(info_fields(b"").is_empty());
+    }
+
+    #[test]
+    fn text_without_its_zero_is_trimmed_and_utf8_is_kept() {
+        let list = info_list(&[
+            (b"INAM", b"  Kick \xc3\xa9t\xc3\xa9 \xf0\x9f\xa5\x81  "),
+            (b"ICMT", b"before\0after"),
+            (b"IGNR", b"\0"),
+        ]);
+        assert_eq!(
+            info_fields(&list[4..]),
+            [
+                pair("Title", "Kick été 🥁"),
+                pair("Comment", "before"),
+                pair("Genre", "")
+            ]
+        );
+    }
+
+    #[test]
+    fn any_bytes_decode_without_panic() {
+        // Every byte, as an id and as text: Latin-1 decodes all of them.
+        let all: Vec<u8> = (0..=255).collect();
+        let mut body = Vec::new();
+        for id in all.chunks(4) {
+            body.extend(field(id.try_into().unwrap(), &all));
+        }
+        assert_eq!(info_fields(&body).len(), 64);
+    }
+
+    #[test]
+    fn no_prefix_of_a_list_makes_it_panic() {
+        let info = info_list(&[
+            (b"INAM", b"Kick 01\0"),
+            (b"IART", b"Hutch\0"),
+            (b"ICMT", b"odd\0"),
+        ]);
+        let file = riff(&[
+            (b"fmt ", 16, vec![0; 16]),
+            (b"LIST", info.len() as u32, info),
+        ]);
+        for length in 0..=file.len() {
+            let fields = riff_info(&mut Cursor::new(&file[..length]));
+            // Whole, or nothing: a list cut short is not read.
+            assert!(fields.is_empty() || length == file.len(), "{length}");
+        }
+    }
+
+    #[test]
+    fn empty_values_and_duplicates_are_left_out() {
+        let dir = TempDir::new();
+        let path = dir.path().join("dup.wav");
+        let info = info_list(&[
+            (b"INAM", b"Kick\0"),
+            (b"IGNR", b"   \0"),
+            (b"INAM", b"Kick\0"),
+            (b"IART", b"Kick\0"),
+        ]);
+        std::fs::write(&path, riff(&[(b"LIST", info.len() as u32, info)])).unwrap();
+        assert_eq!(
+            file_tags(&path),
+            [pair("Title", "Kick"), pair("Artist", "Kick")]
+        );
+    }
+
+    #[test]
+    fn a_crafted_file_keeps_at_most_max_fields() {
+        let dir = TempDir::new();
+        let path = dir.path().join("many.wav");
+        let mut info = b"INFO".to_vec();
+        for i in 0..10_000u32 {
+            info.extend(field(b"ICMT", format!("{i}\0").as_bytes()));
+        }
+        std::fs::write(&path, riff(&[(b"LIST", info.len() as u32, info)])).unwrap();
+        assert_eq!(file_tags(&path).len(), MAX_FIELDS);
+    }
+
+    #[test]
+    fn files_that_say_nothing() {
+        let dir = TempDir::new();
+        for (name, bytes) in [
+            ("empty.wav", &b""[..]),
+            ("text.wav", b"not a sound"),
+            ("empty.flac", b""),
+            ("text.mp3", b"ID3"),
+            ("text.ogg", b"OggS"),
+        ] {
+            let path = dir.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            assert!(file_tags(&path).is_empty(), "{name}");
+        }
+        // A WAV without tags.
+        let path = dir.path().join("plain.wav");
+        write_wav(&path);
+        assert!(file_tags(&path).is_empty());
+    }
 }

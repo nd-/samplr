@@ -134,6 +134,7 @@ withApp("a sample added, renamed or deleted on disk follows in the list", async 
   writeWav(join(app.samples, "Clap 03.wav"), 0.5);
   await app.waitFor(names, ["Bass Loop 120BPM Am.wav", "Clap 03.wav", "Kick 01.wav", "Snare 02.wav"]);
   assert.deepEqual(await app.run(selectedNames), ["Kick 01.wav"]);
+  await app.settled();
 
   // Renamed: the same sample, its tags kept.
   await app.click(`${row(1)} td:nth-child(2)`);

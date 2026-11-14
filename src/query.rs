@@ -220,3 +220,133 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod edge_case_tests {
+    use super::*;
+    use crate::test_support::{memory_db, save_sample};
+
+    /// Text a user might type or paste: none may panic, and each filter
+    /// still being typed or mistyped filters nothing.
+    const ODD_TEXT: [&str; 24] = [
+        "",
+        "   \t ",
+        "#",
+        "# ## ###",
+        "#🥁",
+        "bpm:",
+        "bpm:abc",
+        "bpm:-",
+        "bpm:120-130-140",
+        "bpm:-120",
+        "bpm:99999999999999999999",
+        "bpm:0",
+        "key:",
+        "key:H",
+        "key:zzz",
+        "key:🥁",
+        "key:é",
+        "\u{212A}ey:Am",
+        "type:",
+        "type:/",
+        "type:drums/",
+        "type:/kick",
+        "loop:maybe",
+        "e\u{301} \u{301} 🥁‍🔥",
+    ];
+
+    #[test]
+    fn odd_text_never_panics_nor_filters_by_mistake() {
+        for text in ODD_TEXT {
+            let query = parse(text);
+            assert_eq!(query.tempos, None, "{text:?}");
+            assert_eq!(query.key, None, "{text:?}");
+            assert_eq!(query.looped, None, "{text:?}");
+            assert_eq!(query.sound_type, None, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn lone_hashes_and_blank_text() {
+        assert_eq!(parse(""), Query::default());
+        assert_eq!(parse(" \t\n "), Query::default());
+        assert_eq!(parse("#"), Query::default());
+        // `##` is a tag named `#`: no sample carries it, nothing breaks.
+        assert_eq!(parse("##").tags, ["#"]);
+        let db = memory_db();
+        save_sample(&db, "/lib/#1 kick.wav");
+        assert!(search(&db, "##", false, None).unwrap().is_empty());
+        assert_eq!(search(&db, "#", false, None).unwrap().len(), 1);
+        assert_eq!(search(&db, "   ", false, None).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_mistyped_filter_is_not_searched_as_a_word() {
+        let db = memory_db();
+        save_sample(&db, "/lib/Kick_01.wav");
+        for text in [
+            "bpm:abc",
+            "key:zzz",
+            "type:nothing",
+            "loop:maybe",
+            "bpm:5000",
+        ] {
+            assert_eq!(search(&db, text, false, None).unwrap().len(), 1, "{text}");
+        }
+    }
+
+    #[test]
+    fn reversed_and_equal_tempo_ranges() {
+        assert_eq!(parse("bpm:130-120").tempos, Some(120..=130));
+        assert_eq!(parse("bpm:120-120").tempos, Some(120..=120));
+        assert_eq!(parse("bpm:400-20").tempos, Some(20..=400));
+        assert_eq!(parse("bpm:401-20").tempos, None);
+        assert_eq!(parse("bpm:+120").tempos, Some(120..=120));
+    }
+
+    #[test]
+    fn filters_are_read_in_any_case_and_the_last_valid_one_wins() {
+        let query = parse("TYPE:Kick LOOP:Yes Key:bbm BpM:90 type:drums key:x loop:?");
+        assert_eq!(query.sound_type.as_deref(), Some("drums"));
+        assert_eq!(query.looped, Some(true));
+        assert_eq!(query.key.as_deref(), Some("A#m"));
+        assert_eq!(query.tempos, Some(90..=90));
+        assert!(query.words.is_empty() && query.tags.is_empty());
+    }
+
+    #[test]
+    fn words_and_tags_keep_their_characters() {
+        let query = parse("100% a_b #Été 🥁 \"loud\" bpm:120x");
+        assert_eq!(query.words, ["100%", "a_b", "🥁", "\"loud\""]);
+        assert_eq!(query.tags, ["Été"]);
+        assert_eq!(query.tempos, None);
+    }
+
+    #[test]
+    fn unicode_words_and_tags_through_the_whole_search() {
+        let db = memory_db();
+        let kick = save_sample(&db, "/lib/Été/鼓 kick 🥁.wav");
+        save_sample(&db, "/lib/100% wet.wav");
+        db::add_tags(&db, kick, &["Straße".to_string()]).unwrap();
+        let count = |text: &str| search(&db, text, false, None).unwrap().len();
+        assert_eq!(count("ÉTÉ"), 1);
+        assert_eq!(count("鼓"), 1);
+        assert_eq!(count("🥁"), 1);
+        assert_eq!(count("#STRASSE"), 0);
+        assert_eq!(count("#STRAßE"), 1);
+        assert_eq!(count("straß"), 1);
+        assert_eq!(count("%"), 1);
+        assert_eq!(count("_"), 0);
+    }
+
+    #[test]
+    fn keeps_without_any_filter_keeps_everything() {
+        let db = memory_db();
+        save_sample(&db, "/lib/nothing known.wav");
+        let sample = db::search(&db, &[], &[], false, None).unwrap().remove(0);
+        assert!(Query::default().keeps(&sample));
+        assert!(!parse("bpm:120").keeps(&sample));
+        assert!(!parse("key:Am").keeps(&sample));
+        assert!(!parse("type:drums").keeps(&sample));
+    }
+}
